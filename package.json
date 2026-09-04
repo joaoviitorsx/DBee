@@ -11,8 +11,9 @@
     "dev": "bun run --filter './apps/*' dev",
     "build": "bun run --filter '@dbee/web' build && bun run --filter '@dbee/server' build",
     "typecheck": "bun run --filter '*' typecheck",
-    "lint": "eslint .",
-    "test": "bun test"
+    "lint": "eslint . && bun run check:bytes",
+    "test": "bun test",
+    "check:bytes": "bun run scripts/check-source-bytes.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

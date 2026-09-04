@@ -88,7 +88,9 @@ export class ConnectionsRepository {
     const row = this.#secretById.get(id);
     if (row === null) return null;
 
-    return { ...connection, password: decrypt(this.#key, row.password_enc) };
+    // O id entra como AAD: um password_enc movido para outra conexão não
+    // decifra (ADR 005).
+    return { ...connection, password: decrypt(this.#key, id, row.password_enc) };
   }
 
   create(input: CreateConnection): Connection {
@@ -111,7 +113,7 @@ export class ConnectionsRepository {
         input.port ?? 5432,
         input.database,
         input.username,
-        encrypt(this.#key, input.password),
+        encrypt(this.#key, id, input.password),
         input.sslMode ?? "disable",
         input.writeEnabled === true ? 1 : 0,
         input.statementTimeoutMs ?? 30000,
@@ -143,7 +145,7 @@ export class ConnectionsRepository {
     if (patch.port !== undefined) put("port", patch.port);
     if (patch.database !== undefined) put("database", patch.database);
     if (patch.username !== undefined) put("username", patch.username);
-    if (patch.password !== undefined) put("password_enc", encrypt(this.#key, patch.password));
+    if (patch.password !== undefined) put("password_enc", encrypt(this.#key, id, patch.password));
     if (patch.sslMode !== undefined) put("ssl_mode", patch.sslMode);
     if (patch.writeEnabled !== undefined) put("write_enabled", patch.writeEnabled ? 1 : 0);
     if (patch.statementTimeoutMs !== undefined) {

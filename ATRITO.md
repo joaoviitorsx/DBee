@@ -21,3 +21,5 @@ automática.
 ---
 
 2026-09-04 · a tela de conexões subiu sem revisão visual — a extensão do Chrome não estava conectada, então validei só por build (tokens no CSS, classes presentes, tipo e lint limpos) e nunca vi a página renderizada. Pendente: screenshot em 375/768/1024/1440 e revisão.
+
+2026-09-04 · headers de segurança da §7 (CSP, X-Content-Type-Options, Referrer-Policy) ainda não existem. **Disparo: ao ligar o `@elysiajs/static`.** Enquanto o server só devolve JSON não há página a proteger e falta só o `nosniff`; no commit que passar a servir o build do web, a CSP vira dívida imediata. Registrado aqui e não só na §7 porque item de doc de arquitetura ninguém lê no dia certo.

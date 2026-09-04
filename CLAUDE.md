@@ -43,12 +43,36 @@ docker build -t dbee .
 - Componente novo no front: shadcn/ui primeiro, componente próprio só se não existir.
 - Nada de CDN em runtime. Tudo bundlado.
 
-## Ao terminar uma tarefa
+## Definição de pronto
 
-1. `bun run typecheck && bun run lint && bun test` — tem que passar.
+**Build limpo não é evidência.** Os três bugs mais graves do projeto até aqui — a
+sessão read-only que não protegia nada, o `PATCH` que reapontava a conexão para
+outro servidor, e o 422 que devolvia a senha do banco em claro — passavam por
+typecheck, lint e a suíte inteira. Nenhum foi encontrado por teste unitário.
+Todos apareceram em teste contra serviço real ou em revisão adversarial.
+
+Por isso os itens 4 e 5 abaixo não são etapa opcional no fim: são o que
+distingue "compila" de "funciona".
+
+1. `bun run typecheck && bun run lint && bun test` — tem que passar. O `lint`
+   inclui `check:bytes`, que barra byte de controle em fonte (§11.24).
 2. Atualizar `CHANGELOG.md` se mudou comportamento visível.
-3. Se a mudança contradiz algo em `docs/DBee.md`, atualizar o doc na mesma alteração. Doc desatualizado é pior que doc ausente.
-4. Decisão de arquitetura que alguém questionaria depois → `docs/adr/NNN-titulo.md`.
+3. Se a mudança contradiz algo em `docs/DBee.md`, atualizar o doc na mesma
+   alteração. Doc desatualizado é pior que doc ausente.
+4. **Teste de integração contra serviço real.** Fatia que toca Postgres roda
+   contra um Postgres de verdade — container descartável serve — e o resultado
+   é conferido, não presumido. Fatia de UI precisa de screenshot nos quatro
+   breakpoints, não só de build verde.
+5. **Uma passada de revisão focada em segurança**, adversarial, antes de fechar.
+   Perguntas mínimas: credencial vaza por algum caminho, inclusive de erro? SQL
+   é montado por concatenação em algum lugar? Existe caminho que abre transação
+   fora de `BEGIN READ ONLY`? Entrada do usuário chega a algum comando sem
+   validação?
+6. Decisão de arquitetura que alguém questionaria depois →
+   `docs/adr/NNN-titulo.md`.
+7. Todo número afirmado em documentação precisa de teste que o trave
+   (`docs/design-system.md`), e toda rota declara `response` — foi a validação
+   de resposta, não um teste, que pegou o `array_agg` devolvendo string crua.
 
 ## O que não fazer sem perguntar
 

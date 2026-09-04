@@ -96,7 +96,7 @@ export class PoolManager {
       database,
       user: connection.username,
       password: connection.password,
-      ssl: sslConfigFor(connection.sslMode, this.#caCert),
+      ssl: sslConfigFor(connection.sslMode, this.#caCert, connection.host),
       application_name: "dbee",
       max: MAX_CLIENTS,
       idleTimeoutMillis: IDLE_TIMEOUT_MS,

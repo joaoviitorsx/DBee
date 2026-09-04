@@ -83,7 +83,78 @@ venham a ter TLS terão certificado interno ou autoassinado, e exigir
 fazer, e o resultado real seria todo mundo em `disable`. `require` é um degrau
 intermediário legítimo, desde que rotulado pelo que é.
 
+**Empurrar quem usa IP para `require`, documentando a limitação.** Recusada, e
+esta foi a alternativa mais perigosa das consideradas — ver o adendo abaixo.
+
 **Deixar o `ca` do `verify-full` por conexão, no SQLite.** Adiada, não recusada.
 Hoje o `ca` vem do CA store do sistema, com override opcional por
 `DBEE_CA_CERT`. Uma coluna por conexão só se justifica quando houver mais de um
 CA interno em uso — antes disso é campo vazio em todo registro.
+
+
+---
+
+## Adendo (2026-09-04): `verify-full` com host IP
+
+### O que quebrou
+
+O `pg` só define `servername` quando o host é nome DNS (`net.isIP(host) === 0`)
+e passa a `tls.connect` apenas `{ socket, ...ssl }` — **sem `host`**. Com um
+host IP não sobra nada para o `checkServerIdentity` do `node:tls` comparar, e
+ele cai para `localhost`. Medido:
+
+```
+Hostname/IP does not match certificate's altnames:
+Host: localhost. is not in the cert's altnames: ... IP Address:1.1.1.1 ...
+```
+
+Ou seja: `verify-full` falhava contra um certificado **correto**, e falhava
+exatamente na topologia que o `DBee.md` descreve — `10.x` nos bancos da empresa
+e `100.x` na tailnet. O modo que este ADR chama de "o único que autentica o
+servidor" era o único que não funcionava.
+
+### A alternativa que foi recusada
+
+Registrar a limitação na documentação e orientar o uso de `require` nesses
+casos. **Recusada:** o resultado prático seria todo mundo em `require`, que
+criptografa e não autentica ninguém. Uma limitação documentada num modo de
+segurança é uma limitação que empurra o usuário para o modo inseguro — e a §7
+diz que a autenticação existe como camada, não como enfeite.
+
+### Decisão
+
+`verify-full` com host IP usa `checkServerIdentity` próprio
+(`apps/server/src/pg/ssl.ts`), que valida o IP contra os SANs do tipo
+`iPAddress` do certificado. Host DNS continua com a verificação do `node:tls`.
+
+Quatro regras, todas deliberadas:
+
+1. **Só SAN `iPAddress`.** DNS não cobre um host numérico.
+2. **Sem fallback para CN.** CN é obsoleto para identidade (RFC 6125) e um
+   certificado só-CN é trivial de emitir — aceitá-lo reabriria o que o SAN
+   fechou.
+3. **Sem casamento por substring.** `10.0.0.4` não casa `110.0.0.42`.
+4. **Falha fechada** quando não há SAN de IP nenhum, e a mensagem diz **o que
+   fazer**: `emita o certificado com "IP:10.0.0.4" entre os SANs, ou use um
+   hostname DNS nesta conexão`. Não "erro de TLS".
+
+### Verificação
+
+`ssl.tls.test.ts` faz handshake TLS de verdade, com certificado emitido na hora
+por `openssl`, nos quatro casos:
+
+| certificado | host | resultado |
+|---|---|---|
+| `IP:10.0.0.4` | `10.0.0.4` | conecta |
+| `IP:10.0.0.4` | `10.0.0.9` | recusa, dizendo qual IP falta |
+| só `DNS:db.interno` | `10.0.0.4` | recusa, falha fechada |
+| só `CN=10.0.0.4`, sem SAN | `10.0.0.4` | recusa — sem fallback para CN |
+
+O teste é pulado se `openssl` não estiver no PATH, em vez de falhar por motivo
+alheio ao código.
+
+### Consequência
+
+Um certificado emitido só com CN, ou só com SAN de DNS, deixa de funcionar em
+`verify-full` por IP. É o comportamento correto: antes ele também não
+funcionava, só que com uma mensagem que não explicava nada.

@@ -1,9 +1,16 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ESNext"],
-    "types": ["bun"],
+    "lib": [
+      "ESNext"
+    ],
+    "types": [
+      "bun"
+    ],
     "allowJs": true
   },
-  "include": ["eslint.config.js"]
+  "include": [
+    "eslint.config.js",
+    "scripts/**/*.ts"
+  ]
 }

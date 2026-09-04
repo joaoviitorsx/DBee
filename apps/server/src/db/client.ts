@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { deriveKey, newSalt, type EncryptionKey } from "../lib/crypto";
 import type { Config } from "../lib/config";
 import { migrate } from "./migrate";
+import { recipherToV2 } from "./recipher";
 
 const SALT_KEY = "encryption_salt";
 
@@ -52,6 +53,12 @@ export function openStore(config: Config): Store {
   const schemaVersion = migrate(db);
   const key = deriveKey(config.appSecret, loadOrCreateSalt(db));
 
+  // Cifra v1 (sem AAD) → v2. Uma vez, e só se houver o que migrar (ADR 005).
+  const recifradas = recipherToV2(db, key);
+  if (recifradas > 0) {
+    console.log(`[dbee] ${recifradas} conexão(ões) recifrada(s) de v1 para v2`);
+  }
+
   return { db, key, schemaVersion };
 }
 
@@ -61,5 +68,6 @@ export function openTestStore(appSecret = "test-secret"): Store {
   db.run("PRAGMA foreign_keys = ON");
   const schemaVersion = migrate(db);
   const key = deriveKey(appSecret, loadOrCreateSalt(db));
+  recipherToV2(db, key);
   return { db, key, schemaVersion };
 }

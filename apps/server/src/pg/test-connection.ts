@@ -42,7 +42,7 @@ export async function testConnection(
     database: connection.database,
     user: connection.username,
     password: connection.password,
-    ssl: sslConfigFor(connection.sslMode, caCert),
+    ssl: sslConfigFor(connection.sslMode, caCert, connection.host),
     application_name: "dbee",
     connectionTimeoutMillis: 10_000,
   });
