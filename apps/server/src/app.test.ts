@@ -248,3 +248,91 @@ describe("PATCH não pode mexer em campo que o cliente não mandou", () => {
     expect(criada.writeEnabled).toBe(false);
   });
 });
+
+describe("erro nunca ecoa o corpo submetido (CLAUDE.md regra 5)", () => {
+  const SENHA = "SenhaDeProducaoQueNaoPodeVazar123";
+
+  it("422 de validação não devolve a senha", async () => {
+    const res = await call(
+      "/api/connections",
+      json({ ...NOVA, password: SENHA, port: 99999 }),
+    );
+    expect(res.status).toBe(422);
+
+    const corpo = await res.text();
+    // Regressão: o formato padrão do Elysia trazia `found` com o corpo inteiro.
+    expect(corpo).not.toContain(SENHA);
+    expect(corpo).not.toContain("found");
+    // Ainda assim precisa ser útil: diz qual campo falhou.
+    expect(corpo).toContain("port");
+  });
+
+  it("422 aponta o campo sem revelar valor nenhum", async () => {
+    const res = await call(
+      "/api/connections",
+      json({ name: "", host: "h", database: "d", username: "u", password: SENHA }),
+    );
+    const corpo = (await res.json()) as { code: string; message: string };
+    expect(res.status).toBe(422);
+    expect(corpo.code).toBe("validation_failed");
+    expect(JSON.stringify(corpo)).not.toContain(SENHA);
+  });
+
+  it("PATCH inválido também não ecoa a senha", async () => {
+    const criada = (await (await call("/api/connections", json(NOVA))).json()) as Connection;
+    const res = await call(`/api/connections/${criada.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ password: SENHA, port: -1 }),
+    });
+    expect(res.status).toBe(422);
+    expect(await res.text()).not.toContain(SENHA);
+  });
+
+  it("corpo malformado vira 400 sem eco", async () => {
+    const res = await call("/api/connections", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: `{"password":"${SENHA}", isso nao e json`,
+    });
+    expect(await res.text()).not.toContain(SENHA);
+    expect([400, 422]).toContain(res.status);
+  });
+
+  it("rota inexistente devolve 404 estruturado", async () => {
+    const res = await call("/api/nao-existe");
+    expect(res.status).toBe(404);
+    expect((await res.json()) as { code: string }).toMatchObject({ code: "not_found" });
+  });
+});
+
+describe("validação de entrada fecha caminhos de risco", () => {
+  it("recusa host que é caminho de socket unix", async () => {
+    // O `pg` trata host iniciado por "/" como socket unix, não TCP.
+    const res = await call("/api/connections", json({ ...NOVA, host: "/var/run/postgresql" }));
+    expect(res.status).toBe(422);
+  });
+
+  it("recusa timezone inválido antes de chegar ao Postgres", async () => {
+    // Sem isso o erro só aparecia no set_config e virava 502 "o banco não
+    // respondeu" para um erro de configuração do usuário.
+    for (const tz of ["BRT", "not a zone", "'; DROP", "America//Sao_Paulo"]) {
+      const res = await call("/api/connections", json({ ...NOVA, timezone: tz }));
+      expect({ tz, status: res.status }).toEqual({ tz, status: 422 });
+    }
+  });
+
+  it("aceita timezone IANA e UTC", async () => {
+    for (const tz of ["UTC", "America/Sao_Paulo", "Europe/Lisbon", "America/Argentina/Salta"]) {
+      const res = await call("/api/connections", json({ ...NOVA, timezone: tz }));
+      expect({ tz, status: res.status }).toEqual({ tz, status: 201 });
+    }
+  });
+
+  it("aceita host normal", async () => {
+    for (const host of ["10.0.0.4", "db.interno", "localhost", "100.64.1.2"]) {
+      const res = await call("/api/connections", json({ ...NOVA, host }));
+      expect({ host, status: res.status }).toEqual({ host, status: 201 });
+    }
+  });
+});

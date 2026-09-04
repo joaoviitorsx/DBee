@@ -53,3 +53,26 @@ describe("migrations", () => {
     expect(() => { insert("require"); }).not.toThrow();
   });
 });
+
+describe("ordem das migrations", () => {
+  it("aplica por versão, não pela ordem do array", () => {
+    // O array é mantido à mão; um rebase de dois branches basta para inverter
+    // duas linhas. Com a versão congelada da leitura inicial, a 002 rodava
+    // depois da 003 e regravava schema_version = 2 — e no boot seguinte a 003
+    // reaplicava, estourando em "already exists" e deixando o container em
+    // loop de restart.
+    const versoes = MIGRATIONS.map((m) => m.version);
+    expect([...versoes].sort((a, b) => a - b)).toEqual(versoes);
+  });
+
+  it("não há versão duplicada", () => {
+    const versoes = MIGRATIONS.map((m) => m.version);
+    expect(new Set(versoes).size).toBe(versoes.length);
+  });
+
+  it("toda migration tem SQL não vazio", () => {
+    for (const m of MIGRATIONS) {
+      expect(m.sql.trim().length).toBeGreaterThan(0);
+    }
+  });
+});

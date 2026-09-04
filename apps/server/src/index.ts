@@ -36,6 +36,16 @@ pools.start();
 
 createApp({ store, caCert: config.caCert, pools }).listen(config.port);
 
+// Sem isto o `docker stop` mata as conexões Postgres por reset de TCP em vez
+// de fechá-las, e o servidor fica `idle` do lado do banco até o timeout dele.
+for (const sinal of ["SIGTERM", "SIGINT"] as const) {
+  process.on(sinal, () => {
+    void pools.shutdown().finally(() => {
+      process.exit(0);
+    });
+  });
+}
+
 console.log(
   `dbee server on :${config.port} · schema v${store.schemaVersion} · dados em ${config.dataDir}`,
 );

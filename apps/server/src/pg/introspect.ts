@@ -17,8 +17,11 @@ import type {
  * tabela. Num banco com centenas de relações o N+1 levaria segundos e seguraria
  * o pool (§11.6).
  *
- * Tudo roda dentro do `BEGIN READ ONLY` aberto pelo PoolManager, então as
- * quatro leem o mesmo instante do catálogo e a árvore sai consistente.
+ * Roda em `BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ`, então as quatro
+ * leem o mesmo instante do catálogo. `BEGIN READ ONLY` sozinho NÃO bastaria: o
+ * isolamento default é READ COMMITTED, em que cada statement pega um snapshot
+ * novo, e um DDL entre a consulta de relações e a de colunas produziria uma
+ * tabela com zero colunas na árvore — sem erro nenhum.
  */
 
 /** Schemas de sistema: nunca aparecem na árvore. */
@@ -33,8 +36,15 @@ const KIND_BY_RELKIND: Readonly<Record<string, RelationKind>> = {
   f: "foreign_table",
 };
 
+/**
+ * OIDs vêm como `::bigint` e, por isso, como **string** (§11.2). O cast é
+ * proposital: `oid::int` faz wrap para negativo acima de 2^31, e aí o
+ * `dataTypeId` da árvore divergiria do `dataTypeID` que o `pg` expõe no
+ * resultado de uma query — que ele lê sem sinal. A UI não conseguiria casar os
+ * dois num cluster antigo. OID cabe exato em `number` (< 2^53).
+ */
 interface RelationRow {
-  oid: number;
+  oid: string;
   schema: string;
   name: string;
   relkind: string;
@@ -43,10 +53,10 @@ interface RelationRow {
 }
 
 interface ColumnRow {
-  oid: number;
+  oid: string;
   name: string;
   data_type: string;
-  data_type_id: number;
+  data_type_id: string;
   nullable: boolean;
   default_value: string | null;
   position: number;
@@ -54,7 +64,7 @@ interface ColumnRow {
 }
 
 interface ConstraintRow {
-  oid: number;
+  oid: string;
   name: string;
   contype: string;
   columns: string[];
@@ -64,7 +74,7 @@ interface ConstraintRow {
 }
 
 interface IndexRow {
-  oid: number;
+  oid: string;
   name: string;
   /** `array_agg` devolve NULL em índice sobre expressão — não tem attname. */
   columns: string[] | null;
@@ -74,7 +84,7 @@ interface IndexRow {
 }
 
 const RELATIONS_SQL = `
-  SELECT c.oid::int          AS oid,
+  SELECT c.oid::bigint       AS oid,
          n.nspname           AS schema,
          c.relname           AS name,
          c.relkind::text     AS relkind,
@@ -93,10 +103,10 @@ const RELATIONS_SQL = `
 `;
 
 const COLUMNS_SQL = `
-  SELECT a.attrelid::int AS oid,
+  SELECT a.attrelid::bigint AS oid,
          a.attname       AS name,
          format_type(a.atttypid, a.atttypmod) AS data_type,
-         a.atttypid::int AS data_type_id,
+         a.atttypid::bigint AS data_type_id,
          NOT a.attnotnull AS nullable,
          pg_get_expr(d.adbin, d.adrelid) AS default_value,
          a.attnum::int   AS position,
@@ -122,7 +132,7 @@ const COLUMNS_SQL = `
 // (OID 1003), que o driver `pg` NÃO converte para array JS — chega string
 // crua `{a,b}`. O `::text` força `text[]` (OID 1009), que ele converte.
 const CONSTRAINTS_SQL = `
-  SELECT con.conrelid::int AS oid,
+  SELECT con.conrelid::bigint AS oid,
          con.conname       AS name,
          con.contype::text AS contype,
          (SELECT array_agg(att.attname::text ORDER BY k.ord)
@@ -148,16 +158,22 @@ const CONSTRAINTS_SQL = `
 `;
 
 const INDEXES_SQL = `
-  SELECT i.indrelid::int AS oid,
+  SELECT i.indrelid::bigint AS oid,
          ic.relname      AS name,
          i.indisunique   AS is_unique,
          i.indisprimary  AS is_primary,
          pg_get_indexdef(i.indexrelid) AS definition,
-         (SELECT array_agg(a.attname::text ORDER BY k.ord)
+         -- attnum = 0 marca posição de expressão. Num índice MISTO
+         -- (lower(a), b) filtrar por > 0 devolveria ['b'] — array não-nulo e
+         -- incompleto, que a UI exibiria como "índice de coluna única em b".
+         -- Falso na direção que importa: b é a segunda chave e o índice não
+         -- serve para WHERE b = ?. Então: se QUALQUER chave for expressão,
+         -- devolve NULL e a UI cai para a definição literal.
+         (SELECT CASE WHEN bool_or(k.attnum = 0) THEN NULL
+                      ELSE array_agg(a.attname::text ORDER BY k.ord) END
             FROM unnest(i.indkey::int[]) WITH ORDINALITY AS k(attnum, ord)
-            JOIN pg_attribute a
+            LEFT JOIN pg_attribute a
               ON a.attrelid = i.indrelid AND a.attnum = k.attnum
-           WHERE k.attnum > 0
          ) AS columns
     FROM pg_index i
     JOIN pg_class ic ON ic.oid = i.indexrelid
@@ -170,8 +186,8 @@ const INDEXES_SQL = `
 `;
 
 /** Agrupa linhas por OID da relação, preservando a ordem de chegada. */
-function groupByOid<T extends { oid: number }>(rows: readonly T[]): Map<number, T[]> {
-  const grouped = new Map<number, T[]>();
+function groupByOid<T extends { oid: string }>(rows: readonly T[]): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
   for (const row of rows) {
     const bucket = grouped.get(row.oid);
     if (bucket === undefined) grouped.set(row.oid, [row]);
@@ -224,7 +240,7 @@ export async function introspect(client: PoolClient, database: string): Promise<
     const relColumns: Column[] = (columnsByOid.get(rel.oid) ?? []).map((c) => ({
       name: c.name,
       dataType: c.data_type,
-      dataTypeId: c.data_type_id,
+      dataTypeId: Number(c.data_type_id),
       nullable: c.nullable,
       defaultValue: c.default_value,
       position: c.position,

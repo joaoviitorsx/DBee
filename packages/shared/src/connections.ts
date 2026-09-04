@@ -37,57 +37,76 @@ export const Connection = t.Object({
 export type Connection = Static<typeof Connection>;
 
 /**
- * Campos de entrada — **sem `default` no TypeBox**, de propósito.
+ * Campos de entrada — **sem `default` em nenhum**, por decisão de arquitetura
+ * (ADR [004](../../../docs/adr/004-defaults-nunca-no-schema-de-entrada.md)).
  *
- * O Elysia materializa `default` durante a validação, o que num PATCH injeta
- * valor em campo que o cliente não mandou: um `PATCH { timezone }` chegava ao
- * repositório com `port: 5432` junto e reapontava a conexão para outro
- * servidor, em silêncio. Achado contra banco real, com a porta 55434 virando
- * 5432 depois de um patch que não falava de porta.
+ * O Elysia materializa `default` durante a validação, e num PATCH isso apaga a
+ * diferença entre "campo ausente" e "campo igual ao default": um
+ * `PATCH { timezone }` chegava ao repositório com `port: 5432` junto e
+ * reapontava a conexão para outro servidor, em silêncio.
  *
- * Os valores default vivem no repositório (`input.port ?? 5432`), que só os
- * aplica na criação. Se algum voltar para cá, o bug volta junto.
+ * O valor inicial mora no repositório, aplicado só na criação.
+ * `connections.schema.test.ts` falha se algum campo daqui ganhar `default`.
  */
-const name = t.String({ minLength: 1, maxLength: 100 });
-const host = t.String({ minLength: 1, maxLength: 255 });
-const port = t.Integer({ minimum: 1, maximum: 65535 });
-const database = t.String({ minLength: 1, maxLength: 100 });
-const username = t.String({ minLength: 1, maxLength: 100 });
-const password = t.String({ maxLength: 1000 });
-const color = t.Union([t.String({ maxLength: 32 }), t.Null()]);
-const timezone = t.String({ minLength: 1, maxLength: 64 });
-const statementTimeoutMs = t.Integer({ minimum: 1000, maximum: 600000 });
+const FIELDS = {
+  name: t.String({ minLength: 1, maxLength: 100 }),
+  /**
+   * Hostname ou IP. Não pode começar com `/`: o `pg` trata host iniciado por
+   * barra como **socket unix** (`host + "/.s.PGSQL." + port`) em vez de TCP,
+   * o que nunca é caso de uso aqui e transformaria o campo num seletor de
+   * caminho no sistema de arquivos do container.
+   */
+  host: t.String({ minLength: 1, maxLength: 255, pattern: "^[^/\\s][^\\s]*$" }),
+  port: t.Integer({ minimum: 1, maximum: 65535 }),
+  database: t.String({ minLength: 1, maxLength: 100 }),
+  username: t.String({ minLength: 1, maxLength: 100 }),
+  password: t.String({ maxLength: 1000 }),
+  color: t.Union([t.String({ maxLength: 32 }), t.Null()]),
+  sslMode: SslMode,
+  writeEnabled: t.Boolean(),
+  statementTimeoutMs: t.Integer({ minimum: 1000, maximum: 600000 }),
+  /**
+   * Nome IANA (`America/Sao_Paulo`) ou `UTC`. Validado no formato porque um
+   * valor inválido só falharia lá no `set_config('TimeZone', ...)`, e a rota
+   * devolveria 502 "o banco não respondeu" para um erro de configuração do
+   * usuário — deixando toda query e toda árvore daquela conexão mortas até ele
+   * adivinhar a causa.
+   */
+  timezone: t.String({
+    minLength: 1,
+    maxLength: 64,
+    pattern: "^(UTC|[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+){1,2})$",
+  }),
+} as const;
 
+/** Criação: o que é obrigatório é obrigatório; o resto o repositório preenche. */
 export const CreateConnection = t.Object({
-  name,
-  host,
-  database,
-  username,
-  password,
-  color: t.Optional(color),
-  port: t.Optional(port),
-  sslMode: t.Optional(SslMode),
-  writeEnabled: t.Optional(t.Boolean()),
-  statementTimeoutMs: t.Optional(statementTimeoutMs),
-  timezone: t.Optional(timezone),
+  name: FIELDS.name,
+  host: FIELDS.host,
+  database: FIELDS.database,
+  username: FIELDS.username,
+  password: FIELDS.password,
+  color: t.Optional(FIELDS.color),
+  port: t.Optional(FIELDS.port),
+  sslMode: t.Optional(FIELDS.sslMode),
+  writeEnabled: t.Optional(FIELDS.writeEnabled),
+  statementTimeoutMs: t.Optional(FIELDS.statementTimeoutMs),
+  timezone: t.Optional(FIELDS.timezone),
 });
 export type CreateConnection = Static<typeof CreateConnection>;
 
-/** PATCH: tudo opcional. `password` ausente significa "não mexe na senha". */
-export const UpdateConnection = t.Object({
-  name: t.Optional(name),
-  host: t.Optional(host),
-  port: t.Optional(port),
-  database: t.Optional(database),
-  username: t.Optional(username),
-  password: t.Optional(password),
-  color: t.Optional(color),
-  sslMode: t.Optional(SslMode),
-  writeEnabled: t.Optional(t.Boolean()),
-  statementTimeoutMs: t.Optional(statementTimeoutMs),
-  timezone: t.Optional(timezone),
-});
+/**
+ * Atualização: `t.Partial` sobre os campos crus, **não** sobre
+ * `CreateConnection`. Derivar de um schema com metadados carregaria os
+ * metadados junto — inclusive `default`, se algum dia voltar (ADR 004).
+ *
+ * `password` ausente significa "não mexe na senha".
+ */
+export const UpdateConnection = t.Partial(t.Object(FIELDS));
 export type UpdateConnection = Static<typeof UpdateConnection>;
+
+/** Exportado para o teste genérico varrer os schemas de atualização. */
+export const UPDATE_SCHEMAS = { UpdateConnection } as const;
 
 /**
  * Resultado do teste de conexão. Erro do Postgres vai inteiro para a UI, com

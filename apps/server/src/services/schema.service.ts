@@ -28,15 +28,26 @@ export interface SchemaServiceDeps {
 export class SchemaService {
   readonly #repository: ConnectionsRepository;
   readonly #pools: PoolManager;
-  readonly #cache = new Map<string, CacheEntry>();
+  /**
+   * `connectionId -> database -> entrada`, aninhado. Mesma razão do
+   * PoolManager: chave composta obriga a casar prefixo no evict e depende de um
+   * separador que não apareça nos dois lados.
+   */
+  readonly #cache = new Map<string, Map<string, CacheEntry>>();
+
+  /**
+   * Introspecções em voo, por (conexão, database).
+   *
+   * Sem isto, N requisições simultâneas na mesma chave viram N introspecções
+   * completas. Com `max: 5` no pool, as excedentes ficam na fila e morrem por
+   * `connectionTimeoutMillis`, virando 502 — o DBee culpando o Postgres por uma
+   * fila que ele mesmo criou.
+   */
+  readonly #emVoo = new Map<string, Promise<DatabaseSchema>>();
 
   constructor({ repository, pools }: SchemaServiceDeps) {
     this.#repository = repository;
     this.#pools = pools;
-  }
-
-  static key(connectionId: string, database: string): string {
-    return `${connectionId} ${database}`;
   }
 
   async get(
@@ -55,40 +66,72 @@ export class SchemaService {
 
     // Sem `?database`, usa o database da própria conexão.
     const target = database ?? connection.database;
-    const cacheKey = SchemaService.key(connectionId, target);
 
     if (!refresh) {
-      const hit = this.#cache.get(cacheKey);
+      const hit = this.#cache.get(connectionId)?.get(target);
       if (hit !== undefined && hit.expiresAt > now) {
-        return ok({ ...hit.value, cached: true });
+        return ok(Object.freeze({ ...hit.value, cached: true }));
       }
     }
 
     // Banco fora do ar, credencial errada, timeout: é falha do upstream, não
     // 500 do DBee. A mensagem do Postgres vai junto (CLAUDE.md) e nunca inclui
     // a senha, que o driver não repete no erro.
-    let fresh;
+    const emVooKey = `${connectionId}\u001f${target}`;
+    let fresh: DatabaseSchema;
     try {
-      fresh = await this.#pools.withReadOnly(connection, target, (client) =>
-        introspect(client, target),
-      );
+      // Quem chegar enquanto a introspecção roda espera a mesma promessa.
+      let voo = this.#emVoo.get(emVooKey);
+      if (voo === undefined) {
+        voo = this.#pools
+          // repeatable-read: as quatro consultas de catálogo precisam ver o
+          // mesmo instante, senão um DDL no meio produz relação sem coluna.
+          .withReadOnly(
+            connection,
+            target,
+            (client) => introspect(client, target),
+            "repeatable-read",
+          )
+          .finally(() => {
+            this.#emVoo.delete(emVooKey);
+          });
+        this.#emVoo.set(emVooKey, voo);
+      }
+      fresh = await voo;
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "erro desconhecido";
       return fail("upstream_error", message);
     }
 
-    this.#cache.set(cacheKey, { value: fresh, expiresAt: now + TTL_MS });
-    return ok(fresh);
+    let byDatabase = this.#cache.get(connectionId);
+    if (byDatabase === undefined) {
+      byDatabase = new Map();
+      this.#cache.set(connectionId, byDatabase);
+    }
+    // TTL contado a partir de AGORA, não do início da requisição: uma
+    // introspecção longa nasceria com a entrada já expirada, e o cache pararia
+    // de funcionar justamente no banco em que ele mais importa.
+    byDatabase.set(target, { value: fresh, expiresAt: Date.now() + TTL_MS });
+
+    // Congelado: a mesma referência é servida a toda requisição seguinte, e um
+    // consumidor que a mutasse envenenaria o cache.
+    return ok(Object.freeze({ ...fresh }));
   }
 
   /** Invalida o cache de uma conexão — ao editá-la ou apagá-la. */
   evict(connectionId: string): void {
-    for (const key of this.#cache.keys()) {
-      if (key.startsWith(`${connectionId} `)) this.#cache.delete(key);
-    }
+    this.#cache.delete(connectionId);
   }
 
+  /** Introspecções em voo — para teste e diagnóstico. */
+  get inFlight(): number {
+    return this.#emVoo.size;
+  }
+
+  /** Entradas em cache, somando todos os databases de todas as conexões. */
   get cacheSize(): number {
-    return this.#cache.size;
+    let total = 0;
+    for (const byDatabase of this.#cache.values()) total += byDatabase.size;
+    return total;
   }
 }

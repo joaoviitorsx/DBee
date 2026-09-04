@@ -34,6 +34,16 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 - Gerência de pools por (conexão, database), `max: 5`, com varredura dos ociosos.
 - Sora bundlada (`@fontsource-variable/sora`, só o subset latin, 33,6 KB).
 
+### Segurança
+- **A senha do banco voltava em claro na resposta 422 de validação.** O formato de erro
+  padrão do Elysia inclui um campo `found` com o corpo submetido inteiro, então qualquer
+  erro de digitação no formulário mandava a senha para o devtools, o HAR e qualquer log de
+  resposta no caminho. Agora há `onError` próprio que diz qual campo falhou e nunca o
+  valor. Regra 5 do `CLAUDE.md`, §11.19.
+- `POST /connections/:id/test` não declarava corpo, então aceitava `form-urlencoded` — um
+  *simple request*, acionável por CSRF sem preflight.
+- `host` iniciado por `/` era aceito e o `pg` o trata como socket unix em vez de TCP.
+
 ### Corrigido
 - **`PATCH /connections/:id` corrompia campos não enviados.** O `default` dos schemas
   TypeBox era materializado na validação, então um patch só do nome reapontava a conexão
@@ -43,6 +53,29 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   por `set_config`. Registrado em §11.16.
 - Introspecção rodava quatro consultas em `Promise.all` no mesmo client, o que o `pg`
   deprecou. Agora em sequência. Registrado em §11.18.
+- `evict()` de pool encerrava a conexão com transação em voo, abandonando quem estava na
+  fila do `connect()` — o pedido só falhava 10 s depois e virava 502, culpando o Postgres
+  por uma fila do próprio DBee. Agora sai do mapa na hora e encerra quando o último
+  empréstimo volta.
+- Migration fora de ordem no array regravava a versão para trás e deixava o container em
+  loop de restart no boot seguinte. §11.24.
+- A introspecção afirmava snapshot consistente que `BEGIN READ ONLY` não dá — o isolamento
+  default é READ COMMITTED. Agora usa `REPEATABLE READ`. §11.20.
+- Índice misto de coluna e expressão devolvia lista de colunas incompleta, exibida como
+  índice de coluna única. §11.22.
+- `oid::int` fazia wrap para negativo acima de 2^31 e divergiria do `dataTypeID` do
+  resultado de query. §11.21.
+- TTL do cache de schema era contado do início da introspecção: numa árvore lenta a
+  entrada nascia expirada e o cache parava de funcionar.
+- Requisições simultâneas na mesma árvore disparavam uma introspecção cada; agora
+  compartilham a que já está em voo.
+- `DBEE_CA_CERT=""` passava `ca: ""` e desligava o CA store do sistema, quebrando todo
+  `verify-full`. §11.23.
+- `APP_SECRET` só com espaços passava em produção; `PORT` inválido virava 0 ou NaN.
+- `timezone` inválido só falhava no `set_config` e virava 502.
+- Cliente com `ROLLBACK` falho voltava ao pool possivelmente em transação; agora é
+  descartado.
+- Desligamento limpo em `SIGTERM`/`SIGINT`.
 
 ### Alterado
 - `CLAUDE.md` movido de `docs/` para a raiz do repo, onde ferramentas de agente o carregam

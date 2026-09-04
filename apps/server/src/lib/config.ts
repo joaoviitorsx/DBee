@@ -17,11 +17,21 @@ export interface Config {
  */
 const DEV_SECRET = "dbee-dev-insecure-secret";
 
+/** Variável de ambiente em branco é ausência, não valor. */
+function read(env: NodeJS.ProcessEnv, name: string): string | undefined {
+  const raw = env[name];
+  if (raw === undefined) return undefined;
+  const trimmed = raw.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const isProduction = env.NODE_ENV === "production";
-  const secret = env["APP_SECRET"];
+  // `.trim()` importa: `APP_SECRET="   "` passava e cifrava com um segredo em
+  // branco.
+  const secret = read(env, "APP_SECRET");
 
-  if (secret === undefined || secret === "") {
+  if (secret === undefined) {
     if (isProduction) {
       throw new Error(
         "APP_SECRET não definido. Sem ele as senhas das conexões não podem ser cifradas. Ver DBee.md §7.",
@@ -32,10 +42,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     );
   }
 
+  // PORT inválido silenciosamente vira 0 (porta aleatória) ou NaN, e aí o
+  // `dbee --healthcheck` bate numa porta que não existe: o container é marcado
+  // unhealthy e reiniciado com o app de pé.
+  const rawPort = read(env, "PORT");
+  const port = rawPort === undefined ? 3001 : Number(rawPort);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`PORT inválido: ${JSON.stringify(rawPort)}. Use um inteiro de 1 a 65535.`);
+  }
+
   return {
-    port: Number(env["PORT"] ?? 3001),
-    dataDir: resolve(env["DBEE_DATA_DIR"] ?? "./data"),
-    appSecret: secret !== undefined && secret !== "" ? secret : DEV_SECRET,
-    caCert: env["DBEE_CA_CERT"],
+    port,
+    dataDir: resolve(read(env, "DBEE_DATA_DIR") ?? "./data"),
+    appSecret: secret ?? DEV_SECRET,
+    // String vazia aqui seria pior que ausência: `ca: ""` substitui o CA store
+    // do sistema por uma lista vazia e faz TODO verify-full falhar. E o padrão
+    // `${DBEE_CA_CERT:-}` do compose entrega exatamente string vazia.
+    caCert: read(env, "DBEE_CA_CERT"),
   };
 }

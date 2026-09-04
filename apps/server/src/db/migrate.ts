@@ -27,10 +27,23 @@ function currentVersion(db: Database): number {
  * bump da versão: falha no meio não deixa schema meio aplicado.
  */
 export function migrate(db: Database): number {
-  const from = currentVersion(db);
+  // Ordena por versão em vez de confiar na ordem do array. O array é mantido à
+  // mão, e é exatamente ao acrescentar uma migration que a ordem se perde — um
+  // rebase de dois branches basta. Aplicar 003 antes de 002 grava
+  // `schema_version = 2` no fim, e no boot seguinte a 003 roda de novo e
+  // estoura em `CREATE TABLE ... already exists`, deixando o container em loop
+  // de restart.
+  const ordenadas = [...MIGRATIONS].sort((a, b) => a.version - b.version);
 
-  for (const migration of MIGRATIONS) {
-    if (migration.version <= from) continue;
+  const versoes = ordenadas.map((m) => m.version);
+  if (new Set(versoes).size !== versoes.length) {
+    throw new Error(`migrations com versão duplicada: ${versoes.join(", ")}`);
+  }
+
+  for (const migration of ordenadas) {
+    // Relê a versão a cada passo: comparar sempre com a leitura inicial faria
+    // uma migration fora de ordem sobrescrever a versão de outra já aplicada.
+    if (migration.version <= currentVersion(db)) continue;
 
     db.transaction(() => {
       db.run(migration.sql);

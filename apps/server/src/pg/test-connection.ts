@@ -52,7 +52,13 @@ export async function testConnection(
   try {
     await client.connect();
     await client.query("BEGIN READ ONLY");
-    await client.query(`SET LOCAL statement_timeout = ${connection.statementTimeoutMs}`);
+    // set_config e não `SET x = $1`: mesmo padrão do PoolManager (§11.16). O
+    // valor aqui vem validado, mas a segurança não deve depender de um
+    // invariante mantido duas camadas acima.
+    await client.query("SELECT set_config('statement_timeout', $1, true)", [
+      String(connection.statementTimeoutMs),
+    ]);
+    await client.query("SELECT set_config('TimeZone', $1, true)", [connection.timezone]);
     await client.query("SELECT 1");
     const version = await client.query<{ v: string }>("SELECT version() AS v");
     await client.query("ROLLBACK");

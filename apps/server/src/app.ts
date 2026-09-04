@@ -1,9 +1,12 @@
 import { Elysia } from "elysia";
 
+import { HealthResponse } from "@dbee/shared";
+
 import { ConnectionsRepository } from "./db/connections.repo";
 import type { Store } from "./db/client";
 import { PoolManager } from "./pg/pool";
 import { connectionsRoutes } from "./routes/connections";
+import { errorHandler } from "./routes/errors";
 import { schemaRoutes } from "./routes/schema";
 import { ConnectionsService } from "./services/connections.service";
 import { SchemaService } from "./services/schema.service";
@@ -38,7 +41,13 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert) }: Ap
   });
 
   return new Elysia({ prefix: "/api" })
-    .get("/health", () => ({ status: "ok" }))
+    // Antes de qualquer rota: o formato de erro padrão do Elysia ecoa o corpo
+    // submetido, senha inclusive.
+    .use(errorHandler)
+    // Toda rota declara `response`. Não é formalidade: foi a validação de
+    // resposta que pegou o `array_agg` devolvendo string crua em vez de array
+    // (DBee.md §11.17) — bug que nenhum teste cobria e que teria chegado à UI.
+    .get("/health", () => ({ status: "ok" }) as const, { response: { 200: HealthResponse } })
     .use(connectionsRoutes(connections))
     .use(schemaRoutes(schema));
 }

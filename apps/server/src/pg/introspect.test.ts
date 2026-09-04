@@ -30,12 +30,14 @@ function fakeClient(rows: {
   } as unknown as PoolClient;
 }
 
+// OIDs chegam como string: são lidos com `::bigint` para não dar wrap
+// negativo acima de 2^31 (o `pg` expõe o dataTypeID de um resultado sem sinal).
 const relation = (oid: number, schema: string, name: string, relkind = "r", reltuples = 10) => ({
-  oid, schema, name, relkind, comment: null, reltuples,
+  oid: String(oid), schema, name, relkind, comment: null, reltuples,
 });
 
 const column = (oid: number, name: string, position: number) => ({
-  oid, name, data_type: "text", data_type_id: 25, nullable: true,
+  oid: String(oid), name, data_type: "text", data_type_id: "25", nullable: true,
   default_value: null, position, comment: null,
 });
 
@@ -83,7 +85,7 @@ describe("introspect — montagem da árvore", () => {
         relations: [relation(1, "s", "item")],
         columns: [column(1, "pedido_id", 1), column(1, "linha", 2), column(1, "produto", 3)],
         constraints: [
-          { oid: 1, name: "item_pkey", contype: "p", columns: ["pedido_id", "linha"],
+          { oid: "1", name: "item_pkey", contype: "p", columns: ["pedido_id", "linha"],
             ref_schema: null, ref_table: null, ref_columns: null },
         ],
         indexes: [],
@@ -105,7 +107,7 @@ describe("introspect — montagem da árvore", () => {
         relations: [relation(1, "s", "item_nota")],
         columns: [],
         constraints: [
-          { oid: 1, name: "fk_item", contype: "f", columns: ["pedido_id", "linha"],
+          { oid: "1", name: "fk_item", contype: "f", columns: ["pedido_id", "linha"],
             ref_schema: "vendas", ref_table: "item", ref_columns: ["pedido_id", "linha"] },
         ],
         indexes: [],
@@ -130,7 +132,7 @@ describe("introspect — montagem da árvore", () => {
         relations: [relation(1, "s", "t")],
         columns: [],
         constraints: [
-          { oid: 1, name: "fk_quebrada", contype: "f", columns: ["x"],
+          { oid: "1", name: "fk_quebrada", contype: "f", columns: ["x"],
             ref_schema: null, ref_table: null, ref_columns: null },
         ],
         indexes: [],
@@ -149,9 +151,9 @@ describe("introspect — montagem da árvore", () => {
         constraints: [],
         indexes: [
           // array_agg devolve NULL quando o índice é sobre expressão.
-          { oid: 1, name: "idx_lower_email", columns: null, is_unique: false,
+          { oid: "1", name: "idx_lower_email", columns: null, is_unique: false,
             is_primary: false, definition: "CREATE INDEX idx_lower_email ON s.cliente (lower(email))" },
-          { oid: 1, name: "cliente_pkey", columns: ["id"], is_unique: true,
+          { oid: "1", name: "cliente_pkey", columns: ["id"], is_unique: true,
             is_primary: true, definition: "CREATE UNIQUE INDEX cliente_pkey ON s.cliente (id)" },
         ],
       }),

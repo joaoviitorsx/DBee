@@ -68,6 +68,11 @@ export const connectionsRoutes = (service: ConnectionsService) =>
       },
       {
         params: idParam,
+        // Sem `body` declarado, a rota aceita form-urlencoded — que é *simple
+        // request* e não dispara preflight, então uma página qualquer conseguia
+        // acioná-la por CSRF. Exigir corpo vazio em JSON fecha isso já, antes
+        // de existir cookie de sessão.
+        body: t.Optional(t.Object({})),
         response: { 200: TestConnectionResult, 404: ErrorResponse, 500: ErrorResponse, 502: ErrorResponse },
       },
     );
