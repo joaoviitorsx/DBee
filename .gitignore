@@ -1,0 +1,19 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# binário do bun build --compile
+/dist/
+
+.env
+.env.*
+!.env.example
+
+.DS_Store
+*.log
+
+# dados locais do app (SQLite)
+/data/
+
+# spike do dia 1 — o script é versionado, as deps não
+scratch/node_modules/

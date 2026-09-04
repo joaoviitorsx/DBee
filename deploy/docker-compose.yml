@@ -1,0 +1,21 @@
+# DBee — Dokploy, Compose Path deploy/docker-compose.yml (DBee.md §8).
+# Sem porta publicada de propósito: acesso só via Traefik do Dokploy com a
+# regra da tailnet, ou bind no IP 100.x do Tailscale (DBee.md §7).
+services:
+  dbee:
+    image: ghcr.io/joaoviitorsx/dbee:latest
+    restart: unless-stopped
+    environment:
+      APP_SECRET: ${APP_SECRET}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      DOKPLOY_DEPLOY_WEBHOOK: ${DOKPLOY_DEPLOY_WEBHOOK:-}
+    volumes:
+      - dbee-data:/data
+    networks:
+      - dokploy-network
+
+volumes:
+  dbee-data:
+networks:
+  dokploy-network:
+    external: true

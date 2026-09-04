@@ -1,0 +1,12 @@
+{
+  "name": "dbee-scratch",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.4.1",
+    "@types/pg": "^8.15.5"
+  }
+}
