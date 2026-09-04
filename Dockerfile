@@ -28,8 +28,10 @@ RUN bun run --filter '@dbee/web' build \
 # Sem Bun instalado: só o binário e os assets (DBee.md §8).
 FROM debian:12-slim AS runtime
 
+# ca-certificates fica: a Releases API do §8 é HTTPS e sem ele o TLS falha.
+# curl NÃO entra — o healthcheck é o próprio binário (`dbee --healthcheck`).
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl \
+ && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/* \
  && useradd --system --uid 10001 --create-home --home-dir /home/dbee dbee
 
@@ -50,6 +52,6 @@ ENV NODE_ENV=production \
 EXPOSE 3001
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -fsS "http://127.0.0.1:${PORT}/api/health" || exit 1
+  CMD ["/app/dbee", "--healthcheck"]
 
 ENTRYPOINT ["/app/dbee"]

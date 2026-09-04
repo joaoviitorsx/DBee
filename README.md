@@ -3,7 +3,7 @@
 Cliente PostgreSQL web, self-hosted, para uso diário em produção.
 
 Especificação completa em [`docs/DBee.md`](docs/DBee.md). Instruções para agentes
-em [`docs/CLAUDE.md`](docs/CLAUDE.md).
+em [`CLAUDE.md`](CLAUDE.md).
 
 > **Status:** v0.1 em construção. O que existe hoje é o esqueleto — server com
 > `GET /api/health`, front com uma tela. Sem autenticação, sem conexões, sem editor.
@@ -57,6 +57,6 @@ Tailscale. Ver `DBee.md` §7.
 ## Processo
 
 - Fricção do uso real vai para [`ATRITO.md`](ATRITO.md), na hora que doeu.
-- Decisão de arquitetura vira ADR em [`docs/adr/`](docs/adr/README.md).
+- Decisão de arquitetura vira ADR em [`docs/adr/`](docs/adr/README.md) — ver [001](docs/adr/001-modo-read-only-por-transacao.md) e [002](docs/adr/002-typescript-pinado-em-5-9.md).
 - Mudança de comportamento visível entra no [`CHANGELOG.md`](CHANGELOG.md).
 - Conventional Commits, `main` protegida, trabalho em `feat/*` e `fix/*`.

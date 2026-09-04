@@ -1,6 +1,6 @@
 # CLAUDE.md — DBee
 
-Instruções para agentes trabalhando neste repo. Leia `DBee.md` antes de qualquer tarefa: ele é a fonte da verdade sobre escopo, arquitetura e decisões.
+Instruções para agentes trabalhando neste repo. Leia `docs/DBee.md` antes de qualquer tarefa: ele é a fonte da verdade sobre escopo, arquitetura e decisões.
 
 ## O que é
 
@@ -47,7 +47,7 @@ docker build -t dbee .
 
 1. `bun run typecheck && bun run lint && bun test` — tem que passar.
 2. Atualizar `CHANGELOG.md` se mudou comportamento visível.
-3. Se a mudança contradiz algo em `DBee.md`, atualizar o doc na mesma alteração. Doc desatualizado é pior que doc ausente.
+3. Se a mudança contradiz algo em `docs/DBee.md`, atualizar o doc na mesma alteração. Doc desatualizado é pior que doc ausente.
 4. Decisão de arquitetura que alguém questionaria depois → `docs/adr/NNN-titulo.md`.
 
 ## O que não fazer sem perguntar
