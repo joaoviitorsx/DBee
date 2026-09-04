@@ -17,6 +17,17 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 - ADR [001](docs/adr/001-modo-read-only-por-transacao.md) (modo read-only por transação) e
   [002](docs/adr/002-typescript-pinado-em-5-9.md) (TypeScript pinado em 5.9.3).
 
+- Base local: migrations do `bun:sqlite` aplicadas no boot, cifra AES-256-GCM das senhas
+  com chave scrypt derivada uma vez no boot (salt de 32 B em `app_meta`), CRUD de conexões
+  e teste de conexão via `BEGIN READ ONLY`.
+- `ssl_mode` reduzido a três modos sem negociação, ADR
+  [003](docs/adr/003-modos-de-ssl.md).
+- Design system derivado de `assets/` — tokens, movimento e regras em
+  [docs/design-system.md](docs/design-system.md), contraste travado por teste.
+- Tela de conexões: lista densa com tag de risco, painel lateral de cadastro, esqueleto de
+  carregamento e a marca animada como estado de espera.
+- Arquitetura em camadas documentada em [docs/arquitetura.md](docs/arquitetura.md).
+
 ### Alterado
 - `CLAUDE.md` movido de `docs/` para a raiz do repo, onde ferramentas de agente o carregam
   por convenção.

@@ -1,15 +1,31 @@
 import { Elysia } from "elysia";
 
+import { ConnectionsRepository } from "./db/connections.repo";
+import type { Store } from "./db/client";
+import { connectionsRoutes } from "./routes/connections";
+import { ConnectionsService } from "./services/connections.service";
+
+export interface AppDeps {
+  readonly store: Store;
+  readonly caCert: string | undefined;
+}
+
 /**
- * Instância da API. Separada do `index.ts` para que os testes possam usar
- * `app.handle()` sem abrir porta.
+ * Composição da API — o único lugar que conhece todas as camadas.
  *
- * Um plugin por domínio entra aqui conforme as rotas forem chegando
- * (CLAUDE.md, "Ao escrever código"). No scaffold só existe o healthcheck.
+ * Recebe as dependências prontas em vez de abrir o banco por conta própria: é
+ * o que permite o teste rodar contra um SQLite em memória.
+ *
+ *   rota (HTTP)  →  serviço (regra)  →  repositório (SQLite) / pg (Postgres)
  */
-export const app = new Elysia({ prefix: "/api" }).get("/health", () => ({
-  status: "ok",
-}));
+export function createApp({ store, caCert }: AppDeps) {
+  const repository = new ConnectionsRepository(store.db, store.key);
+  const connections = new ConnectionsService({ repository, caCert });
+
+  return new Elysia({ prefix: "/api" })
+    .get("/health", () => ({ status: "ok" }))
+    .use(connectionsRoutes(connections));
+}
 
 /** Tipo consumido pelo Eden Treaty no front (DBee.md §3). */
-export type App = typeof app;
+export type App = ReturnType<typeof createApp>;

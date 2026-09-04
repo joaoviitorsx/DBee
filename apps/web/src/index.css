@@ -1,30 +1,172 @@
-:root {
-  color-scheme: light dark;
-  font-family: ui-sans-serif, system-ui, sans-serif;
+@import "tailwindcss";
+
+/**
+ * Tokens do DBee — derivados de assets/ (ver docs/design-system.md).
+ * Nenhum valor aqui é arbitrário: os cinco da marca estão em @theme como base,
+ * e o resto é escala construída sobre eles.
+ */
+@theme {
+  /* --- marca (assets/README.txt) --- */
+  --color-amber: #f5a623;
+  --color-graphite: #1c1917;
+  --color-bone: #f7f3ec;
+
+  /* --- superfícies: mesmo matiz quente da placa #191612 --- */
+  --color-sunken: #141210;
+  --color-surface: #191612;
+  --color-raised: #221e19;
+  --color-overlay: #2a251f;
+
+  /* --- texto --- */
+  --color-ink: #f7f3ec;
+  --color-muted: #a79e90;
+  --color-subtle: #7a7166;
+
+  /* --- semântica --- */
+  --color-accent: #f5a623;
+  --color-accent-ink: #191612;
+  --color-ok: #5fa777;
+  --color-danger: #e5484d;
+  --color-line: #2e2822;
+  --color-line-strong: #3d352c;
+
+  /* --- tipo: Sora quando bundlada; hoje cai na pilha do sistema --- */
+  --font-display: "Sora", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
+
+  /* --- escala 1.25 ancorada em 14px (densidade de ferramenta) --- */
+  --text-2xs: 0.6875rem;  /* 11 */
+  --text-xs: 0.75rem;     /* 12 */
+  --text-sm: 0.875rem;    /* 14 — base */
+  --text-base: 1rem;      /* 16 */
+  --text-lg: 1.25rem;     /* 20 */
+  --text-xl: 1.5625rem;   /* 25 */
+
+  /* --- raio comedido: arredondamento generoso só na marca --- */
+  --radius-sm: 4px;
+  --radius-DEFAULT: 6px;
+  --radius-lg: 10px;
+
+  /* --- entrada; a saída é sempre mais rápida --- */
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-body {
-  margin: 0;
-  display: grid;
-  place-items: center;
-  min-height: 100dvh;
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--color-sunken);
+    color: var(--color-ink);
+    font-family: var(--font-display);
+    font-size: var(--text-sm);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Foco visível é inegociável: a ferramenta é operada por teclado. */
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+
+  h1, h2, h3 {
+    letter-spacing: -0.025em; /* tracking do lockup */
+    line-height: 1.2;
+    font-weight: 600;
+  }
+
+  ::selection {
+    background-color: var(--color-amber);
+    color: var(--color-accent-ink);
+  }
+
+  /* Scrollbar no tom das superfícies, não a cinza do sistema. */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: var(--color-sunken); }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-raised);
+    border-radius: 999px;
+    border: 2px solid var(--color-sunken);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--color-overlay); }
 }
 
-main {
-  text-align: center;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
-h1 {
-  margin: 0 0 0.25rem;
-  font-size: 2rem;
-  letter-spacing: -0.02em;
+/**
+ * Movimento (docs/design-system.md §7).
+ *
+ * Um gesto assinatura: a abelha voa enquanto o app espera. As asas da marca já
+ * são caminhos separados a 55% de opacidade — animá-las é usar o desenho que
+ * existe, não colar um spinner genérico por cima dele.
+ *
+ * Tudo aqui é resposta a um estado real (carregando, testando, chegou
+ * resultado). Nada anima só por decoração, e o bloco de prefers-reduced-motion
+ * lá em cima zera todos eles.
+ */
+@keyframes dbee-wing {
+  0%,
+  100% { transform: scaleY(1) translateY(0); opacity: 0.55; }
+  50%  { transform: scaleY(0.55) translateY(1px); opacity: 0.3; }
 }
 
-p {
-  margin: 0;
-  opacity: 0.7;
+@keyframes dbee-hover {
+  0%,
+  100% { transform: translateY(0); }
+  50%  { transform: translateY(-2.5px); }
 }
 
-code {
-  font-family: ui-monospace, monospace;
+/* Brilho que corre pela linha, no sentido de leitura. */
+@keyframes dbee-shimmer {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(100%); }
+}
+
+/* A tag da conexão respira enquanto aquela conexão está sendo testada. */
+@keyframes dbee-probe {
+  0%,
+  100% { opacity: 1; transform: scaleY(1); }
+  50%  { opacity: 0.35; transform: scaleY(0.7); }
+}
+
+/* Resultado chegando: sobe e assenta. Entrada 200ms, sem eco na saída. */
+@keyframes dbee-settle {
+  from { opacity: 0; transform: translateY(3px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@utility animate-wing {
+  transform-origin: center;
+  animation: dbee-wing 900ms ease-in-out infinite;
+}
+
+@utility animate-hover {
+  animation: dbee-hover 2.4s ease-in-out infinite;
+}
+
+@utility animate-shimmer {
+  animation: dbee-shimmer 1.6s ease-in-out infinite;
+}
+
+@utility animate-probe {
+  animation: dbee-probe 1.1s ease-in-out infinite;
+}
+
+@utility animate-settle {
+  animation: dbee-settle 200ms var(--ease-enter) both;
 }

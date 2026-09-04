@@ -1,6 +1,8 @@
-import { app } from "./app";
+import { createApp } from "./app";
+import { openStore } from "./db/client";
+import { loadConfig } from "./lib/config";
 
-const port = Number(process.env["PORT"] ?? 3001);
+const config = loadConfig();
 
 /**
  * `dbee --healthcheck` — usado pelo HEALTHCHECK do container.
@@ -21,9 +23,14 @@ async function healthcheck(target: number): Promise<boolean> {
 }
 
 if (Bun.argv.includes("--healthcheck")) {
-  process.exit((await healthcheck(port)) ? 0 : 1);
+  process.exit((await healthcheck(config.port)) ? 0 : 1);
 }
 
-app.listen(port);
+// Abre o SQLite, aplica migrations e deriva a chave de cifra (~700 ms, uma vez).
+const store = openStore(config);
 
-console.log(`dbee server on :${port}`);
+createApp({ store, caCert: config.caCert }).listen(config.port);
+
+console.log(
+  `dbee server on :${config.port} · schema v${store.schemaVersion} · dados em ${config.dataDir}`,
+);

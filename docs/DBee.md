@@ -94,7 +94,7 @@ CREATE TABLE connections (
   database        TEXT NOT NULL,
   username        TEXT NOT NULL,
   password_enc    TEXT NOT NULL,             -- AES-256-GCM, nunca retornado pela API
-  ssl_mode        TEXT NOT NULL DEFAULT 'prefer',
+  ssl_mode        TEXT NOT NULL DEFAULT 'disable',  -- disable | require | verify-full, ver ADR 003
   write_enabled   INTEGER NOT NULL DEFAULT 0,
   statement_timeout_ms INTEGER NOT NULL DEFAULT 30000,
   timezone        TEXT NOT NULL DEFAULT 'UTC',   -- fixado por sessão, ver §6
@@ -130,6 +130,23 @@ CREATE TABLE app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 ```
 
 Migrations versionadas em `apps/server/src/db/migrations/NNN_nome.sql`, aplicadas no boot em ordem, com a versão atual em `app_meta`.
+
+**`ssl_mode` tem três valores, não cinco** (ADR [003](adr/003-modos-de-ssl.md)):
+
+| valor | config do `pg` | o que garante |
+|---|---|---|
+| `disable` | `ssl: false` | nada — texto claro |
+| `require` | `ssl: { rejectUnauthorized: false }` | criptografa em trânsito; **não** autentica o servidor, logo não protege contra MITM |
+| `verify-full` | `ssl: { rejectUnauthorized: true, ca }` | criptografa **e** valida cadeia e hostname |
+
+`prefer` e `allow` foram removidos de propósito: os dois caem para texto claro em
+silêncio quando o TLS falha, o que faz o usuário acreditar que está protegido
+quando não está. O `pg` não implementa esse fallback nativamente — isso é sinal,
+não obstáculo, e não deve ser recriado com retry.
+
+Default `disable`, explícito: os bancos são alcançados por rede privada e não têm
+TLS. Melhor um `disable` honesto que um `prefer` que mente. A UI sempre mostra o
+modo em vigor na conexão.
 
 ---
 
