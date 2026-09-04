@@ -28,6 +28,22 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   carregamento e a marca animada como estado de espera.
 - Arquitetura em camadas documentada em [docs/arquitetura.md](docs/arquitetura.md).
 
+- Introspecção de schema: `GET /connections/:id/schema` com árvore schemas → relações →
+  colunas, tipos, PK/FK e índices, cache em memória de 5 min e `?refresh=1`. Tudo em
+  `BEGIN READ ONLY`.
+- Gerência de pools por (conexão, database), `max: 5`, com varredura dos ociosos.
+- Sora bundlada (`@fontsource-variable/sora`, só o subset latin, 33,6 KB).
+
+### Corrigido
+- **`PATCH /connections/:id` corrompia campos não enviados.** O `default` dos schemas
+  TypeBox era materializado na validação, então um patch só do nome reapontava a conexão
+  para a porta 5432. Os defaults saíram do schema e ficaram no repositório, onde só valem
+  na criação. Registrado em `DBee.md` §11.15.
+- `SET LOCAL TimeZone = $1` dava erro de sintaxe — `SET` não aceita placeholder. Trocado
+  por `set_config`. Registrado em §11.16.
+- Introspecção rodava quatro consultas em `Promise.all` no mesmo client, o que o `pg`
+  deprecou. Agora em sequência. Registrado em §11.18.
+
 ### Alterado
 - `CLAUDE.md` movido de `docs/` para a raiz do repo, onde ferramentas de agente o carregam
   por convenção.

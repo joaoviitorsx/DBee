@@ -1,4 +1,5 @@
 import { createApp } from "./app";
+import { PoolManager } from "./pg/pool";
 import { openStore } from "./db/client";
 import { loadConfig } from "./lib/config";
 
@@ -29,7 +30,11 @@ if (Bun.argv.includes("--healthcheck")) {
 // Abre o SQLite, aplica migrations e deriva a chave de cifra (~700 ms, uma vez).
 const store = openStore(config);
 
-createApp({ store, caCert: config.caCert }).listen(config.port);
+// Varre pools ociosos de minuto em minuto (DBee.md §6).
+const pools = new PoolManager(config.caCert);
+pools.start();
+
+createApp({ store, caCert: config.caCert, pools }).listen(config.port);
 
 console.log(
   `dbee server on :${config.port} · schema v${store.schemaVersion} · dados em ${config.dataDir}`,

@@ -56,6 +56,37 @@ O DBee substitui esse fluxo por uma URL na tailnet. Abre o navegador, escolhe a 
 **Plugins Elysia:** `@elysiajs/static` (serve o build do web), `@elysiajs/cookie`, `@elysiajs/openapi`.
 Rate limit e headers de segurança: implementação própria em middleware — o ecossistema Elysia é menor que o do Fastify aqui, e neste app o escopo é pequeno o bastante para não justificar dependência.
 
+### Dependências aprovadas
+
+Nomeadas para que a regra "pergunte antes de instalar" (`CLAUDE.md`) não pare a
+próxima sessão no que já foi decidido. Fora desta lista, ainda vale perguntar.
+
+**Server** — `elysia`, `pg`, `@types/pg` (dev). O resto é primitiva do Bun:
+`bun:sqlite`, `Bun.password`, `node:crypto`, `bun test`.
+
+**Front**
+| Pacote | Para quê |
+|---|---|
+| `react`, `react-dom` | — |
+| `vite`, `@vitejs/plugin-react` (dev) | build |
+| `tailwindcss`, `@tailwindcss/vite` (dev) | Tailwind 4 |
+| `@tanstack/react-query` | estado de servidor |
+| `@tanstack/react-table`, `@tanstack/react-virtual` | grid virtualizado (§6) |
+| `@elysiajs/eden` | Eden Treaty |
+| `clsx`, `tailwind-merge`, `class-variance-authority` | base do shadcn/ui |
+| `lucide-react` | ícones do shadcn/ui |
+| `@radix-ui/react-*` | primitivos por trás dos componentes shadcn/ui em uso |
+| `@fontsource-variable/sora` | Sora bundlada, subset latin — sem CDN |
+| `codemirror`, `@codemirror/lang-sql` | editor SQL (v0.1) |
+
+**Ferramenta** (dev, nada disso entra no binário) — `typescript` (pinado, ADR
+002), `eslint`, `@eslint/js`, `typescript-eslint`, `eslint-plugin-react-hooks`,
+`globals`, `@types/bun`.
+
+**Escrito à mão de propósito:** geração de id no padrão nanoid
+(`apps/server/src/lib/ids.ts`) — 21 chars, alfabeto de 64 símbolos,
+`randomFillSync`. Uma dependência a menos no binário compilado.
+
 ### Estrutura
 
 ```
@@ -364,3 +395,7 @@ Registradas aqui para não serem redescobertas pela terceira vez:
 12. **`position` do erro vem deslocada pelo prefixo do `DECLARE`.** Corrigir calculando o comprimento do prefixo, nunca com constante literal.
 13. **`jsonb` chega normalizado pelo Postgres** (chaves reordenadas, espaçamento próprio); `json` chega literal. A UI não deve prometer preservar a formatação original de `jsonb`.
 14. **`NULL` (JS `null`) é diferente da string `NULL` dentro da representação textual de um array.** A UI precisa distinguir os dois visualmente.
+15. **`default` em schema TypeBox corrompe `PATCH`.** O Elysia materializa o default durante a validação, então um `PATCH { timezone }` chega ao repositório com `port: 5432` junto e reaponta a conexão para outro servidor, em silêncio. Achado contra banco real: a porta 55434 virou 5432 depois de um patch que não falava de porta. **Default de campo mora no repositório, na criação — nunca no schema.**
+16. **`SET` não aceita placeholder.** `SET x = $1` dá `syntax error at or near "$1"`: `SET` é comando utilitário, não DML. A forma parametrizável é `SELECT set_config('x', $1, true)`, com `true` equivalendo a `SET LOCAL`.
+17. **`array_agg(attname)` devolve `name[]`, que o `pg` não converte.** O driver entrega a string crua `{a,b}` em vez de array JS, porque `attname` é do tipo `name` (OID 1003), não `text`. Sempre `array_agg(x::text)` em consulta de catálogo.
+18. **Um `Client` do `pg` executa uma consulta por vez.** `Promise.all` de várias `query()` no mesmo client é deprecado e some no `pg@9`. Dentro de uma transação, em sequência.

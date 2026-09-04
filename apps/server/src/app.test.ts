@@ -179,3 +179,72 @@ describe("APP_SECRET trocado (DBee.md §11.5)", () => {
     expect(JSON.stringify(body)).not.toContain("senha-secreta-do-teste");
   });
 });
+
+describe("PATCH não pode mexer em campo que o cliente não mandou", () => {
+  it("preserva porta, timeout e timezone ao patchar só o nome", async () => {
+    const criada = (await (
+      await call(
+        "/api/connections",
+        json({ ...NOVA, port: 55434, statementTimeoutMs: 12_000, timezone: "America/Sao_Paulo" }),
+      )
+    ).json()) as Connection;
+
+    const res = await call(`/api/connections/${criada.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "só o nome" }),
+    });
+
+    const depois = (await res.json()) as Connection;
+    expect(depois.name).toBe("só o nome");
+    // Regressão: o `default` do TypeBox materializava port 5432 aqui e
+    // reapontava a conexão para outro servidor em silêncio.
+    expect(depois.port).toBe(55434);
+    expect(depois.statementTimeoutMs).toBe(12_000);
+    expect(depois.timezone).toBe("America/Sao_Paulo");
+    expect(depois.host).toBe(NOVA.host);
+    expect(depois.database).toBe(NOVA.database);
+    expect(depois.username).toBe(NOVA.username);
+  });
+
+  it("preserva writeEnabled e sslMode ao patchar só o host", async () => {
+    const criada = (await (
+      await call("/api/connections", json({ ...NOVA, writeEnabled: true, sslMode: "verify-full" }))
+    ).json()) as Connection;
+
+    const depois = (await (
+      await call(`/api/connections/${criada.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ host: "10.0.0.1" }),
+      })
+    ).json()) as Connection;
+
+    expect(depois.host).toBe("10.0.0.1");
+    expect(depois.writeEnabled).toBe(true);
+    expect(depois.sslMode).toBe("verify-full");
+  });
+
+  it("um PATCH vazio não altera nada", async () => {
+    const criada = (await (await call("/api/connections", json(NOVA))).json()) as Connection;
+
+    const depois = (await (
+      await call(`/api/connections/${criada.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      })
+    ).json()) as Connection;
+
+    expect({ ...depois, updatedAt: "" }).toEqual({ ...criada, updatedAt: "" });
+  });
+
+  it("o POST continua aplicando os defaults", async () => {
+    const criada = (await (await call("/api/connections", json(NOVA))).json()) as Connection;
+    expect(criada.port).toBe(5432);
+    expect(criada.statementTimeoutMs).toBe(30_000);
+    expect(criada.timezone).toBe("UTC");
+    expect(criada.sslMode).toBe("disable");
+    expect(criada.writeEnabled).toBe(false);
+  });
+});

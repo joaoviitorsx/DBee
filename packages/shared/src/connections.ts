@@ -36,15 +36,27 @@ export const Connection = t.Object({
 });
 export type Connection = Static<typeof Connection>;
 
+/**
+ * Campos de entrada — **sem `default` no TypeBox**, de propósito.
+ *
+ * O Elysia materializa `default` durante a validação, o que num PATCH injeta
+ * valor em campo que o cliente não mandou: um `PATCH { timezone }` chegava ao
+ * repositório com `port: 5432` junto e reapontava a conexão para outro
+ * servidor, em silêncio. Achado contra banco real, com a porta 55434 virando
+ * 5432 depois de um patch que não falava de porta.
+ *
+ * Os valores default vivem no repositório (`input.port ?? 5432`), que só os
+ * aplica na criação. Se algum voltar para cá, o bug volta junto.
+ */
 const name = t.String({ minLength: 1, maxLength: 100 });
 const host = t.String({ minLength: 1, maxLength: 255 });
-const port = t.Integer({ minimum: 1, maximum: 65535, default: 5432 });
+const port = t.Integer({ minimum: 1, maximum: 65535 });
 const database = t.String({ minLength: 1, maxLength: 100 });
 const username = t.String({ minLength: 1, maxLength: 100 });
 const password = t.String({ maxLength: 1000 });
 const color = t.Union([t.String({ maxLength: 32 }), t.Null()]);
-const timezone = t.String({ minLength: 1, maxLength: 64, default: "UTC" });
-const statementTimeoutMs = t.Integer({ minimum: 1000, maximum: 600000, default: 30000 });
+const timezone = t.String({ minLength: 1, maxLength: 64 });
+const statementTimeoutMs = t.Integer({ minimum: 1000, maximum: 600000 });
 
 export const CreateConnection = t.Object({
   name,
@@ -55,7 +67,7 @@ export const CreateConnection = t.Object({
   color: t.Optional(color),
   port: t.Optional(port),
   sslMode: t.Optional(SslMode),
-  writeEnabled: t.Optional(t.Boolean({ default: false })),
+  writeEnabled: t.Optional(t.Boolean()),
   statementTimeoutMs: t.Optional(statementTimeoutMs),
   timezone: t.Optional(timezone),
 });

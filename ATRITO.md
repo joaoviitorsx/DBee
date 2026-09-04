@@ -19,3 +19,5 @@ com label `atrito`, limpa o resto. O que aparecer 3 vezes vira prioridade
 automática.
 
 ---
+
+2026-09-04 · a tela de conexões subiu sem revisão visual — a extensão do Chrome não estava conectada, então validei só por build (tokens no CSS, classes presentes, tipo e lint limpos) e nunca vi a página renderizada. Pendente: screenshot em 375/768/1024/1440 e revisão.

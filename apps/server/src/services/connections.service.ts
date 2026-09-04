@@ -3,23 +3,13 @@ import type { Connection, CreateConnection, TestConnectionResult, UpdateConnecti
 import type { ConnectionsRepository } from "../db/connections.repo";
 import { testConnection } from "../pg/test-connection";
 
-/**
- * Falhas de domínio. A camada de serviço não conhece HTTP: quem traduz para
- * status é a rota. Assim a mesma regra serve a uma futura CLI ou job sem
- * arrastar Elysia junto.
- */
-export type ServiceFailure = "not_found" | "decryption_failed";
-
-export type ServiceResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly failure: ServiceFailure };
-
-const ok = <T>(value: T): ServiceResult<T> => ({ ok: true, value });
-const fail = <T>(failure: ServiceFailure): ServiceResult<T> => ({ ok: false, failure });
+import { type ServiceResult, fail, ok } from "./result";
 
 export interface ConnectionsServiceDeps {
   readonly repository: ConnectionsRepository;
   readonly caCert: string | undefined;
+  /** Avisa quem mantém cache ou pool que aquela conexão mudou de forma. */
+  readonly onConnectionChanged?: (id: string) => void;
 }
 
 /**
@@ -31,10 +21,12 @@ export interface ConnectionsServiceDeps {
 export class ConnectionsService {
   readonly #repository: ConnectionsRepository;
   readonly #caCert: string | undefined;
+  readonly #onChanged: (id: string) => void;
 
-  constructor({ repository, caCert }: ConnectionsServiceDeps) {
+  constructor({ repository, caCert, onConnectionChanged }: ConnectionsServiceDeps) {
     this.#repository = repository;
     this.#caCert = caCert;
+    this.#onChanged = onConnectionChanged ?? ((): void => undefined);
   }
 
   list(): Connection[] {
@@ -47,11 +39,15 @@ export class ConnectionsService {
 
   update(id: string, patch: UpdateConnection): ServiceResult<Connection> {
     const updated = this.#repository.update(id, patch);
-    return updated === null ? fail("not_found") : ok(updated);
+    if (updated === null) return fail("not_found");
+    this.#onChanged(id);
+    return ok(updated);
   }
 
   remove(id: string): ServiceResult<void> {
-    return this.#repository.delete(id) ? ok(undefined) : fail("not_found");
+    if (!this.#repository.delete(id)) return fail("not_found");
+    this.#onChanged(id);
+    return ok(undefined);
   }
 
   /**

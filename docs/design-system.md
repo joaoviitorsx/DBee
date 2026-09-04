@@ -7,6 +7,13 @@ ou de uma restrição do `DBee.md`.
 > deixar óbvio **em qual banco você está** e **se ele aceita escrita**. Toda
 > decisão visual abaixo serve a isso; o que não serve foi cortado.
 
+> **Regra do documento:** todo número afirmado aqui — razão de contraste, peso,
+> tamanho, duração — precisa de teste que o trave, ou não entra. Sem isso o doc
+> vira folclore: na primeira escrita deste arquivo os contrastes foram estimados
+> de cabeça e quatro dos sete estavam errados (16.3:1 virou "14.8:1", 8.9:1
+> virou "13.1:1"). Ninguém teria percebido. Hoje `contrast.test.ts` quebra o
+> build se um token mudar.
+
 ---
 
 ## 1. Cor
@@ -241,6 +248,24 @@ Duas escolhas deliberadas:
 O botão continua com spinner comum: a 14px o desenho da abelha não resolve, e
 inventar uma segunda animação de marca para caber ali seria o começo da
 proliferação que a §10 recusa.
+
+### São três estados de carregamento — e só três
+
+| Estado | Componente | Responde a |
+|---|---|---|
+| marca em voo | `Mark flying` na barra lateral | há requisição em voo, em qualquer lugar |
+| tag pulsando | `animate-probe` na linha | **aquela** conexão está sendo testada |
+| esqueleto | `ConnectionsSkeleton` | a lista ainda não chegou |
+
+Cada um responde a uma pergunta diferente: *o app está ocupado?*, *qual item
+está ocupado?*, *o que vai aparecer aqui?*. Juntos cobrem os casos.
+
+**Um quarto estado precisa justificar por que os três não servem.** Chegou a
+existir um `BeeLoader` de região — abelha voando no meio da tela — e foi
+apagado: a lista já usa esqueleto, a barra lateral já responde por "ocupado", e
+o botão já tem spinner inline. Ele não respondia a pergunta nenhuma que os
+outros não respondessem, e um loader a mais é um vocabulário a mais que o
+usuário precisa aprender sem ganhar nada.
 
 ### Esqueleto, não spinner, na primeira carga
 

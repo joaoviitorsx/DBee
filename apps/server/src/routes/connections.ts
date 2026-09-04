@@ -8,23 +8,9 @@ import {
   UpdateConnection,
 } from "@dbee/shared";
 
-import type { ConnectionsService, ServiceFailure } from "../services/connections.service";
+import type { ConnectionsService } from "../services/connections.service";
 
-/** Único ponto que traduz falha de domínio em status HTTP. */
-const FAILURES: Record<ServiceFailure, { status: 404 | 500; body: { code: string; message: string } }> = {
-  not_found: {
-    status: 404,
-    body: { code: "connection_not_found", message: "conexão não encontrada" },
-  },
-  decryption_failed: {
-    status: 500,
-    body: {
-      code: "decryption_failed",
-      message:
-        "não foi possível decifrar a senha desta conexão — APP_SECRET pode ter mudado (ver DBee.md §11.5)",
-    },
-  },
-};
+import { FAILURES } from "./failures";
 
 const idParam = t.Object({ id: t.String() });
 
@@ -54,7 +40,7 @@ export const connectionsRoutes = (service: ConnectionsService) =>
       {
         params: idParam,
         body: UpdateConnection,
-        response: { 200: Connection, 404: ErrorResponse, 500: ErrorResponse },
+        response: { 200: Connection, 404: ErrorResponse, 500: ErrorResponse, 502: ErrorResponse },
       },
     )
 
@@ -68,7 +54,7 @@ export const connectionsRoutes = (service: ConnectionsService) =>
       },
       {
         params: idParam,
-        response: { 204: t.Void(), 404: ErrorResponse, 500: ErrorResponse },
+        response: { 204: t.Void(), 404: ErrorResponse, 500: ErrorResponse, 502: ErrorResponse },
       },
     )
 
@@ -82,6 +68,6 @@ export const connectionsRoutes = (service: ConnectionsService) =>
       },
       {
         params: idParam,
-        response: { 200: TestConnectionResult, 404: ErrorResponse, 500: ErrorResponse },
+        response: { 200: TestConnectionResult, 404: ErrorResponse, 500: ErrorResponse, 502: ErrorResponse },
       },
     );

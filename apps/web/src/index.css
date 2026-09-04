@@ -1,6 +1,28 @@
 @import "tailwindcss";
 
 /**
+ * Sora — a tipografia do lockup (assets/README.txt), bundlada. Nada de CDN em
+ * runtime (CLAUDE.md).
+ *
+ * @font-face escrito à mão em vez de importar o index.css do pacote: aquele
+ * declara latin E latin-ext, e o Vite empacotaria os dois woff2. Português cabe
+ * inteiro no subset latin (U+0000-00FF cobre ç, ã, õ, á, é), então só ele entra
+ * — 36 KB em vez de ~66 KB.
+ *
+ * Variável de 100 a 800 num arquivo só: um download serve todos os pesos.
+ */
+@font-face {
+  font-family: "Sora Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("@fontsource-variable/sora/files/sora-latin-wght-normal.woff2") format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/**
  * Tokens do DBee — derivados de assets/ (ver docs/design-system.md).
  * Nenhum valor aqui é arbitrário: os cinco da marca estão em @theme como base,
  * e o resto é escala construída sobre eles.
@@ -30,8 +52,8 @@
   --color-line: #2e2822;
   --color-line-strong: #3d352c;
 
-  /* --- tipo: Sora quando bundlada; hoje cai na pilha do sistema --- */
-  --font-display: "Sora", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* --- tipo --- */
+  --font-display: "Sora Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
 
   /* --- escala 1.25 ancorada em 14px (densidade de ferramenta) --- */
