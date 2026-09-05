@@ -95,6 +95,11 @@ beforeAll(async () => {
           nome text NOT NULL,
           criado timestamptz NOT NULL DEFAULT now()
         );
+
+        -- Coluna json: NÃO tem operador '=', então a guarda otimista tem que
+        -- casar por ::text, senão editar quebra com 42883.
+        CREATE TABLE jsoncol (id int PRIMARY KEY, meta json);
+        INSERT INTO jsoncol VALUES (1, '{"a":1}');
       `),
     },
   );
@@ -183,6 +188,26 @@ describe.skipIf(!temDocker)("edição de linha — UPDATE", () => {
     expect(valorDireto("SELECT nome FROM pessoas WHERE id = 2")).toBe("Beto");
   });
 
+  it("edita coluna json (sem operador =), casando a guarda por ::text", async () => {
+    // Antes do cast, isto voltava 502 (operator does not exist: json = unknown).
+    const ok = await call(`/api/connections/${connWrite}/rows/update`, {
+      ...alvo, table: "jsoncol",
+      pk: [{ column: "id", value: "1" }],
+      changes: [{ column: "meta", from: '{"a":1}', to: '{"a":2}' }],
+    });
+    expect(ok.status).toBe(200);
+    expect(valorDireto("SELECT meta::text FROM jsoncol WHERE id=1")).toBe('{"a":2}');
+
+    // E a guarda continua valendo: from desatualizado ainda aborta.
+    const velho = await call(`/api/connections/${connWrite}/rows/update`, {
+      ...alvo, table: "jsoncol",
+      pk: [{ column: "id", value: "1" }],
+      changes: [{ column: "meta", from: '{"a":1}', to: '{"a":9}' }], // já é {"a":2}
+    });
+    expect(velho.status).toBe(409);
+    expect(((await velho.json()) as { code: string }).code).toBe("row_changed");
+  });
+
   it("grava o SQL literal e o actor no query_log", () => {
     const log = new QueryLogRepository(store.db);
     const entradas = log.list(50);
@@ -191,7 +216,7 @@ describe.skipIf(!temDocker)("edição de linha — UPDATE", () => {
     );
     expect(upd).toBeDefined();
     expect(upd?.sql).toContain(`SET "nome" = 'Ana Maria'`);
-    expect(upd?.sql).toContain(`"nome" = 'Ana'`); // a guarda otimista, literal
+    expect(upd?.sql).toContain(`"nome"::text = 'Ana'`); // a guarda otimista, literal
     expect(upd?.actor).toBe(userId);
     expect(upd?.readOnly).toBe(false);
   });

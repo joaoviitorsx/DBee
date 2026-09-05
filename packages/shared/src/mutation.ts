@@ -116,13 +116,19 @@ export function construirUpdate(req: RowUpdateRequest): SqlConstruido {
   }
   // Guarda otimista: os valores originais das colunas alteradas. NULL vira
   // `IS NULL` — `= NULL` nunca casa.
+  //
+  // A comparação é sobre `col::text`, não `col = $n`: `json` e `xml` (entre
+  // outros) não têm operador `=`, e o valor lido já veio como texto de qualquer
+  // forma. Casar `col::text` contra esse texto detecta a mudança sem depender de
+  // o tipo ter igualdade — e vale para todos os tipos. A PK fica sem cast, para
+  // continuar usando o índice.
   for (const c of req.changes) {
     if (c.from === null) {
       whereSql.push(`${qid(c.column)} IS NULL`);
       whereLit.push(`${qid(c.column)} IS NULL`);
     } else {
-      whereSql.push(`${qid(c.column)} = ${ph(c.from)}`);
-      whereLit.push(`${qid(c.column)} = ${lit(c.from)}`);
+      whereSql.push(`${qid(c.column)}::text = ${ph(c.from)}`);
+      whereLit.push(`${qid(c.column)}::text = ${lit(c.from)}`);
     }
   }
 

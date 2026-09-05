@@ -14,12 +14,12 @@ describe("construirUpdate", () => {
     });
 
     expect(c.text).toBe(
-      'UPDATE "public"."clientes" SET "nome" = $1 WHERE "id" = $2 AND "nome" = $3',
+      'UPDATE "public"."clientes" SET "nome" = $1 WHERE "id" = $2 AND "nome"::text = $3',
     );
     // Ordem dos params: SET (to), depois PK, depois guarda (from).
     expect(c.params).toEqual(["Ana Maria", "42", "Ana"]);
     expect(c.literal).toBe(
-      `UPDATE "public"."clientes" SET "nome" = 'Ana Maria' WHERE "id" = '42' AND "nome" = 'Ana'`,
+      `UPDATE "public"."clientes" SET "nome" = 'Ana Maria' WHERE "id" = '42' AND "nome"::text = 'Ana'`,
     );
   });
 
@@ -86,7 +86,7 @@ describe("construirUpdate", () => {
     });
 
     expect(c.text).toBe(
-      'UPDATE "public"."itens" SET "qtd" = $1 WHERE "pedido_id" = $2 AND "produto_id" = $3 AND "qtd" = $4',
+      'UPDATE "public"."itens" SET "qtd" = $1 WHERE "pedido_id" = $2 AND "produto_id" = $3 AND "qtd"::text = $4',
     );
     expect(c.params).toEqual(["2", "10", "20", "1"]);
   });
