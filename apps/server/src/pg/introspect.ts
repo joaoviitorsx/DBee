@@ -284,3 +284,26 @@ export async function introspect(client: PoolClient, database: string): Promise<
     cached: false,
   };
 }
+
+/**
+ * Databases do cluster, filtrando templates e os que não aceitam conexão
+ * (DBee.md §5). `has_database_privilege` respeita a permissão de quem está
+ * conectado: database que o usuário não pode abrir não aparece na árvore, em
+ * vez de aparecer e falhar ao expandir.
+ */
+const DATABASES_SQL = `
+  SELECT datname AS name
+    FROM pg_database
+   WHERE NOT datistemplate
+     AND datallowconn
+     AND has_database_privilege(datname, 'CONNECT')
+   ORDER BY datname
+`;
+
+export async function listDatabases(
+  client: PoolClient,
+  current: string,
+): Promise<{ name: string; isDefault: boolean }[]> {
+  const res = await client.query<{ name: string }>(DATABASES_SQL);
+  return res.rows.map((row) => ({ name: row.name, isDefault: row.name === current }));
+}

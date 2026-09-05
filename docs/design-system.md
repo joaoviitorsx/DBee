@@ -166,35 +166,74 @@ caminho curto para kitsch.
 
 ---
 
-## 5. A linha de conexão
+## 5. As três zonas
 
-O componente que justifica o resto do sistema.
+A conexão **não é uma página**. Ela é a raiz da navegação, e a tela inteira é um
+shell de três zonas que nunca se troca por outra.
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│ ▌  Produção Assertivus                          [ESCRITA]  ⋯ │
-│ ▌  postgres@10.0.0.4:5432/assertivus · America/Sao_Paulo     │
-└──────────────────────────────────────────────────────────────┘
-  ↑                                                  ↑
-  tag de cor: 3px, a única cor saturada    selo só quando há risco
+┌──────────────┬────────────────────────────────────┬──────────────┐
+│ busca        │ [aba] [aba] [aba]                  │  Inspetor    │
+├──────────────┼────────────────────────────────────┤  (fechado    │
+│ ▸ conexão    │ Dados | Estrutura | Índices        │   por        │
+│   ▾ database │ ─────────────────────────────────  │   padrão)    │
+│     ▾ schema │ coluna   tipo   nulo   default     │              │
+│       tabela │ ...                                │              │
+│              │                                    │              │
+│ + Nova       │                                    │              │
+└──────────────┴────────────────────────────────────┴──────────────┘
+   ~260px          flex                                 ~280px
+   redimensionável                                      colapsável
 ```
 
-Hierarquia deliberada:
+A versão anterior tratava "Conexões" como página, e todo caminho para os dados
+exigia sair dela — beco sem saída numa ferramenta cujo trabalho é chegar aos
+dados.
 
-1. **Tag de cor** (`connections.color`) — barra sólida na borda esquerda. É a
-   coisa que o olho pega antes de ler. Vermelho = produção, por convenção do
-   usuário, e o sistema não impõe significado.
-2. **Nome** — 16px/600.
-3. **Selo de escrita** — âmbar sólido, `--accent-ink` por cima. **Só aparece
-   quando `writeEnabled` é verdadeiro.** Read-only é o padrão e o estado seguro:
-   não ganha selo, porque marcar o estado seguro treina o olho a ignorar o selo.
-4. **Coordenadas** — mono, `--text-muted`, uma linha, sem quebrar.
+### 5.1 Árvore
 
-Sem `.map()` direto quando a lista crescer: a virtualização é obrigatória
-(`CLAUDE.md` regra 11). Hoje a lista é de dezenas; o componente já nasce numa
-estrutura que aceita virtualizar sem redesenho.
+`conexão → database → schema → relação`. Quatro níveis, indentação de 12px.
 
----
+**Expansão lazy é requisito, não otimização.** Cada conexão expandida custa uma
+ida ao Postgres; cada database custa uma introspecção de catálogo inteira.
+Buscar tudo de antemão abriria conexão em todo banco de produção cadastrado no
+instante em que a tela carrega, inclusive nos que ninguém vai tocar hoje. A
+decisão de o que buscar mora em `features/tree/plan.ts`, separada do componente
+para ser verificável sem montar React.
+
+| Nível | Ícone | Estado |
+|---|---|---|
+| conexão | tomada | ponto de saúde: verde conectada, vermelho erro, cinza não testada |
+| database | cilindro | marca "padrão" no database da conexão |
+| schema | ponto | contagem de relações |
+| table | grade | — |
+| view | olho, em `--text-subtle` | — |
+| materialized view | camadas, em `--color-ok` | — |
+
+Ícone distinto por tipo é obrigatório: view e tabela se comportam de forma
+diferente e confundi-las custa uma query errada.
+
+**Ações da conexão vivem em menu de contexto**, não em botões na linha. Numa
+árvore, botão por linha compete com o alvo de clique que importa — expandir.
+
+### 5.2 Abas
+
+Aba de tabela e aba de query convivem na mesma faixa. A de query ainda não é
+criada por nenhum caminho; o tipo já existe no estado para o executor nascer
+dentro deste shell em vez de virar uma tela a refazer.
+
+- **Id determinístico pelo alvo**: reabrir a mesma tabela foca a aba existente.
+- **Estado preservado** ao alternar: sub-aba e coluna selecionada sobrevivem.
+- **Fechar foca a vizinha** da direita, ou a da esquerda se era a última.
+- Sub-abas da tabela: `Dados` (placeholder até o executor) · `Estrutura` ·
+  `Índices`.
+
+### 5.3 Inspetor
+
+Zona direita, **começa fechada** e abre quando há o que inspecionar —
+selecionar uma coluna abre. Fechar é ação do usuário; limpar a seleção não
+fecha, porque fechar sozinho no meio de uma leitura é o tipo de coisa que faz o
+usuário perder o lugar.
 
 ## 6. Estados
 
@@ -212,6 +251,36 @@ Cada componente interativo declara os seis. Faltando um, não está pronto.
 **Foco visível é inegociável.** A ferramenta é operada por teclado.
 
 ---
+
+## 6b. Estado de perigo
+
+Conexão com `write_enabled = 1` é **alerta persistente**, não etiqueta.
+
+| Token | Hex | ΔE / contraste medido |
+|---|---|---|
+| `--color-danger-surface` | `#2a1614` | ΔE 0.038 vs `--surface` |
+| `--color-danger-raised` | `#3a1c19` | ΔE 0.043 vs danger-surface |
+| `--color-danger-line` | `#5c2b26` | ΔE 0.133 vs danger-surface |
+| `--color-danger-ink` | `#ff9d9d` | 8.6:1 sobre danger-surface |
+
+Texto normal sobre a superfície de perigo: **15.5:1**. Travado em
+`contrast.test.ts`.
+
+**Razão de contraste é a métrica errada aqui.** A superfície de perigo e a
+normal têm luminância parecida de propósito, para o texto continuar legível nas
+duas; o que muda é o matiz. Quem mede isso é ΔE em OKLab, e é ele que o teste
+usa — 0.038, acima do limiar de ~0.02 em que a diferença passa a ser notada.
+
+Onde o alerta aparece, em ordem de permanência:
+
+1. **O nó inteiro da árvore** em tom de perigo, com borda — não uma barra de
+   2px. O olho precisa pegar de relance numa árvore de cem nós.
+2. **Toda aba** sobre aquela conexão herda a tarja no topo.
+3. **A barra superior inteira** vira alerta, com o selo "Escrita habilitada".
+4. **O nome do banco ativo** fica visível permanentemente na barra superior,
+   sem exigir busca.
+
+O usuário nunca deve precisar procurar em qual banco está.
 
 ## 7. Movimento
 
@@ -317,6 +386,11 @@ Registrado para não voltar por engano:
   no cenário é redundância.
 - **Selo no estado seguro.** Marcar read-only tornaria o selo de escrita
   invisível por hábito.
+- **Seleção de texto com a mesma cor sólida de um selo.** `::selection` era
+  âmbar sólido com tinta escura — exatamente `bg-amber text-accent-ink`, o selo
+  de escrita. Dar duplo clique num nome pintava a palavra como se fosse um selo
+  sem padding, e a tela passava a afirmar um estado de conexão que não existia.
+  Selo é informação; seleção é interação. Travado em `selection.test.ts`.
 - **Animação de entrada por seção no load.** Fade-and-slide-up em tudo que
   aparece é o tique visual de página gerada, e aqui não responde a nada.
 - **Mais de um ciclo contínuo na tela.** Se a abelha voa, nada mais pisca.

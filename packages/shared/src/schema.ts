@@ -72,3 +72,11 @@ export const DatabaseSchema = t.Object({
   cached: t.Boolean(),
 });
 export type DatabaseSchema = Static<typeof DatabaseSchema>;
+
+/** Um database do cluster (`GET /connections/:id/databases`). */
+export const DatabaseInfo = t.Object({
+  name: t.String(),
+  /** `true` para o database configurado na conexão. */
+  isDefault: t.Boolean(),
+});
+export type DatabaseInfo = Static<typeof DatabaseInfo>;

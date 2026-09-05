@@ -52,6 +52,19 @@
   --color-line: #2e2822;
   --color-line-strong: #3d352c;
 
+  /*
+   * Estado de perigo — conexão com escrita habilitada.
+   *
+   * Não é decoração: é o requisito de "o usuário nunca deve precisar procurar
+   * em qual banco está". A superfície é quente o bastante para o olho pegar de
+   * relance numa árvore de cem nós, e escura o bastante para o texto continuar
+   * legível por cima. Contraste travado em contrast.test.ts.
+   */
+  --color-danger-surface: #2a1614;
+  --color-danger-raised: #3a1c19;
+  --color-danger-line: #5c2b26;
+  --color-danger-ink: #ff9d9d;
+
   /* --- tipo --- */
   --font-display: "Sora Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
@@ -104,9 +117,18 @@
     font-weight: 600;
   }
 
+  /*
+   * Seleção discreta.
+   *
+   * Era âmbar sólido com texto escuro — igualzinho ao selo de escrita, que usa
+   * exatamente esses dois tokens. Dar duplo clique num nome de conexão pintava
+   * a palavra como se fosse um badge sem padding, e a tela passava a mentir
+   * sobre o estado da conexão. Selo é informação; seleção é interação. Nunca
+   * podem ser a mesma cor sólida.
+   */
   ::selection {
-    background-color: var(--color-amber);
-    color: var(--color-accent-ink);
+    background-color: color-mix(in oklab, var(--color-amber) 28%, transparent);
+    color: var(--color-ink);
   }
 
   /* Scrollbar no tom das superfícies, não a cinza do sistema. */

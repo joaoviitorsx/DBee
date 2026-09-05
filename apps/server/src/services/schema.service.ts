@@ -1,7 +1,7 @@
-import type { DatabaseSchema } from "@dbee/shared";
+import type { DatabaseInfo, DatabaseSchema } from "@dbee/shared";
 
 import type { ConnectionsRepository } from "../db/connections.repo";
-import { introspect } from "../pg/introspect";
+import { introspect, listDatabases } from "../pg/introspect";
 import type { PoolManager } from "../pg/pool";
 import { type ServiceResult, fail, ok } from "./result";
 
@@ -116,6 +116,31 @@ export class SchemaService {
     // Congelado: a mesma referência é servida a toda requisição seguinte, e um
     // consumidor que a mutasse envenenaria o cache.
     return ok(Object.freeze({ ...fresh }));
+  }
+
+  /**
+   * Databases do cluster. Sem cache: a lista é curta, muda pouco, e é o
+   * primeiro nível que o usuário expande — servir um valor velho aqui esconde
+   * um database recém-criado justo quando ele é procurado.
+   */
+  async databases(connectionId: string): Promise<ServiceResult<DatabaseInfo[]>> {
+    let connection;
+    try {
+      connection = this.#repository.resolve(connectionId);
+    } catch {
+      return fail("decryption_failed");
+    }
+    if (connection === null) return fail("not_found");
+
+    try {
+      return ok(
+        await this.#pools.withReadOnly(connection, connection.database, (client) =>
+          listDatabases(client, connection.database),
+        ),
+      );
+    } catch (err: unknown) {
+      return fail("upstream_error", err instanceof Error ? err.message : "erro desconhecido");
+    }
   }
 
   /** Invalida o cache de uma conexão — ao editá-la ou apagá-la. */

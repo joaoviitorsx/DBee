@@ -332,6 +332,7 @@ Como o repo é pessoal e privado, o GitHub App do Dokploy precisa receber acesso
 - [ ] CRUD de conexões com senha cifrada + teste de conexão
 - [ ] Listagem de databases do cluster
 - [ ] Árvore de schema (tabelas, views, colunas, tipos, PK/FK)
+- [ ] **Busca na árvore** — trazida da v0.3. Com dois ou três schemas de cliente a árvore passa de cem nós, e sem filtro vira rolagem. Escopo: filtrar por nome de tabela/schema e abrir a aba ao selecionar.
 - [ ] Editor SQL com `Cmd+Enter`, execução read-only forçada
 - [ ] Grid virtualizado com tipos preservados como string
 - [ ] `query_log` gravando tudo
@@ -351,7 +352,7 @@ Como o repo é pessoal e privado, o GitHub App do Dokploy precisa receber acesso
 - [ ] Autocomplete schema-aware com resolução de alias
 - [ ] Múltiplas abas de query com estado persistido
 - [ ] Queries salvas, nomeadas e organizadas
-- [ ] `Cmd+K` — busca global de tabela/conexão/query salva
+- [ ] `Cmd+K` — busca global de conexão e query salva (o filtro da árvore subiu para a v0.1)
 - [ ] `EXPLAIN ANALYZE` com visualização de plano
 - [ ] Responsivo: resultado vira lista de cards no mobile
 

@@ -34,6 +34,15 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 - Gerência de pools por (conexão, database), `max: 5`, com varredura dos ociosos.
 - Sora bundlada (`@fontsource-variable/sora`, só o subset latin, 33,6 KB).
 
+- **Shell de três zonas.** A conexão deixa de ser página e vira a raiz da navegação:
+  árvore `conexão → database → schema → relação` com expansão lazy, abas de tabela com
+  sub-abas Estrutura e Índices, e inspetor de coluna à direita. `Dados` é placeholder até
+  o executor de query.
+- `GET /connections/:id/databases` — primeiro nível da árvore.
+- Busca na árvore, trazida da v0.3 para a v0.1 (§9), sem diferenciar acento nem caixa.
+- Estado de perigo para conexão com escrita: nó inteiro, tarja em toda aba e barra
+  superior, com o banco ativo sempre visível.
+
 ### Segurança
 - **A senha do banco voltava em claro na resposta 422 de validação.** O formato de erro
   padrão do Elysia inclui um campo `found` com o corpo submetido inteiro, então qualquer
@@ -43,6 +52,13 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 - `POST /connections/:id/test` não declarava corpo, então aceitava `form-urlencoded` — um
   *simple request*, acionável por CSRF sem preflight.
 - `host` iniciado por `/` era aceito e o `pg` o trata como socket unix em vez de TCP.
+- Cifra v2 com o id da conexão como AAD (ADR 005): sem ele, quem tivesse escrita no volume
+  podia trocar o `password_enc` entre conexões e a senha de produção ia para outro host.
+- `verify-full` com host IP passa a validar o IP contra os SANs `iPAddress` do certificado
+  (ADR 003, adendo). Antes falhava contra certificado correto e empurrava o usuário para
+  `require`, que não autentica ninguém.
+- `::selection` usava a mesma cor sólida do selo de escrita, fazendo texto selecionado
+  parecer um selo de estado.
 
 ### Corrigido
 - **`PATCH /connections/:id` corrompia campos não enviados.** O `default` dos schemas
