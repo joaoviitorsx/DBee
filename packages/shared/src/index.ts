@@ -2,6 +2,7 @@
 
 export * from "./audit";
 export * from "./auth";
+export * from "./eden";
 export * from "./connections";
 export * from "./export";
 export * from "./meta";

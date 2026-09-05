@@ -2,9 +2,19 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.1.1] — 2026-09-05
+
+> **Corrige um defeito grave da 0.1.0.** A **0.1.0** — publicada no GHCR como
+> `:latest` — tem um bug que **quebra o grid em qualquer coluna `date`/
+> `timestamptz`** (`Objects are not valid as a React child: [object Date]`) e,
+> pior, **corrompe em silêncio** qualquer célula de texto cujo valor pareça uma
+> data ISO. Causa: o cliente Eden convertia, por padrão, strings ISO em `Date`,
+> violando a regra 10 (§11.43). A **0.1.1** corrige com `parseDate: false`,
+> travado por teste de fronteira. **Quem estiver na 0.1.0 deve atualizar.**
 
 ### Adicionado
+- **Navegação por FK** e **queries salvas** — ver as entradas abaixo (fatia de
+  2026-09-05, junto do fix do Eden).
 - **Autocomplete abre sozinho ao digitar** (VSCode-like): `activateOnTyping` ligado
   com 120 ms de respiro; Esc fecha, Ctrl+Espaço força. O popup foi repaginado —
   entrada encenada (`dbee-settle`), material de overlay com sombra, opção

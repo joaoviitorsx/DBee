@@ -1,5 +1,6 @@
 import { treaty } from "@elysiajs/eden";
 
+import { EDEN_CONFIG } from "@dbee/shared";
 import type { App } from "@dbee/server/src/app";
 
 /**
@@ -7,12 +8,8 @@ import type { App } from "@dbee/server/src/app";
  * client HTTP manual (DBee.md §3, CLAUDE.md). Mudança de rota quebra o build do
  * web — comportamento desejado, não bug a contornar com `any`.
  *
- * `parseDate: false` é **obrigatório** (§11.43). Por padrão o Eden reanalisa o
- * JSON da resposta e converte QUALQUER string que pareça uma data ISO em objeto
- * `Date`. Isso quebra a regra 10 ("todo valor de célula trafega como string"):
- * uma célula `date`/`timestamptz` — ou uma coluna de texto que contenha
- * "2026-08-01" — chegaria como `Date`, o grid renderizaria `[object Date]` e a
- * aba inteira estoura. Com `false`, o valor exato do Postgres (que o servidor já
- * garante como texto) chega intacto.
+ * A desserialização é travada por `EDEN_CONFIG` (`@dbee/shared`): `parseDate:
+ * false` é obrigatório e provado pelo teste de fronteira — ver §11.43 e o
+ * comentário em `packages/shared/src/eden.ts`.
  */
-export const api = treaty<App>(window.location.origin, { parseDate: false });
+export const api = treaty<App>(window.location.origin, EDEN_CONFIG);
