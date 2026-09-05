@@ -4,7 +4,7 @@ import { tags } from "@lezer/highlight";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
-import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
+import { acceptCompletion, autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import type { DatabaseSchema } from "@dbee/shared";
 import { splitStatements } from "@dbee/shared";
 import { useEffect, useMemo, useRef } from "react";
@@ -270,6 +270,11 @@ export function SqlEditor({ value, onChange, onRunStatement, onRunAll, schema }:
             return true;
           },
         },
+        // Tab **completa** a sugestão quando o popup está aberto (como no
+        // VSCode). `acceptCompletion` devolve `false` quando não há popup, então
+        // o Tab cai para o comportamento normal (sair do editor) — só rouba o
+        // Tab quando há de fato o que completar.
+        { key: "Tab", run: acceptCompletion },
         ...completionKeymap,
         ...defaultKeymap,
         ...historyKeymap,
