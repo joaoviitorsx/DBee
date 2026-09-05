@@ -27,12 +27,14 @@ export function TabStrip({
   connections,
   onFocus,
   onClose,
+  onContextMenu,
 }: {
   readonly tabs: readonly Tab[];
   readonly activeTabId: string | null;
   readonly connections: readonly Connection[];
   readonly onFocus: (id: string) => void;
   readonly onClose: (id: string) => void;
+  readonly onContextMenu: (id: string, anchor: { x: number; y: number }) => void;
 }) {
   if (tabs.length === 0) return null;
 
@@ -46,6 +48,7 @@ export function TabStrip({
         return (
           <div
             key={tab.id}
+            onContextMenu={(e) => { e.preventDefault(); onContextMenu(tab.id, { x: e.clientX, y: e.clientY }); }}
             className={cn(
               "group/tab flex shrink-0 items-center gap-1.5 border-r border-line pl-3 pr-1.5 transition-colors duration-150",
               ativa ? "bg-surface" : "hover:bg-surface/60",

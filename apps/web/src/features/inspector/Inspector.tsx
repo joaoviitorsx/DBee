@@ -38,7 +38,7 @@ export function Inspector({
               <dt className="text-2xs text-subtle">Coluna</dt>
               <dd className="mt-0.5 flex flex-wrap items-center gap-1.5 text-sm font-semibold text-ink">
                 {column.name}
-                {column.isPrimaryKey ? <Badge tone="write">PK</Badge> : null}
+                {column.isPrimaryKey ? <Badge tone="key">PK</Badge> : null}
                 {column.nullable ? null : <Badge tone="neutral">NOT NULL</Badge>}
               </dd>
             </div>

@@ -228,7 +228,40 @@ dentro deste shell em vez de virar uma tela a refazer.
 - Sub-abas da tabela: `Dados` (placeholder até o executor) · `Estrutura` ·
   `Índices`.
 
-### 5.3 Inspetor
+### 5.3 Responsivo
+
+**Abaixo de 1024px, árvore e inspetor viram sobreposição.** Como colunas fixas,
+em 375px sobravam ~115px para o centro — a tela do meio simplesmente
+desaparecia. Sobrepostas, elas somem quando não estão em uso e o centro fica
+inteiro. A árvore ganha um botão na barra superior, e escolher uma relação
+fecha a gaveta.
+
+Verificado em 375 · 768 · 1024 · 1440.
+
+### 5.4 Menu de contexto
+
+Botão direito em **qualquer** nó da árvore e em qualquer aba. Um componente só
+(`components/ContextMenu.tsx`), porque um menu por lugar diverge em espaçamento,
+ordem e teclado.
+
+- Reposiciona para caber na janela — perto da borda é justamente onde se clica
+  quando a árvore está cheia.
+- Navegação por seta e `Enter`, `Esc` fecha.
+- **Cada nível oferece só o que faz sentido nele.** Menu com item inútil treina
+  o usuário a não ler o menu.
+- Ação destrutiva vai por último, em seção própria, com tratamento de perigo.
+
+| Nó | Ações |
+|---|---|
+| conexão | testar · editar · ‖ excluir |
+| database | recarregar catálogo · copiar nome |
+| schema | copiar nome |
+| relação | abrir · ‖ copiar nome qualificado · copiar nome · copiar colunas |
+| aba | fechar · fechar as outras · fechar todas |
+
+O nome **qualificado** vem antes do simples: é o que se cola numa query.
+
+### 5.5 Inspetor
 
 Zona direita, **começa fechada** e abre quando há o que inspecionar —
 selecionar uma coluna abre. Fechar é ação do usuário; limpar a seleção não
@@ -386,6 +419,21 @@ Registrado para não voltar por engano:
   no cenário é redundância.
 - **Selo no estado seguro.** Marcar read-only tornaria o selo de escrita
   invisível por hábito.
+- **Âmbar sólido em qualquer coisa que não seja modo escrita.** O selo de PK
+  nasceu com `tone="write"` e dizia "escrita" para o olho numa aba de índices.
+  Virou contorno âmbar sobre superfície elevada. A regra do §1.4 não tem
+  exceção.
+- **Selo com palavra inteira competindo com o nome numa barra de 260px.** O selo
+  "Escrita" comia metade do nome da conexão (`Produção Ass…`), e saber **qual**
+  conexão está gravável é todo o ponto do estado de perigo. O nome é o
+  identificador; o selo é qualificador, e vira ícone quando o espaço aperta.
+- **Ponto de cor ao lado de ponto de estado.** A tag de cor da conexão era um
+  ponto a poucos pixels do indicador de saúde, que também é um ponto: verde lia
+  como "conectada", vermelho como "erro" — vocabulários opostos na mesma forma.
+  A tag virou barra vertical na borda.
+- **Tabela esticando por toda a largura da tela.** A coluna "Referência"
+  acabava longe demais da coluna "Coluna". Ler uma linha não pode exigir
+  varredura horizontal.
 - **Seleção de texto com a mesma cor sólida de um selo.** `::selection` era
   âmbar sólido com tinta escura — exatamente `bg-amber text-accent-ink`, o selo
   de escrita. Dar duplo clique num nome pintava a palavra como se fosse um selo

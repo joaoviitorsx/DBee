@@ -42,6 +42,10 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 - Busca na árvore, trazida da v0.3 para a v0.1 (§9), sem diferenciar acento nem caixa.
 - Estado de perigo para conexão com escrita: nó inteiro, tarja em toda aba e barra
   superior, com o banco ativo sempre visível.
+- Menu de contexto por botão direito em todo nó da árvore e em toda aba, com ações
+  próprias de cada nível.
+- Abaixo de 1024px, árvore e inspetor viram sobreposição — como colunas fixas, em 375px
+  o centro da tela desaparecia.
 
 ### Segurança
 - **A senha do banco voltava em claro na resposta 422 de validação.** O formato de erro

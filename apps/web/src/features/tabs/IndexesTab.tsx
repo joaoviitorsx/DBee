@@ -20,7 +20,7 @@ export function IndexesTab({ relation }: { readonly relation: Relation }) {
         <li key={index.name} className="px-4 py-2.5">
           <div className="flex items-center gap-2">
             <span className="font-medium text-ink">{index.name}</span>
-            {index.isPrimary ? <Badge tone="write">PK</Badge> : null}
+            {index.isPrimary ? <Badge tone="key">PK</Badge> : null}
             {index.isUnique && !index.isPrimary ? <Badge tone="neutral">único</Badge> : null}
           </div>
 

@@ -26,8 +26,11 @@ export function StructureTab({
   }
 
   return (
+    // `max-w-5xl`: numa tela larga a tabela esticava até ~1300px, e a coluna
+    // "Referência" ficava longe demais da coluna "Coluna". Ler uma linha não
+    // pode exigir varredura horizontal.
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[44rem] border-collapse text-xs">
+      <table className="w-full min-w-[44rem] max-w-5xl border-collapse text-xs">
         <thead>
           <tr className="border-b border-line text-left text-2xs text-subtle">
             <th className="w-8 py-2 pl-4 font-medium" />

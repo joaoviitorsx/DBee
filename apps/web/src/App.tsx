@@ -1,25 +1,24 @@
 import type { Connection, TestConnectionResult } from "@dbee/shared";
+import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { AppShell } from "./app/AppShell";
 import type { ConnectionHealth } from "./features/tree/ConnectionTree";
+import { schemaKey } from "./features/tree/useTree";
 import { ConnectionForm } from "./routes/connections/ConnectionForm";
-import { ConnectionMenu } from "./routes/connections/ConnectionMenu";
 import { useConnections } from "./routes/connections/useConnections";
 
 type Painel =
   | { readonly open: false }
   | { readonly open: true; readonly editing: Connection | null };
 
-type Menu = { readonly connection: Connection; readonly anchor: DOMRect } | null;
-
 const healthOf = (r: TestConnectionResult | undefined): ConnectionHealth =>
   r === undefined ? "untested" : r.ok ? "ok" : "error";
 
 export function App() {
+  const queryClient = useQueryClient();
   const { query, save, remove, test, results } = useConnections();
   const [painel, setPainel] = useState<Painel>({ open: false });
-  const [menu, setMenu] = useState<Menu>(null);
 
   const connections = query.data ?? [];
   const health = Object.fromEntries(
@@ -32,27 +31,16 @@ export function App() {
         connections={connections}
         health={health}
         onNewConnection={() => { setPainel({ open: true, editing: null }); }}
-        onConnectionMenu={(connection, anchor) => { setMenu({ connection, anchor }); }}
+        onRefreshSchema={(connectionId, database) => {
+          void queryClient.invalidateQueries({ queryKey: schemaKey(connectionId, database) });
+        }}
+        connectionActions={(connection) => ({
+          testing: test.isPending && test.variables === connection.id,
+          onTestConnection: () => { test.mutate(connection.id); },
+          onEditConnection: () => { setPainel({ open: true, editing: connection }); },
+          onDeleteConnection: () => { remove.mutate(connection.id); },
+        })}
       />
-
-      {menu !== null ? (
-        <ConnectionMenu
-          connection={menu.connection}
-          anchor={menu.anchor}
-          testing={test.isPending && test.variables === menu.connection.id}
-          result={results[menu.connection.id]}
-          onClose={() => { setMenu(null); }}
-          onEdit={() => {
-            setPainel({ open: true, editing: menu.connection });
-            setMenu(null);
-          }}
-          onTest={() => { test.mutate(menu.connection.id); }}
-          onDelete={() => {
-            remove.mutate(menu.connection.id);
-            setMenu(null);
-          }}
-        />
-      ) : null}
 
       <ConnectionForm
         key={painel.open ? (painel.editing?.id ?? "nova") : "fechado"}

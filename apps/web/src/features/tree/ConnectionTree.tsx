@@ -5,6 +5,7 @@ import {
   Eye,
   Layers,
   MoreHorizontal,
+  Pencil,
   Plug,
   Plus,
   Search,
@@ -14,6 +15,7 @@ import {
 import { useMemo, useState } from "react";
 
 import { Button, Input } from "../../components/ui";
+import { anchorFromEvent, anchorFromRect, type MenuAnchor } from "../../components/ContextMenu";
 import { cn } from "../../lib/cn";
 import type { TableTarget } from "../../app/workspace";
 import { countRelations, filterSchema } from "./filter";
@@ -41,13 +43,27 @@ const RELATION_LABEL: Readonly<Record<RelationKind, string>> = {
 /** Estado do último teste, por conexão. */
 export type ConnectionHealth = "untested" | "ok" | "error";
 
+/** O que o menu de contexto está descrevendo. */
+export type TreeTarget =
+  | { readonly kind: "connection"; readonly connection: Connection }
+  | { readonly kind: "database"; readonly connection: Connection; readonly database: string }
+  | { readonly kind: "schema"; readonly connection: Connection; readonly database: string; readonly schema: string }
+  | {
+      readonly kind: "relation";
+      readonly connection: Connection;
+      readonly database: string;
+      readonly schema: string;
+      readonly relation: Relation;
+    };
+
 interface ConnectionTreeProps {
   readonly connections: readonly Connection[];
   readonly health: Readonly<Record<string, ConnectionHealth>>;
   readonly tree: TreeState;
   readonly onOpenRelation: (target: TableTarget) => void;
   readonly onNewConnection: () => void;
-  readonly onConnectionMenu: (connection: Connection, anchor: DOMRect) => void;
+  /** Botão direito em qualquer nó, ou o botão "···" da conexão. */
+  readonly onContextMenu: (target: TreeTarget, anchor: MenuAnchor) => void;
   readonly activeTarget: TableTarget | null;
 }
 
@@ -57,7 +73,7 @@ export function ConnectionTree({
   tree,
   onOpenRelation,
   onNewConnection,
-  onConnectionMenu,
+  onContextMenu,
   activeTarget,
 }: ConnectionTreeProps) {
   const [query, setQuery] = useState("");
@@ -104,7 +120,7 @@ export function ConnectionTree({
                 tree={tree}
                 query={query}
                 onOpenRelation={onOpenRelation}
-                onMenu={onConnectionMenu}
+                onContextMenu={onContextMenu}
                 activeTarget={activeTarget}
               />
             ))}
@@ -130,8 +146,10 @@ function Row({
   danger = false,
   active = false,
   onClick,
+  onContextMenu,
   children,
   trailing,
+  leading,
 }: {
   readonly depth: number;
   readonly expandable: boolean;
@@ -139,18 +157,28 @@ function Row({
   readonly danger?: boolean;
   readonly active?: boolean;
   readonly onClick: () => void;
+  readonly onContextMenu?: (anchor: MenuAnchor) => void;
   readonly children: React.ReactNode;
   readonly trailing?: React.ReactNode;
+  readonly leading?: React.ReactNode;
 }) {
   return (
     <div
+      // Botão direito em qualquer nó abre o menu daquele nó.
+      onContextMenu={
+        onContextMenu === undefined
+          ? undefined
+          : (e) => { e.preventDefault(); onContextMenu(anchorFromEvent(e)); }
+      }
       className={cn(
+        "relative",
         "group/row flex items-center gap-1 rounded-[4px] pr-1 transition-colors duration-150",
         danger ? "hover:bg-danger-raised" : "hover:bg-raised",
         active && (danger ? "bg-danger-raised" : "bg-raised"),
       )}
       style={{ paddingLeft: `${String(depth * 12 + 4)}px` }}
     >
+      {leading}
       <button
         type="button"
         onClick={onClick}
@@ -193,7 +221,7 @@ function ConnectionBranch({
   tree,
   query,
   onOpenRelation,
-  onMenu,
+  onContextMenu,
   activeTarget,
 }: {
   readonly connection: Connection;
@@ -201,7 +229,7 @@ function ConnectionBranch({
   readonly tree: TreeState;
   readonly query: string;
   readonly onOpenRelation: (target: TableTarget) => void;
-  readonly onMenu: (connection: Connection, anchor: DOMRect) => void;
+  readonly onContextMenu: (target: TreeTarget, anchor: MenuAnchor) => void;
   readonly activeTarget: TableTarget | null;
 }) {
   const node = connectionNode(connection.id);
@@ -210,7 +238,12 @@ function ConnectionBranch({
 
   // Só busca quando expandida (ver plan.ts).
   const databases = useDatabases(connection.id, expanded);
-  const lista = databases.data ?? [];
+
+  // `?? []` cru criaria um array novo a cada render, o memo abaixo nunca
+  // memoizaria e o `useQueries` receberia uma lista nova toda vez — assinatura
+  // refeita a cada quadro no caminho mais caro da árvore.
+  const dados = databases.data;
+  const lista = useMemo(() => dados ?? [], [dados]);
 
   const alvos = useMemo(
     () =>
@@ -237,11 +270,29 @@ function ConnectionBranch({
         expanded={expanded}
         danger={perigo}
         onClick={() => { tree.toggle(node); }}
+        onContextMenu={(anchor) => { onContextMenu({ kind: "connection", connection }, anchor); }}
+        leading={
+          /*
+           * Tag de cor como BARRA vertical, não ponto.
+           *
+           * Ponto colidia com o indicador de saúde, que é outro ponto a poucos
+           * pixels: a tag verde de uma conexão lia como "conectada" e a
+           * vermelha como "erro" — vocabulários opostos na mesma forma. Barra
+           * e ponto se distinguem de relance.
+           */
+          connection.color === null ? null : (
+            <span
+              aria-hidden
+              className="absolute inset-y-1 left-0 w-[3px] rounded-full"
+              style={{ backgroundColor: connection.color }}
+            />
+          )
+        }
         trailing={
           <button
             type="button"
             aria-label={`Ações de ${connection.name}`}
-            onClick={(e) => { onMenu(connection, e.currentTarget.getBoundingClientRect()); }}
+            onClick={(e) => { onContextMenu({ kind: "connection", connection }, anchorFromRect(e.currentTarget.getBoundingClientRect())); }}
             className="shrink-0 cursor-pointer rounded p-1 text-subtle opacity-0 transition-opacity duration-150 hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100"
           >
             <MoreHorizontal aria-hidden className="h-3.5 w-3.5" />
@@ -255,17 +306,21 @@ function ConnectionBranch({
         <Plug aria-hidden className={cn("h-3.5 w-3.5 shrink-0", perigo ? "text-danger-ink" : "text-muted")} />
         <span className="truncate text-sm font-medium text-ink">{connection.name}</span>
         <span className="sr-only">{HEALTH_LABEL[health]}</span>
+        {/*
+          * O nome é o identificador; o selo é qualificador. Numa barra de
+          * 260px o selo com a palavra inteira comia metade do nome
+          * ("Produção Ass..."), e saber QUAL conexão está gravável é
+          * exatamente o ponto do estado de perigo. Vira ícone, com o texto
+          * no rótulo acessível.
+          */}
         {perigo ? (
-          <span className="ml-auto shrink-0 rounded-[3px] bg-amber px-1 py-px text-2xs font-semibold text-accent-ink">
-            Escrita
-          </span>
-        ) : null}
-        {connection.color !== null ? (
           <span
-            aria-hidden
-            className="ml-1 h-2 w-2 shrink-0 rounded-full"
-            style={{ backgroundColor: connection.color }}
-          />
+            className="ml-auto flex shrink-0 items-center rounded-[3px] bg-amber px-1 py-px"
+            title="Escrita habilitada"
+          >
+            <Pencil aria-hidden className="h-2.5 w-2.5 text-accent-ink" />
+            <span className="sr-only">escrita habilitada</span>
+          </span>
         ) : null}
       </Row>
 
@@ -286,6 +341,7 @@ function ConnectionBranch({
                 query={query}
                 schema={arvores.find((_, i) => alvos[i]?.database === db.name)}
                 onOpenRelation={onOpenRelation}
+                onContextMenu={onContextMenu}
                 activeTarget={activeTarget}
               />
             ))
@@ -304,6 +360,7 @@ function DatabaseBranch({
   query,
   schema,
   onOpenRelation,
+  onContextMenu,
   activeTarget,
 }: {
   readonly connection: Connection;
@@ -322,6 +379,7 @@ function DatabaseBranch({
       }
     | undefined;
   readonly onOpenRelation: (target: TableTarget) => void;
+  readonly onContextMenu: (target: TreeTarget, anchor: MenuAnchor) => void;
   readonly activeTarget: TableTarget | null;
 }) {
   const node = databaseNode(connection.id, database);
@@ -342,6 +400,7 @@ function DatabaseBranch({
         expanded={expanded}
         danger={perigo}
         onClick={() => { tree.toggle(node); }}
+        onContextMenu={(anchor) => { onContextMenu({ kind: "database", connection, database }, anchor); }}
       >
         <Database aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted" />
         <span className="truncate font-mono text-xs text-ink">{database}</span>
@@ -371,6 +430,7 @@ function DatabaseBranch({
                 forceOpen={query !== "" && countRelations(filtrado) > 0}
                 tree={tree}
                 onOpenRelation={onOpenRelation}
+                onContextMenu={onContextMenu}
                 activeTarget={activeTarget}
               />
             ))}
@@ -389,6 +449,7 @@ function SchemaBranch({
   forceOpen,
   tree,
   onOpenRelation,
+  onContextMenu,
   activeTarget,
 }: {
   readonly connection: Connection;
@@ -398,6 +459,7 @@ function SchemaBranch({
   readonly forceOpen: boolean;
   readonly tree: TreeState;
   readonly onOpenRelation: (target: TableTarget) => void;
+  readonly onContextMenu: (target: TreeTarget, anchor: MenuAnchor) => void;
   readonly activeTarget: TableTarget | null;
 }) {
   const node = schemaNode(connection.id, database, schemaName);
@@ -411,6 +473,9 @@ function SchemaBranch({
         expanded={expanded}
         danger={connection.writeEnabled}
         onClick={() => { tree.toggle(node); }}
+        onContextMenu={(anchor) => {
+          onContextMenu({ kind: "schema", connection, database, schema: schemaName }, anchor);
+        }}
       >
         <span aria-hidden className="h-1 w-1 shrink-0 rounded-full bg-line-strong" />
         <span className="truncate text-xs text-muted">{schemaName}</span>
@@ -434,6 +499,12 @@ function SchemaBranch({
                   expandable={false}
                   danger={connection.writeEnabled}
                   active={ativo}
+                  onContextMenu={(anchor) => {
+                    onContextMenu(
+                      { kind: "relation", connection, database, schema: schemaName, relation },
+                      anchor,
+                    );
+                  }}
                   onClick={() => {
                     onOpenRelation({
                       connectionId: connection.id,

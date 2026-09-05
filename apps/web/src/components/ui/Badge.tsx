@@ -12,7 +12,11 @@ const badge = cva(
   {
     variants: {
       tone: {
+        // Âmbar sólido é EXCLUSIVO do modo escrita (design-system §1.4). Um
+        // selo de PK em âmbar diria "escrita" para o olho, que é o oposto do
+        // que ele significa.
         write: "bg-amber text-accent-ink",
+        key: "bg-raised text-amber border border-amber/30",
         ok: "bg-ok/15 text-ok border border-ok/25",
         danger: "bg-danger/15 text-danger border border-danger/25",
         neutral: "bg-raised text-muted border border-line",

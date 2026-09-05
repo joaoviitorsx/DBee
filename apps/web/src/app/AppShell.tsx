@@ -1,16 +1,19 @@
 import type { Connection } from "@dbee/shared";
-import { PanelRight, TriangleAlert } from "lucide-react";
+import { PanelLeft, PanelRight, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { ContextMenu, type MenuAnchor, type MenuSection } from "../components/ContextMenu";
 import { Mark } from "../components/Mark";
 import { Button } from "../components/ui";
 import { cn } from "../lib/cn";
+import { useLayoutLargo } from "../lib/useMediaQuery";
 import { Inspector } from "../features/inspector/Inspector";
 import { DataTab } from "../features/tabs/DataTab";
 import { IndexesTab } from "../features/tabs/IndexesTab";
 import { StructureTab } from "../features/tabs/StructureTab";
 import { SubTabs, TabStrip } from "../features/tabs/TabStrip";
-import { ConnectionTree, type ConnectionHealth } from "../features/tree/ConnectionTree";
+import { ConnectionTree, type ConnectionHealth, type TreeTarget } from "../features/tree/ConnectionTree";
+import { treeMenuSections, treeMenuTitle, type TreeMenuActions } from "../features/tree/treeMenu";
 import { useSchema, useTreeExpansion } from "../features/tree/useTree";
 import {
   activeTab,
@@ -34,7 +37,9 @@ export interface AppShellProps {
   readonly connections: readonly Connection[];
   readonly health: Readonly<Record<string, ConnectionHealth>>;
   readonly onNewConnection: () => void;
-  readonly onConnectionMenu: (connection: Connection, anchor: DOMRect) => void;
+  /** Ações que o menu da árvore dispara sobre uma conexão. */
+  readonly connectionActions: (connection: Connection) => Omit<TreeMenuActions, "onOpenRelation" | "onRefreshSchema">;
+  readonly onRefreshSchema: (connectionId: string, database: string) => void;
 }
 
 /**
@@ -48,10 +53,15 @@ export function AppShell({
   connections,
   health,
   onNewConnection,
-  onConnectionMenu,
+  connectionActions,
+  onRefreshSchema,
 }: AppShellProps) {
   const [ws, setWs] = useState<Workspace>(emptyWorkspace);
   const [larguraArvore, setLarguraArvore] = useState(260);
+  const [menu, setMenu] = useState<{ target: TreeTarget; anchor: MenuAnchor } | null>(null);
+  const [menuAba, setMenuAba] = useState<{ id: string; anchor: MenuAnchor } | null>(null);
+  const [arvoreAberta, setArvoreAberta] = useState(false);
+  const largo = useLayoutLargo();
   const tree = useTreeExpansion();
 
   /**
@@ -78,25 +88,53 @@ export function AppShell({
 
   return (
     <div className="flex h-dvh flex-col">
-      <TopBar target={abaTabela?.target ?? null} connection={conexaoAtiva} />
+      <TopBar
+        target={abaTabela?.target ?? null}
+        connection={conexaoAtiva}
+        onToggleTree={largo ? null : () => { setArvoreAberta((a) => !a); }}
+      />
 
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
+        {/*
+          * Abaixo de 1024px a árvore vira sobreposição.
+          *
+          * Como coluna fixa de 260px, num aparelho de 375px sobravam ~115px
+          * para o centro — a tela do meio simplesmente desaparecia. Sobreposta,
+          * ela some quando não está em uso e o centro fica inteiro.
+          */}
+        {!largo && arvoreAberta ? (
+          <button
+            type="button"
+            aria-label="Fechar árvore"
+            onClick={() => { setArvoreAberta(false); }}
+            className="fixed inset-0 z-30 cursor-default bg-black/50"
+          />
+        ) : null}
+
         <aside
-          style={{ width: `${String(larguraArvore)}px` }}
-          className="shrink-0 border-r border-line bg-surface"
+          style={largo ? { width: `${String(larguraArvore)}px` } : undefined}
+          className={cn(
+            "border-r border-line bg-surface",
+            largo
+              ? "shrink-0"
+              : cn(
+                  "fixed inset-y-0 left-0 z-40 w-[min(19rem,85vw)] transition-transform duration-200",
+                  arvoreAberta ? "translate-x-0" : "-translate-x-full",
+                ),
+          )}
         >
           <ConnectionTree
             connections={connections}
             health={health}
             tree={tree}
-            onOpenRelation={abrir}
+            onOpenRelation={(alvo) => { abrir(alvo); if (!largo) setArvoreAberta(false); }}
             onNewConnection={onNewConnection}
-            onConnectionMenu={onConnectionMenu}
+            onContextMenu={(target, anchor) => { setMenu({ target, anchor }); }}
             activeTarget={abaTabela?.target ?? null}
           />
         </aside>
 
-        <Resizer largura={larguraArvore} onChange={setLarguraArvore} />
+        {largo ? <Resizer largura={larguraArvore} onChange={setLarguraArvore} /> : null}
 
         <main className="flex min-w-0 flex-1 flex-col bg-sunken">
           <TabStrip
@@ -105,6 +143,7 @@ export function AppShell({
             connections={connections}
             onFocus={(id) => { setWs((a) => focusTab(a, id)); }}
             onClose={(id) => { setWs((a) => closeTab(a, id)); }}
+            onContextMenu={(id, anchor) => { setMenuAba({ id, anchor }); }}
           />
 
           {abaTabela === null ? (
@@ -122,14 +161,69 @@ export function AppShell({
           )}
         </main>
 
+        {/* Estreito: o inspetor também sobrepõe, em vez de espremer o centro. */}
         {visivel.inspectorOpen ? (
-          <div className="w-[280px] shrink-0">
+          <div
+            className={cn(
+              largo ? "w-[280px] shrink-0" : "fixed inset-y-0 right-0 z-40 w-[min(19rem,85vw)]",
+            )}
+          >
             <InspectorZone tab={abaTabela} onClose={() => { setWs(toggleInspector); }} />
           </div>
         ) : null}
       </div>
+
+      {menu !== null ? (
+        <ContextMenu
+          anchor={menu.anchor}
+          title={treeMenuTitle(menu.target)}
+          sections={treeMenuSections(menu.target, {
+            ...connectionActions(menu.target.connection),
+            onOpenRelation: abrir,
+            onRefreshSchema,
+          })}
+          onClose={() => { setMenu(null); }}
+        />
+      ) : null}
+
+      {menuAba !== null ? (
+        <ContextMenu
+          anchor={menuAba.anchor}
+          sections={tabMenuSections(menuAba.id, visivel.tabs, setWs)}
+          onClose={() => { setMenuAba(null); }}
+        />
+      ) : null}
     </div>
   );
+}
+
+/** Menu da aba: fechar, fechar as outras, fechar todas. */
+function tabMenuSections(
+  id: string,
+  tabs: readonly { id: string }[],
+  setWs: (fn: (ws: Workspace) => Workspace) => void,
+): MenuSection[] {
+  const outras = tabs.filter((t) => t.id !== id);
+  return [
+    {
+      items: [
+        { id: "close", label: "Fechar", onSelect: () => { setWs((a) => closeTab(a, id)); } },
+        {
+          id: "close-others",
+          label: "Fechar as outras",
+          disabled: outras.length === 0,
+          onSelect: () => {
+            setWs((a) => outras.reduce((acc, t) => closeTab(acc, t.id), a));
+          },
+        },
+        {
+          id: "close-all",
+          label: "Fechar todas",
+          onSelect: () => { setWs((a) => tabs.reduce((acc, t) => closeTab(acc, t.id), a)); },
+        },
+      ],
+    },
+  ];
 }
 
 /**
@@ -141,9 +235,12 @@ export function AppShell({
 function TopBar({
   target,
   connection,
+  onToggleTree,
 }: {
   readonly target: TableTarget | null;
   readonly connection: Connection | null;
+  /** Só existe no layout estreito, onde a árvore é sobreposição. */
+  readonly onToggleTree: (() => void) | null;
 }) {
   const perigo = connection?.writeEnabled === true;
 
@@ -154,6 +251,12 @@ function TopBar({
         perigo ? "border-danger-line bg-danger-surface" : "border-line bg-surface",
       )}
     >
+      {onToggleTree !== null ? (
+        <Button size="icon" variant="ghost" aria-label="Abrir árvore" onClick={onToggleTree}>
+          <PanelLeft aria-hidden className="h-4 w-4" />
+        </Button>
+      ) : null}
+
       <div className="flex items-center gap-2">
         <Mark className={cn("h-5 w-5", perigo ? "text-danger-ink" : "text-amber")} />
         <span className="text-sm font-semibold tracking-[-0.025em] text-ink">DBee</span>
