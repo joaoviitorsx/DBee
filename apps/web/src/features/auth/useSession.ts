@@ -61,6 +61,42 @@ function erroDaResposta(error: unknown, padrao: string): ErroApi {
   return new ErroApi(undefined, padrao);
 }
 
+/**
+ * Modo setup: `true` enquanto não há nenhuma conta. Rota aberta, sem sessão —
+ * o `AuthGate` a consulta só quando o `/me` já disse que não há sessão, para
+ * decidir entre a tela de setup e a de login.
+ */
+export function useSetupStatus(enabled = true) {
+  return useQuery({
+    queryKey: ["setup-status"],
+    queryFn: async (): Promise<boolean> => {
+      const { data, error } = await api.api.auth.setup.get();
+      if (error !== null) throw new Error("não foi possível checar o setup");
+      return data.setupRequired;
+    },
+    enabled,
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
+export function useConcluirSetup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (dados: { token: string; username: string; password: string }) => {
+      const { data, error } = await api.api.auth.setup.post(dados);
+      if (error !== null) throw erroDaResposta(error, "não foi possível concluir o setup");
+      return data.user;
+    },
+    onSuccess: (user) => {
+      // O POST já criou a sessão (cookie): escreve o usuário no cache para o
+      // portão trocar de tela no mesmo quadro, e invalida o resto.
+      qc.setQueryData(sessionKey, user);
+      void qc.invalidateQueries();
+    },
+  });
+}
+
 export function useLogin() {
   const qc = useQueryClient();
   return useMutation({

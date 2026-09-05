@@ -30,6 +30,8 @@ export interface AppDeps {
   readonly store: Store;
   readonly caCert: string | undefined;
   readonly pools?: PoolManager;
+  /** Diretório de dados — leva o `setup-token` ao `AuthService`. Ver §7. */
+  readonly dataDir?: string;
 }
 
 /**
@@ -40,10 +42,10 @@ export interface AppDeps {
  * Recebe as dependências prontas em vez de abrir o banco por conta própria: é
  * o que permite o teste rodar contra um SQLite em memória.
  */
-export function createApp({ store, caCert, pools = new PoolManager(caCert) }: AppDeps) {
+export function createApp({ store, caCert, pools = new PoolManager(caCert), dataDir }: AppDeps) {
   const repository = new ConnectionsRepository(store.db, store.key);
   const users = new UsersRepository(store.db);
-  const auth = new AuthService({ users });
+  const auth = new AuthService({ users, dataDir });
   const schema = new SchemaService({ repository, pools });
   const log = new QueryLogRepository(store.db);
   const audit = new AuditService(log);

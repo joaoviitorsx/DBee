@@ -6,7 +6,8 @@ import { Mascote } from "../mascote";
 import { Trabalhando } from "../motion/Trabalhando";
 import { ChangePasswordScreen } from "./ChangePasswordScreen";
 import { LoginScreen } from "./LoginScreen";
-import { useSession } from "./useSession";
+import { SetupScreen } from "./SetupScreen";
+import { useSession, useSetupStatus } from "./useSession";
 
 /**
  * Decide o que existe antes de qualquer coisa.
@@ -18,6 +19,9 @@ import { useSession } from "./useSession";
 export function AuthGate({ children }: { readonly children: React.ReactNode }) {
   const t = useT();
   const sessao = useSession();
+  // Só decide setup×login quando já se sabe que NÃO há sessão. Enquanto o `/me`
+  // está pendente, este fica ocioso (`enabled`) para não pedir o status à toa.
+  const setup = useSetupStatus(sessao.data === null);
 
   if (sessao.isPending) {
     return (
@@ -29,7 +33,19 @@ export function AuthGate({ children }: { readonly children: React.ReactNode }) {
 
   if (sessao.isError) return <ServidorMudo mensagem={sessao.error.message} onTentar={() => { void sessao.refetch(); }} />;
 
-  if (sessao.data === null) return <LoginScreen />;
+  if (sessao.data === null) {
+    // Sem conta ainda → tela de setup. Enquanto não se sabe, espera; erro ao
+    // checar cai para o login, que é o estado seguro (o POST de setup ainda
+    // recusaria com `setup_done` se já houvesse conta).
+    if (setup.isPending) {
+      return (
+        <div className="flex min-h-dvh items-center justify-center bg-sunken">
+          <Trabalhando rotulo={t("sessao.verificando")} />
+        </div>
+      );
+    }
+    return setup.data === true ? <SetupScreen /> : <LoginScreen />;
+  }
   if (sessao.data.mustChangePassword) return <ChangePasswordScreen user={sessao.data} />;
 
   return <>{children}</>;

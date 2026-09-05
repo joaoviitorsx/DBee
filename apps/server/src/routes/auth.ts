@@ -8,6 +8,8 @@ import {
   LogoutResponse,
   MeResponse,
   SESSION_COOKIE,
+  SetupRequest,
+  SetupStatus,
 } from "@dbee/shared";
 
 import type { UsersRepository } from "../db/users.repo";
@@ -47,6 +49,39 @@ export const authRoutes = (service: AuthService, users: UsersRepository) =>
     // dela chegar nestes handlers. O Elysia deduplica por `name`, então não há
     // segunda consulta ao SQLite.
     .use(sessionContext(users))
+    // Aberta: diz se o app está em modo setup (nenhuma conta ainda). O front
+    // decide entre a tela de setup e a de login sem precisar de sessão.
+    .get("/setup", () => ({ setupRequired: service.setupRequerido() }), {
+      response: { 200: SetupStatus },
+    })
+    // Aberta: cria a primeira conta com o token do volume. A trava contra uma
+    // "segunda primeira conta" é o `setup_done` (409) no serviço, não o guard.
+    .post(
+      "/setup",
+      async ({ body, cookie, status, server, request }) => {
+        const origem = server?.requestIP(request)?.address ?? "desconhecida";
+        const resultado = await service.concluirSetup(body, origem);
+        if (!resultado.ok) {
+          const { status: code, body: payload } = AUTH_FAILURES[resultado.failure];
+          return status(
+            code,
+            resultado.detail === undefined ? payload : { ...payload, message: resultado.detail },
+          );
+        }
+        const { user, token, expiraEm } = resultado.value;
+        cookie[SESSION_COOKIE]?.set({ ...COOKIE_BASE, value: token, expires: expiraEm });
+        return { user };
+      },
+      {
+        body: SetupRequest,
+        response: {
+          200: MeResponse,
+          401: ErrorResponse,
+          409: ErrorResponse,
+          429: ErrorResponse,
+        },
+      },
+    )
     .post(
       "/login",
       async ({ body, cookie, status, server, request }) => {

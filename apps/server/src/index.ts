@@ -1,10 +1,15 @@
+import { join } from "node:path";
+
+import { Elysia } from "elysia";
+
 import { createApp } from "./app";
-import { avisarPrimeiroUsuario, criarPrimeiroUsuario } from "./db/bootstrap";
+import { garantirSetup } from "./db/bootstrap";
 import { UsersRepository } from "./db/users.repo";
 import { PoolManager } from "./pg/pool";
 import { openStore } from "./db/client";
 import { EXPECTED_SCHEMA } from "./db/migrations";
 import { loadConfig } from "./lib/config";
+import { servirWeb } from "./routes/estaticos";
 
 const config = loadConfig();
 
@@ -85,15 +90,29 @@ if (await portaOcupada(config.port)) {
  * juntos, os dois imprimiriam um bloco de senha e só um valeria — e a pessoa
  * digitaria a errada sem entender por quê.
  */
-const primeiro = await criarPrimeiroUsuario(new UsersRepository(store.db));
-if (primeiro !== null) avisarPrimeiroUsuario(primeiro);
+// Primeiro acesso pela tela de setup (§7): sem conta, grava o token no volume e
+// loga só o caminho — nunca a senha, que antes ia ao log e ficava visível no
+// painel do Dokploy. Com conta, remove o token.
+garantirSetup(config.dataDir, new UsersRepository(store.db).contar() > 0);
 
-createApp({ store, caCert: config.caCert, pools }).listen({
-  port: config.port,
-  // Cinto e suspensório: mesmo com a checagem acima, uma corrida entre dois
-  // boots simultâneos ainda passaria. Sem reusePort, o segundo falha alto.
-  reusePort: false,
-});
+const api = createApp({ store, caCert: config.caCert, pools, dataDir: config.dataDir });
+
+// O binário serve a API **e** o web (DBee.md §8): a raiz embrulha o app `/api`
+// e, fora dele, entrega o build do Vite. Sem isto o container responde só JSON e
+// a tela de login/setup nunca aparece — o guard já ignora tudo fora de `/api`.
+// Em dev o `public/` não existe e o Vite serve o web; aqui vira 404 inofensivo.
+const publicDir = process.env["DBEE_PUBLIC_DIR"] ?? join(process.cwd(), "public");
+const web = servirWeb(publicDir);
+
+new Elysia()
+  .use(api)
+  .get("/*", ({ request }) => web(request))
+  .listen({
+    port: config.port,
+    // Cinto e suspensório: mesmo com a checagem acima, uma corrida entre dois
+    // boots simultâneos ainda passaria. Sem reusePort, o segundo falha alto.
+    reusePort: false,
+  });
 
 // Sem isto o `docker stop` mata as conexões Postgres por reset de TCP em vez
 // de fechá-las, e o servidor fica `idle` do lado do banco até o timeout dele.

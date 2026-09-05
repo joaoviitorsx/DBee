@@ -68,6 +68,11 @@ function cookieDoCabecalho(header: string | null, nome: string): string | null {
 export const ROTAS_ABERTAS: ReadonlySet<string> = new Set([
   "GET /api/health",
   "POST /api/auth/login",
+  // Setup do primeiro acesso: sem sessão porque ainda não há conta. O
+  // `GET` só informa o modo; o `POST` cria a conta e é travado por
+  // `setup_done` no serviço quando já existe usuário.
+  "GET /api/auth/setup",
+  "POST /api/auth/setup",
 ]);
 
 /**
@@ -127,10 +132,19 @@ export const sessionGuard = (users: UsersRepository) =>
     // escopo local é o padrão que precisa ser desfeito.
     .onRequest(({ request, status }) => {
       // Em `onRequest` não há `path` do roteador ainda; o pathname da URL é o
-      // mesmo valor e já vem com o prefixo `/api`. A chave é o par
-      // método+caminho porque `POST /auth/login` ser aberta não pode abrir um
-      // `GET` no mesmo caminho.
-      const chave = `${request.method} ${new URL(request.url).pathname}`;
+      // mesmo valor e já vem com o prefixo `/api`.
+      const pathname = new URL(request.url).pathname;
+
+      // O guard é da **API**. Tudo fora de `/api` é o web estático que o próprio
+      // binário serve em produção (o login e o setup **são** essas páginas) — se
+      // o guard as barrasse, o container 401aria a própria tela de entrada, e o
+      // app não subiria de verdade. Servido por Vite em dev, pelo binário no
+      // container; em nenhum dos dois há segredo fora de `/api`.
+      if (pathname !== "/api" && !pathname.startsWith("/api/")) return;
+
+      // A chave é o par método+caminho porque `POST /auth/login` ser aberta não
+      // pode abrir um `GET` no mesmo caminho.
+      const chave = `${request.method} ${pathname}`;
       if (ROTAS_ABERTAS.has(chave)) return;
 
       const token = cookieDoCabecalho(request.headers.get("cookie"), SESSION_COOKIE);

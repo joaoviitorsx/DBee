@@ -239,6 +239,8 @@ Prefixo `/api`. Tudo JSON. Autenticação por cookie de sessão `httpOnly` + `Sa
 - `POST /auth/logout` — apaga a sessão **no servidor**, não só o cookie
 - `GET /auth/me` — o usuário da sessão; **401 é resposta, não erro**
 - `POST /auth/password` — troca a senha e derruba todas as sessões do usuário
+- `GET /auth/setup` — **aberta.** `{ setupRequired }` — `true` enquanto não há conta. O front decide entre a tela de setup e a de login
+- `POST /auth/setup` — **aberta.** `{ token, username, password }` cria a primeira conta a partir do token de `/data/setup-token`, apaga o token e abre a sessão. Recusa com `setup_done` (409) quando já há conta; `invalid_token` (401) se o token não confere. §7
 - `PATCH /auth/locale` — `{ locale: "pt" | "en" }` grava o idioma da UI no registro do usuário; devolve o usuário atualizado. Preferência, não segredo — não mexe em cookie nem em sessão
 
 **Todas as outras rotas exigem sessão.** As únicas abertas são `GET /api/health`
@@ -382,18 +384,25 @@ Isso evita a classe inteira de bug "o número apareceu diferente na tela".
   `actor = id do usuário` no `query_log`. **Sem papéis, sem permissão por
   conexão, sem convite por e-mail** — isso é v0.2.
 
-  **Entregue em 2026-09-05.** O primeiro boot cria `admin` com senha aleatória
-  de 24 caracteres (alfabeto sem `0/O`, `1/l/I`, `5/S` — ela vai ser lida de um
-  log e digitada à mão) e a imprime **uma vez**, com troca obrigatória: senha
-  impressa em log é senha conhecida por quem leu o log, e enquanto ela não muda
-  a API recusa tudo que não seja trocá-la.
+  **Primeiro acesso pela tela de setup (2026-09-05).** Sem nenhuma conta, o boot
+  entra em modo setup: grava um token aleatório em `<dataDir>/setup-token` (modo
+  `0600`) e loga só o **caminho**, nunca o token. O operador o lê do volume
+  (`docker exec … cat /data/setup-token`, ou o terminal do serviço no Dokploy) e
+  cria a primeira conta na tela de setup — usuário e **senha que ele escolhe**.
+  Ao concluir, o token é apagado e a sessão abre. A rota `POST /auth/setup` é
+  aberta (sem sessão — ainda não há conta), e a trava contra criar uma segunda
+  "primeira conta" é o `setup_done` no serviço, não o guard. Coberto por
+  `setup.integration.test.ts`.
 
-  > **`ADMIN_PASSWORD` saiu.** As versões anteriores desta seção diziam que a
-  > env seria a senha do primeiro usuário. Não foi implementada: senha em
-  > variável de ambiente fica no compose, no histórico do shell e na tela de
-  > configuração do Dokploy, e a senha aleatória com troca obrigatória cobre o
-  > mesmo caso sem nenhum desses lugares. Se a env aparecer em algum doc, é
-  > resíduo.
+  > **Nenhuma senha é gerada nem impressa.** As versões anteriores geravam uma
+  > senha aleatória no boot e a imprimiam no log, com troca obrigatória — mas
+  > senha em log é senha visível para quem tem o painel do Dokploy. O token no
+  > volume troca "quem leu o log" por "quem tem acesso ao volume", que já é quem
+  > tem o SQLite inteiro. `ADMIN_PASSWORD` também não existe (env vira segredo no
+  > compose e no histórico do shell). Se qualquer um dos dois — senha em log ou
+  > `ADMIN_PASSWORD` — reaparecer em doc ou código, é regressão. O
+  > `mustChangePassword` continua no schema, agora só para um reset
+  > administrativo futuro.
 
   Sessão de 12 horas, expiração absoluta. O que está guardado em `sessions` é o
   **SHA-256 do token**, nunca o token: se o arquivo SQLite vazar por um backup
@@ -711,6 +720,8 @@ Registradas aqui para não serem redescobertas pela terceira vez:
 25. **Sob Bun, um `kill` que erra o alvo deixa servidor velho servindo.** O `Bun.serve` aceita `SO_REUSEPORT`, então **vários processos escutam a mesma porta ao mesmo tempo** e as requisições fazem round-robin entre eles. O sintoma é o pior possível: o **mesmo** endpoint responde 200 e 404 alternadamente, e testar duas vezes dá resultados diferentes. Custou tempo uma vez — `/databases` dava 404 pelo proxy do Vite e 200 direto na API, com três servidores no ar. O boot agora aborta se a porta já responder; e `ss -ltn | grep :3001` deve mostrar **uma** linha.
 
 28. **Migration fora de ordem no array corrompe a versão.** Comparar sempre com a versão lida no início do laço faz a 002 rodar depois da 003 e regravar `schema_version = 2`; no boot seguinte a 003 reaplica e estoura em `already exists`, deixando o container em loop de restart. Ordene por versão e releia a versão a cada passo.
+
+42. **Em produção o binário serve a UI, e três coisas quebravam isso — invisíveis em dev, onde o Vite serve o web.** (a) **O guard barrava a própria tela de entrada.** O `onRequest` do guard roda antes do roteamento e 401ava **todo** caminho fora de `ROTAS_ABERTAS` — inclusive `GET /` e os assets estáticos. No container, abrir o app devolvia `{"code":"unauthenticated"}` em JSON, não a tela de login/setup. O guard é da API: agora ignora tudo que não começa com `/api`. (b) **Não havia serviço de estático nenhum.** `@elysiajs/static` estava no §3 mas nunca foi instalado nem montado; o `app` inteiro é `prefix:/api`. A raiz agora embrulha o app `/api` e serve o build do Vite por `Bun.file` (primitiva do Bun, sem dependência — regra 3), com fallback SPA para `index.html`. (c) **`Content-Type` vazio.** Devolver `new Response(Bun.file(x))` por um handler do Elysia perde o MIME que o `Bun.file` inferiria, e um módulo JS sem MIME de JavaScript é **recusado** pelo navegador — o app carregava em branco, sem erro de rede. O tipo agora é setado explícito por extensão. Os três só aparecem carregando o `:3001/` num navegador, não no `curl /api/health` do healthcheck — foi o screenshot do container real (DoD 4b) que os pegou, não a suíte.
 
 ### UI e grid
 

@@ -45,6 +45,23 @@ export const ChangePasswordRequest = t.Object({
 export type ChangePasswordRequest = Static<typeof ChangePasswordRequest>;
 
 /**
+ * Primeiro acesso (DBee.md §7). Enquanto não existe nenhuma conta, o app está em
+ * modo setup: o boot grava um token aleatório em `<dataDir>/setup-token` — nunca
+ * no log — e o operador o lê do volume para criar a primeira conta. Senha em log
+ * seria senha visível no painel do Dokploy; o token no arquivo troca "quem leu o
+ * log" por "quem tem acesso ao volume", que já é quem tem o SQLite inteiro.
+ */
+export const SetupStatus = t.Object({ setupRequired: t.Boolean() });
+export type SetupStatus = Static<typeof SetupStatus>;
+
+export const SetupRequest = t.Object({
+  token: t.String({ minLength: 1, maxLength: 200 }),
+  username: Username,
+  password: Password,
+});
+export type SetupRequest = Static<typeof SetupRequest>;
+
+/**
  * Idioma da UI. Dois valores fechados — o `t()` do front tem dicionário para
  * exatamente estes, e o `CHECK` da migração 003 recusa qualquer outro.
  */
@@ -59,9 +76,9 @@ export const SessionUser = t.Object({
   id: t.String(),
   username: t.String(),
   /**
-   * Primeiro acesso com a senha gerada no boot. Enquanto for `true`, a API
-   * recusa tudo que não seja trocar a senha — senha impressa em log é senha
-   * conhecida por quem leu o log.
+   * Enquanto for `true`, a API recusa tudo que não seja trocar a senha. Não
+   * nasce mais no primeiro acesso (a conta é criada pela tela de setup, com a
+   * senha que o operador escolhe); fica para um reset administrativo futuro.
    */
   mustChangePassword: t.Boolean(),
   /** Idioma escolhido, servido no login e no `/me` para o front hidratar o `t()`. */

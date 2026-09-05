@@ -37,6 +37,15 @@ export const FAILURES: Readonly<
  * de declarar 429 no `response` — declarar uma resposta impossível.
  */
 export const AUTH_FAILURES = {
+  setup_done: {
+    status: 409,
+    // Já há conta: o modo setup fechou. O front cai para a tela de login.
+    body: { code: "setup_done", message: "o setup já foi concluído — faça login" },
+  },
+  invalid_token: {
+    status: 401,
+    body: { code: "invalid_token", message: "token de setup inválido" },
+  },
   unauthenticated: {
     status: 401,
     body: { code: "unauthenticated", message: "faça login para continuar" },
@@ -60,7 +69,7 @@ export const AUTH_FAILURES = {
   },
 } as const satisfies Record<
   AuthFailure,
-  { status: 401 | 403 | 429; body: { code: string; message: string } }
+  { status: 401 | 403 | 409 | 429; body: { code: string; message: string } }
 >;
 
 /**

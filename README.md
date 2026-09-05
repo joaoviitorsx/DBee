@@ -31,14 +31,26 @@ openssl rand -hex 32
 
 ### 2. Puxe a imagem
 
-A imagem é publicada no GHCR a cada tag, e o **pacote é privado**: é preciso
-autenticar antes do pull, com um Personal Access Token do GitHub com escopo
-`read:packages`.
+A imagem é publicada no GHCR a cada tag. O **pacote é tornado público** após o
+primeiro publish — a imagem carrega só o binário compilado e os assets, sem
+segredo — então o pull não precisa de autenticação:
 
 ```bash
-echo "$GITHUB_TOKEN" | docker login ghcr.io -u joaoviitorsx --password-stdin
 docker pull ghcr.io/joaoviitorsx/dbee:latest
 ```
+
+O pacote nasce **privado** por padrão no GHCR; torne-o público uma vez, em
+`github.com/users/joaoviitorsx/packages` → o pacote `dbee` → *Package settings* →
+*Change visibility*. Evita cadastrar um PAT permanente no Dokploy para cada
+redeploy.
+
+> **Alternativa — manter privado.** Se preferir não expor o pacote, deixe-o
+> privado e autentique antes do pull com um PAT com escopo `read:packages` (no
+> Dokploy, como *registry credential*):
+> ```bash
+> echo "$GITHUB_TOKEN" | docker login ghcr.io -u joaoviitorsx --password-stdin
+> docker pull ghcr.io/joaoviitorsx/dbee:latest
+> ```
 
 ### 3. Suba
 
@@ -52,28 +64,31 @@ docker run -d --name dbee \
 Sem `-p`: o DBee **não deve** ter porta publicada na internet (ver Segurança). O
 acesso é pela tailnet ou por um proxy interno.
 
-### 4. Pegue a senha do primeiro acesso
+### 4. Leia o token de setup do volume
 
-No primeiro boot o DBee cria o usuário `admin` e imprime a senha **uma vez** no
-log. Pegue-a:
+No primeiro boot, sem nenhuma conta, o DBee entra em **modo setup**: grava um
+token aleatório em `/data/setup-token` e loga só o **caminho**, nunca o token —
+senha em log é senha visível para quem tem o painel. Leia o token do volume:
 
 ```bash
-docker logs dbee | grep -A6 "PRIMEIRO ACESSO"
+docker exec dbee cat /data/setup-token
 ```
 
-### 5. Acesse e troque a senha
+### 5. Crie a primeira conta
 
-Abra o DBee pelo IP da tailnet (`http://100.x.y.z:3001`) ou pelo proxy. Entre com
-`admin` e a senha do log — a troca é **obrigatória** no primeiro acesso, porque a
-senha esteve no log do container.
+Abra o DBee pelo IP da tailnet (`http://100.x.y.z:3001`) ou pelo proxy. A tela de
+**primeiro acesso** pede o token que você leu, mais o usuário e a senha que você
+escolhe. Ao criar a conta, o token é apagado do volume e você já entra logado —
+não há senha gerada nem impressa em lugar nenhum.
 
 ## Deploy no Dokploy
 
 Serviço com provider Git apontando para este repo, branch `main`, Compose Path
 `deploy/docker-compose.yml`, trigger On Push. O GitHub App do Dokploy precisa de
 acesso explícito ao repo (é privado). Defina `APP_SECRET` nos secrets do serviço.
-A senha do primeiro acesso aparece no log do serviço, no painel do Dokploy. Ver
-`DBee.md` §8.
+Para criar a primeira conta, leia o token de `/data/setup-token` pelo terminal do
+serviço no painel do Dokploy (`cat /data/setup-token`) e informe-o na tela de
+primeiro acesso. Ver `DBee.md` §8.
 
 A imagem é **amd64** (`bun build --target bun-linux-x64`) — o host do Dokploy
 precisa ser amd64. Numa VM arm64 o container não sobe.
@@ -127,10 +142,15 @@ como uma falha diferente e obscura:
 | `DBEE_CA_CERT` | não | CA em PEM para `sslmode=verify-full` contra um CA privado. Vazio é tratado como ausente (não zera o CA store do sistema). |
 
 > **Não existem `ADMIN_PASSWORD` nem `DOKPLOY_DEPLOY_WEBHOOK`.** Versões antigas
-> deste README as citavam; o código não as lê. A senha do admin é **sempre**
-> gerada no primeiro boot e vai ao log (passo 4). A atualização por webhook e o
-> badge de versão são planejados (`DBee.md` §8), ainda não implementados — hoje
-> se atualiza publicando uma tag e re-deployando.
+> deste README as citavam; o código não as lê. A primeira conta nasce pela tela
+> de setup, com o token de `/data/setup-token` (passos 4–5) — **nenhuma senha é
+> gerada nem impressa**. A atualização por webhook e o badge de versão são
+> planejados (`DBee.md` §8), ainda não implementados — hoje se atualiza
+> publicando uma tag e re-deployando.
+>
+> `DBEE_PUBLIC_DIR` (opcional) aponta o diretório do web estático que o binário
+> serve; default `./public` a partir do diretório de trabalho (no container,
+> `/app/public`). Em dev o web é servido pelo Vite, não por esta variável.
 
 > ### ⚠️ Perder o `APP_SECRET` **ou** o volume `/data` = conexões perdidas
 >
@@ -163,7 +183,7 @@ bun run build        # web (Vite) + binário do server (bun build --compile)
 ```bash
 docker build -t dbee .
 docker run --rm -e APP_SECRET="$(openssl rand -hex 32)" -v dbee-data:/data dbee
-docker logs <container> | grep -A6 "PRIMEIRO ACESSO"   # senha do admin
+docker exec <container> cat /data/setup-token          # token do primeiro acesso
 ```
 
 ## Segurança

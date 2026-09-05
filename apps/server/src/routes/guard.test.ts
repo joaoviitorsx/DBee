@@ -64,10 +64,18 @@ describe("o guard cobre todas as rotas registradas", () => {
     expect(ROTAS.length).toBeGreaterThan(8);
   });
 
-  it("as rotas abertas são exatamente estas duas, e cada uma tem motivo", () => {
+  it("as rotas abertas são exatamente estas, e cada uma tem motivo", () => {
     // Acrescentar rota aqui é decisão de segurança. O teste existe para que a
     // decisão seja consciente, não um efeito colateral de outra mudança.
-    expect([...ROTAS_ABERTAS].sort()).toEqual(["GET /api/health", "POST /api/auth/login"]);
+    // health (sem cookie no healthcheck), login (nasce a sessão), e o setup do
+    // primeiro acesso (GET informa o modo; POST cria a conta, travado por
+    // `setup_done` no serviço quando já há usuário) — §7.
+    expect([...ROTAS_ABERTAS].sort()).toEqual([
+      "GET /api/auth/setup",
+      "GET /api/health",
+      "POST /api/auth/login",
+      "POST /api/auth/setup",
+    ]);
   });
 
   it("toda rota fechada responde 401 sem cookie de sessão", async () => {

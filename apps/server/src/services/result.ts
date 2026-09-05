@@ -50,6 +50,8 @@ export const mutFail = <T>(failure: MutationFailure, detail?: string): MutationR
  * antes de qualquer serviço; as outras duas, só no login.
  */
 export type AuthFailure =
+  | "setup_done"
+  | "invalid_token"
   | "unauthenticated"
   | "password_change_required"
   /** Credencial errada. **Nunca** diz qual das duas metades errou. */

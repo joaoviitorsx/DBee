@@ -1,4 +1,6 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { chmodSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import type { SessionUser } from "@dbee/shared";
 
@@ -68,14 +70,61 @@ export async function criarPrimeiroUsuario(
 }
 
 /** O aviso do primeiro boot, impresso **uma vez** e nunca mais. */
-export function avisarPrimeiroUsuario({ user, senha }: PrimeiroUsuario): void {
+/**
+ * Modo setup — token no volume, nunca no log (DBee.md §7).
+ *
+ * Enquanto não há conta, o primeiro acesso se faz por uma tela de setup: o boot
+ * grava um token aleatório em `<dataDir>/setup-token` com permissão `0600`, e o
+ * operador o lê do volume (`docker exec … cat`, ou o terminal do serviço no
+ * Dokploy) para criar a primeira conta. **A senha nunca é gerada nem impressa** —
+ * senha em log é senha visível para quem tem o painel. O token troca "quem leu o
+ * log" por "quem tem acesso ao volume", que já é quem tem o SQLite inteiro.
+ */
+const NOME_TOKEN = "setup-token";
+
+export function caminhoTokenSetup(dataDir: string): string {
+  return join(dataDir, NOME_TOKEN);
+}
+
+/**
+ * Garante o estado de setup no boot. Sem usuário: cria o token se faltar e
+ * imprime só o **caminho** (nunca o token). Com usuário: remove o token, que já
+ * não tem função e não deve sobreviver no volume.
+ */
+export function garantirSetup(dataDir: string, temUsuarios: boolean): void {
+  const caminho = caminhoTokenSetup(dataDir);
+  if (temUsuarios) {
+    if (existsSync(caminho)) rmSync(caminho, { force: true });
+    return;
+  }
+  if (!existsSync(caminho)) {
+    // `mode` no write respeita o umask; o chmod depois crava o 0600 de fato.
+    writeFileSync(caminho, randomBytes(32).toString("base64url"), { mode: 0o600 });
+    chmodSync(caminho, 0o600);
+  }
   const linha = "─".repeat(64);
   console.log(
     `\n${linha}\n` +
-      `  PRIMEIRO ACESSO — este bloco aparece uma única vez.\n\n` +
-      `    usuário: ${user.username}\n` +
-      `    senha:   ${senha}\n\n` +
-      `  A troca é obrigatória no primeiro login: a senha acima está no log\n` +
-      `  do container, então já não é secreta.\n${linha}\n`,
+      `  SETUP — nenhuma conta ainda.\n\n` +
+      `  Leia o token e crie a primeira conta na tela de setup:\n` +
+      `    docker exec <container> cat ${caminho}\n` +
+      `  (no Dokploy, use o terminal do serviço). O token NÃO aparece no log.\n${linha}\n`,
   );
+}
+
+/** Confere o token fornecido contra o do volume, em tempo constante. */
+export function tokenSetupConfere(dataDir: string, fornecido: string): boolean {
+  const caminho = caminhoTokenSetup(dataDir);
+  if (!existsSync(caminho)) return false;
+  const real = Buffer.from(readFileSync(caminho, "utf8").trim());
+  const dado = Buffer.from(fornecido);
+  // `timingSafeEqual` exige o mesmo comprimento; comparar antes vaza só o
+  // tamanho, não o conteúdo — e o token tem tamanho fixo de qualquer forma.
+  if (real.length !== dado.length) return false;
+  return timingSafeEqual(real, dado);
+}
+
+/** Apaga o token após o setup concluir. */
+export function apagarTokenSetup(dataDir: string): void {
+  rmSync(caminhoTokenSetup(dataDir), { force: true });
 }

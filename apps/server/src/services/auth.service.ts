@@ -1,5 +1,6 @@
-import type { Locale, LoginRequest, SessionUser } from "@dbee/shared";
+import type { Locale, LoginRequest, SessionUser, SetupRequest } from "@dbee/shared";
 
+import { apagarTokenSetup, tokenSetupConfere } from "../db/bootstrap";
 import type { UsersRepository } from "../db/users.repo";
 import { RateLimiter } from "../lib/rateLimit";
 import { type AuthResult, authFail, authOk } from "./result";
@@ -42,6 +43,11 @@ const LIMITE = { tentativas: 10, janelaMs: 15 * 60_000 };
 
 export interface AuthServiceDeps {
   readonly users: UsersRepository;
+  /**
+   * Diretório de dados, onde vive o `setup-token`. Ausente em testes que não
+   * exercitam o setup — aí `concluirSetup` recusa por falta de token.
+   */
+  readonly dataDir?: string | undefined;
 }
 
 export interface LoginOk {
@@ -52,11 +58,53 @@ export interface LoginOk {
 
 export class AuthService {
   readonly #users: UsersRepository;
+  readonly #dataDir: string | undefined;
   readonly #porUsuario = new RateLimiter(LIMITE);
   readonly #porOrigem = new RateLimiter(LIMITE);
+  readonly #porSetup = new RateLimiter(LIMITE);
 
-  constructor({ users }: AuthServiceDeps) {
+  constructor({ users, dataDir }: AuthServiceDeps) {
     this.#users = users;
+    this.#dataDir = dataDir;
+  }
+
+  /** Modo setup: verdadeiro enquanto não existe nenhuma conta. */
+  setupRequerido(): boolean {
+    return this.#users.contar() === 0;
+  }
+
+  /**
+   * Cria a primeira conta a partir do token de setup e já abre a sessão.
+   *
+   * Recusa se já há conta (`setup_done`) — a rota é aberta, então esta é a trava
+   * que impede alguém criar uma segunda "primeira conta" depois. O token é
+   * conferido em tempo constante contra o arquivo do volume; senha e usuário são
+   * os que o operador escolheu (sem `mustChangePassword` — ninguém os imprimiu).
+   */
+  async concluirSetup(
+    body: SetupRequest,
+    origem: string,
+  ): Promise<AuthResult<LoginOk, "setup_done" | "invalid_token" | "rate_limited">> {
+    if (this.#users.contar() > 0) return authFail("setup_done");
+
+    const antes = this.#porSetup.consultar(origem);
+    if (!antes.permitido) {
+      return authFail("rate_limited", `tente de novo em ${String(antes.esperarSegundos)}s`);
+    }
+    this.#porSetup.registrar(origem);
+
+    if (this.#dataDir === undefined || !tokenSetupConfere(this.#dataDir, body.token)) {
+      return authFail("invalid_token");
+    }
+
+    const username = body.username.trim().toLowerCase();
+    const hash = await Bun.password.hash(body.password, { algorithm: "argon2id" });
+    const user = this.#users.criar(username, hash, false);
+    apagarTokenSetup(this.#dataDir);
+    this.#porSetup.limpar(origem);
+
+    const { token, expiraEm } = this.#users.abrirSessao(user.id);
+    return authOk({ user, token, expiraEm });
   }
 
   async login(

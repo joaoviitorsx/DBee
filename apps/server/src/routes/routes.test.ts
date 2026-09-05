@@ -85,7 +85,10 @@ describe("toda rota valida a resposta", () => {
 
   it("nenhuma rota fica sem `response`", () => {
     const semResposta = routes
-      .filter((r) => !r.hasResponse)
+      // O catch-all `/*` é o web estático/SPA (serve arquivos do build, §8), não
+      // uma rota JSON: um schema de `response` do TypeBox não descreve um stream
+      // de arquivo. A invariante de validar resposta é sobre as rotas de API.
+      .filter((r) => !r.hasResponse && r.path !== "/*")
       .map((r) => `${r.method} ${r.path} (${r.file})`);
 
     expect(semResposta).toEqual([]);

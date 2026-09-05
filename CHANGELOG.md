@@ -105,6 +105,19 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   statements com a **mesma** função.
 
 ### Segurança
+- **Primeiro acesso pela tela de setup — nenhuma senha em log.** Antes o boot
+  gerava a senha do `admin` e a imprimia no log do container (visível no painel
+  do Dokploy). Agora, sem conta, o boot grava um token em `/data/setup-token`
+  (modo `0600`) e loga só o caminho; o operador lê o token do volume e cria a
+  primeira conta — usuário e senha à escolha — na tela de setup. `GET/POST
+  /auth/setup` são abertas; a segunda criação é barrada por `setup_done`. O token
+  é apagado ao concluir. Coberto por integração.
+- **O binário voltou a servir a UI em produção.** O guard 401ava `GET /` e os
+  assets (serve só a API), e não havia serviço de estático montado — o container
+  respondia só JSON e a tela de login/setup nunca aparecia. O guard passou a
+  ignorar tudo fora de `/api`; a raiz serve o build do Vite por `Bun.file` com
+  fallback SPA e `Content-Type` explícito. Pego pelo screenshot do container
+  real, não pela suíte (DBee.md §11.42).
 - **O DELETE de linha ganhou a mesma guarda otimista do UPDATE.** Antes o `WHERE`
   do DELETE tinha só a PK: se outra pessoa alterasse a linha entre a leitura e o
   clique, o DELETE apagava mesmo assim — e DELETE não volta. Agora a requisição
