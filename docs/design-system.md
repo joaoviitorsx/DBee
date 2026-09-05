@@ -236,7 +236,21 @@ desaparecia. Sobrepostas, elas somem quando não estão em uso e o centro fica
 inteiro. A árvore ganha um botão na barra superior, e escolher uma relação
 fecha a gaveta.
 
-Verificado em 375 · 768 · 1024 · 1440.
+> ⚠️ **Verificação incompleta — corrigido em 2026-09-05.** A afirmação anterior
+> ("verificado em 375 · 768 · 1024 · 1440") era **falsa**: os quatro screenshots
+> foram tirados com o inspetor **fechado** e nenhuma aba aberta, que é o estado
+> em que o layout não tem como quebrar.
+>
+> Com o inspetor aberto em 375px, ele ocupa ~300px de 375, **cobre a barra
+> superior inteira** — inclusive o nome do banco ativo, que o §6b declara
+> permanentemente visível — e deixa ~72px de centro. Não há *scrim* para
+> fechá-lo, ao contrário da árvore. E `selectColumn` abre o inspetor sozinho,
+> então o gesto normal de leitura é o que enterra o conteúdo.
+>
+> Screenshot da falha: `bp-375-inspetor.png`. Registrado em `ATRITO.md`.
+>
+> **Lição de método:** screenshot de estado vazio não verifica layout. O estado
+> a fotografar é o mais cheio que a tela alcança, não o mais limpo.
 
 ### 5.4 Menu de contexto
 
@@ -353,6 +367,17 @@ inventar uma segunda animação de marca para caber ali seria o começo da
 proliferação que a §10 recusa.
 
 ### São três estados de carregamento — e só três
+
+> ⚠️ **Os três estão MORTOS desde a fatia do shell de três zonas
+> (2026-09-05).** `Mark flying` não tem chamador, `animate-probe` não é usado
+> por componente nenhum, `ConnectionsSkeleton` foi **apagado** junto com a
+> antiga página de conexões, e `animate-settle` ficou sem uso. `useIsFetching`
+> saiu junto com o `App.tsx` antigo.
+>
+> Foram perdidos na migração e o documento não acompanhou — exatamente o que o
+> `CLAUDE.md` chama de "doc desatualizado é pior que doc ausente", cometido por
+> quem escreveu a regra. A seção abaixo descreve a **intenção**, que continua
+> válida; a implementação precisa voltar. Registrado em `ATRITO.md`.
 
 | Estado | Componente | Responde a |
 |---|---|---|
