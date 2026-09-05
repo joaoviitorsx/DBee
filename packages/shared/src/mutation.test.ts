@@ -114,17 +114,40 @@ describe("construirInsert", () => {
 });
 
 describe("construirDelete", () => {
-  it("DELETE pela PK, sem guarda de valor", () => {
+  it("PK sem cast, guarda por ::text nas colunas não-chave", () => {
     const c = construirDelete({
       database: "app",
       schema: "public",
       table: "clientes",
       readOnly: false,
       pk: [{ column: "id", value: "7" }],
+      guard: [
+        { column: "nome", value: "Ana" },
+        { column: "apelido", value: null },
+      ],
     });
 
-    expect(c.text).toBe('DELETE FROM "public"."clientes" WHERE "id" = $1');
+    expect(c.text).toBe(
+      'DELETE FROM "public"."clientes" WHERE "id" = $1 AND "nome"::text = $2 AND "apelido" IS NULL',
+    );
+    // A PK entra primeiro (índice), depois as guardas com valor.
+    expect(c.params).toEqual(["7", "Ana"]);
+    expect(c.literal).toBe(
+      `DELETE FROM "public"."clientes" WHERE "id" = '7' AND "nome"::text = 'Ana' AND "apelido" IS NULL`,
+    );
+  });
+
+  it("tabela só-PK: guarda vazia, DELETE só pela PK", () => {
+    const c = construirDelete({
+      database: "app",
+      schema: "public",
+      table: "chaves",
+      readOnly: false,
+      pk: [{ column: "id", value: "7" }],
+      guard: [],
+    });
+
+    expect(c.text).toBe('DELETE FROM "public"."chaves" WHERE "id" = $1');
     expect(c.params).toEqual(["7"]);
-    expect(c.literal).toBe(`DELETE FROM "public"."clientes" WHERE "id" = '7'`);
   });
 });

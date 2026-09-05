@@ -134,13 +134,22 @@ export function DataTab({
   const abrirExclusao = (): void => {
     if (linhaSel === null) return;
     const p = pkDaLinha(linhaSel);
-    if (p === null) return;
+    const linha = linhas[linhaSel];
+    if (p === null || linha === undefined) return;
+    // Guarda otimista: os valores originais das colunas NÃO-PK, como estão na
+    // tela. A PK identifica; a guarda detecta que um terceiro mexeu na linha
+    // entre a leitura e o clique — sem isso um DELETE apaga o que mudou.
+    const nomesPk = new Set(pk);
+    const guard = colunas
+      .map((c, i) => ({ column: c.name, value: linha[i] ?? null }))
+      .filter((g) => !nomesPk.has(g.column));
     setPendente({
       kind: "delete",
       database: target.database,
       schema: target.schema,
       table: target.relation,
       pk: p,
+      guard,
     });
   };
 

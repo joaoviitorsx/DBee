@@ -105,6 +105,18 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   statements com a **mesma** função.
 
 ### Segurança
+- **O DELETE de linha ganhou a mesma guarda otimista do UPDATE.** Antes o `WHERE`
+  do DELETE tinha só a PK: se outra pessoa alterasse a linha entre a leitura e o
+  clique, o DELETE apagava mesmo assim — e DELETE não volta. Agora a requisição
+  carrega os valores originais das colunas não-PK e o `WHERE` os repete (`col::text
+  = valor`, `IS NULL` para nulos); linha mudada casa 0 e aborta com `row_changed`
+  ("a linha mudou desde que você a leu"), dentro da transação, sem gravar. Cobre o
+  mesmo caso que o UPDATE já tratava. Integração contra Postgres real, com uma
+  segunda sessão alterando a linha no meio.
+- **Tentativa de escrita negada vai ao `query_log`.** Um UPDATE/DELETE/INSERT numa
+  conexão sem `write_enabled` era barrado (403) mas não registrado. Agora a tentativa
+  é logada com o SQL literal da intenção, o actor da sessão e `status: error` — o
+  evento que uma auditoria existe justamente para registrar.
 - **A senha do banco voltava em claro na resposta 422 de validação.** O formato de erro
   padrão do Elysia inclui um campo `found` com o corpo submetido inteiro, então qualquer
   erro de digitação no formulário mandava a senha para o devtools, o HAR e qualquer log de

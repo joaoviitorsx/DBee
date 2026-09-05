@@ -38,6 +38,8 @@ export type Pendente =
       readonly schema: string;
       readonly table: string;
       readonly pk: readonly PkValor[];
+      /** Valores originais das colunas não-PK — a guarda otimista do DELETE. */
+      readonly guard: readonly { readonly column: string; readonly value: string | null }[];
     };
 
 /** Erro da API que preserva o `code` — o que `mensagemDoCodigo` traduz. */
@@ -96,7 +98,10 @@ export function RowEditModal({
         },
       };
     }
-    return { kind: "delete", body: { ...alvo, readOnly: false, pk } };
+    return {
+      kind: "delete",
+      body: { ...alvo, readOnly: false, pk, guard: pendente.guard.map((g) => ({ ...g })) },
+    };
   }, [pendente, comoNull]);
 
   const literal =

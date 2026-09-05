@@ -223,19 +223,45 @@ describe.skipIf(!temDocker)("edição de linha — UPDATE", () => {
 });
 
 describe.skipIf(!temDocker)("edição de linha — DELETE", () => {
-  it("apaga exatamente uma linha pela PK", async () => {
+  it("aborta com row_changed se um terceiro mexeu na linha antes", async () => {
+    // Lemos id=3 = (Cadu, zz). Antes de aplicar, outra sessão muda o nome.
+    // Sem a guarda otimista o DELETE apagaria a linha que o terceiro alterou —
+    // e DELETE não volta.
+    psql("UPDATE pessoas SET nome = 'Xadu' WHERE id = 3");
+
+    const res = await call(`/api/connections/${connWrite}/rows/delete`, {
+      ...alvo, table: "pessoas",
+      pk: [{ column: "id", value: "3" }],
+      guard: [
+        { column: "nome", value: "Cadu" }, // desatualizado: já é 'Xadu'
+        { column: "apelido", value: "zz" },
+      ],
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("row_changed");
+    // Nada apagado: a linha do terceiro continua lá.
+    expect(valorDireto("SELECT count(*) FROM pessoas WHERE id = 3")).toBe("1");
+  });
+
+  it("apaga exatamente uma linha quando a guarda casa", async () => {
     const res = await call(`/api/connections/${connWrite}/rows/delete`, {
       ...alvo, table: "pessoas",
       pk: [{ column: "id", value: "2" }],
+      guard: [
+        { column: "nome", value: "Beto" },
+        { column: "apelido", value: "bt" },
+      ],
     });
     expect(res.status).toBe(200);
     expect(valorDireto("SELECT count(*) FROM pessoas WHERE id = 2")).toBe("0");
   });
 
   it("um DELETE que casaria duas linhas nunca commita", async () => {
+    // guarda com v='a' (comum às duas linhas de k='same'): mantém 2 matches.
     const res = await call(`/api/connections/${connWrite}/rows/delete`, {
       ...alvo, table: "dupes",
       pk: [{ column: "k", value: "same" }],
+      guard: [{ column: "v", value: "a" }],
     });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { code: string }).code).toBe("ambiguous_row");
@@ -246,6 +272,7 @@ describe.skipIf(!temDocker)("edição de linha — DELETE", () => {
     const res = await call(`/api/connections/${connReadOnly}/rows/delete`, {
       ...alvo, table: "pessoas",
       pk: [{ column: "id", value: "3" }],
+      guard: [],
     });
     expect(res.status).toBe(403);
     expect(valorDireto("SELECT count(*) FROM pessoas WHERE id = 3")).toBe("1");
@@ -280,5 +307,24 @@ describe.skipIf(!temDocker)("edição de linha — INSERT", () => {
       values: [{ column: "nome", value: "X" }],
     });
     expect(res.status).toBe(403);
+  });
+});
+
+describe.skipIf(!temDocker)("auditoria de escrita negada", () => {
+  it("registra a tentativa barrada no query_log, com actor", () => {
+    // As três recusas por write_enabled acima (update/delete/insert na conexão
+    // read-only) têm que aparecer no log: escrita barrada é o evento que a
+    // auditoria existe para registrar.
+    const log = new QueryLogRepository(store.db);
+    const negadas = log.list(200).filter(
+      (e) => e.status === "error" && (e.error?.includes("escrita negada") ?? false),
+    );
+    expect(negadas.length).toBeGreaterThanOrEqual(3);
+    for (const e of negadas) {
+      expect(e.actor).toBe(userId);
+      expect(e.readOnly).toBe(false);
+    }
+    // O SQL literal da intenção foi preservado (não é uma linha vazia).
+    expect(negadas.some((e) => e.sql.length > 0)).toBe(true);
   });
 });

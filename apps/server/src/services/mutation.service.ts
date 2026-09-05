@@ -92,6 +92,8 @@ export class MutationService {
     actor: string,
     construido: SqlConstruido,
   ): Promise<MutationResult<RowMutationResult>> {
+    const inicio = performance.now();
+
     let connection;
     try {
       connection = this.#repository.resolve(connectionId);
@@ -100,10 +102,22 @@ export class MutationService {
     }
     if (connection === null) return mutFail("not_found");
     // A conexão manda: sem `write_enabled`, nem a requisição mais explícita
-    // libera escrita. (O `readOnly: false` já é exigido pelo schema.)
-    if (!connection.writeEnabled) return mutFail("write_forbidden");
-
-    const inicio = performance.now();
+    // libera escrita. (O `readOnly: false` já é exigido pelo schema.) A tentativa
+    // negada vai ao query_log: escrita barrada é justamente o evento que uma
+    // auditoria existe para registrar. O SQL literal já traz a intenção completa.
+    if (!connection.writeEnabled) {
+      this.#registrar(
+        connectionId,
+        database,
+        construido.literal,
+        "error",
+        "escrita negada: write_enabled desligado na conexão",
+        null,
+        inicio,
+        actor,
+      );
+      return mutFail("write_forbidden");
+    }
 
     try {
       const rowCount = await this.#pools.withTransaction(

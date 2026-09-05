@@ -56,6 +56,18 @@ export type RowUpdateRequest = Static<typeof RowUpdateRequest>;
 export const RowDeleteRequest = t.Object({
   ...Alvo,
   pk: t.Array(PkColumn, { minItems: 1, maxItems: 32 }),
+  /**
+   * Guarda otimista — os valores ORIGINAIS das colunas não-PK, como foram
+   * lidos. Mesmo papel que o `from` do UPDATE: se outra pessoa alterou qualquer
+   * coluna entre a leitura e o clique, o `WHERE` casa 0 linhas e o DELETE
+   * aborta. UPDATE que sobrescreve em silêncio já é ruim; DELETE não volta —
+   * por isso a guarda é obrigatória aqui, não opcional. Vem vazia só na tabela
+   * só-PK, onde não há dado não-chave que possa ter mudado.
+   */
+  guard: t.Array(
+    t.Object({ column: t.String({ minLength: 1, maxLength: 63 }), value: CellValue }),
+    { minItems: 0, maxItems: 512 },
+  ),
 });
 export type RowDeleteRequest = Static<typeof RowDeleteRequest>;
 
@@ -166,13 +178,29 @@ export function construirDelete(req: RowDeleteRequest): SqlConstruido {
     return `$${String(params.length)}`;
   };
 
-  const whereSql = req.pk.map((p) => `${qid(p.column)} = ${ph(p.value)}`).join(" AND ");
-  const whereLit = req.pk.map((p) => `${qid(p.column)} = ${lit(p.value)}`).join(" AND ");
+  const whereSql: string[] = [];
+  const whereLit: string[] = [];
+  for (const p of req.pk) {
+    whereSql.push(`${qid(p.column)} = ${ph(p.value)}`);
+    whereLit.push(`${qid(p.column)} = ${lit(p.value)}`);
+  }
+  // Guarda otimista, mesmos moldes do UPDATE: `col::text = valor` (json/xml não
+  // têm operador `=`, e o valor lido já veio como texto); NULL vira `IS NULL`. A
+  // PK acima fica sem cast, para usar o índice.
+  for (const g of req.guard) {
+    if (g.value === null) {
+      whereSql.push(`${qid(g.column)} IS NULL`);
+      whereLit.push(`${qid(g.column)} IS NULL`);
+    } else {
+      whereSql.push(`${qid(g.column)}::text = ${ph(g.value)}`);
+      whereLit.push(`${qid(g.column)}::text = ${lit(g.value)}`);
+    }
+  }
 
   const alvo = rel(req.schema, req.table);
   return {
-    text: `DELETE FROM ${alvo} WHERE ${whereSql}`,
+    text: `DELETE FROM ${alvo} WHERE ${whereSql.join(" AND ")}`,
     params,
-    literal: `DELETE FROM ${alvo} WHERE ${whereLit}`,
+    literal: `DELETE FROM ${alvo} WHERE ${whereLit.join(" AND ")}`,
   };
 }

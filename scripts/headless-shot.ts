@@ -19,6 +19,7 @@
  */
 import { Database } from "bun:sqlite";
 import { createHash, randomBytes } from "node:crypto";
+import { existsSync } from "node:fs";
 
 const [, , saida, caminho = "/", tema = "dark", idioma = "pt", w = "1440", h = "900"] = process.argv;
 if (saida === undefined) {
@@ -27,11 +28,40 @@ if (saida === undefined) {
 }
 
 const CDP = "http://localhost:9223";
-const DATA_DIR = `${process.env.HOME}/.dbee-dev`;
+
+/**
+ * TRAVA DE DEV. Este utilitário cria uma sessão **válida sem senha** — é o poder
+ * que o torna útil e o que o torna perigoso. Ele só pode tocar o banco de dev,
+ * `~/.dbee-dev/dbee.sqlite`, e recusa qualquer outro caminho de forma explícita.
+ * Não basta "depende de qual DBEE_DATA_DIR está setado": se essa env apontar
+ * para outro lugar (produção, um /data montado), o script aborta em vez de
+ * mintar sessão lá. O banco de dev fica fixo no código, não vem de argumento.
+ */
+function bancoDev(): string {
+  const home = process.env.HOME ?? "";
+  if (home === "") throw new Error("recusado: $HOME não definido");
+  const esperado = `${home}/.dbee-dev/dbee.sqlite`;
+
+  const envDir = process.env.DBEE_DATA_DIR;
+  if (envDir !== undefined && envDir !== `${home}/.dbee-dev`) {
+    throw new Error(
+      `recusado: DBEE_DATA_DIR aponta para '${envDir}', não para o dev (~/.dbee-dev). ` +
+        "Este script cria sessão sem senha e só pode tocar o banco de dev.",
+    );
+  }
+  if ((process.env.DBEE_ENV ?? process.env.NODE_ENV) === "production") {
+    throw new Error("recusado: ambiente de produção (DBEE_ENV/NODE_ENV=production)");
+  }
+  if (!/^(localhost|127\.0\.0\.1|::1|\[::1\])$/.test(new URL(CDP).hostname)) {
+    throw new Error(`recusado: CDP não é loopback (${CDP})`);
+  }
+  if (!existsSync(esperado)) throw new Error(`banco de dev não existe: ${esperado}`);
+  return esperado;
+}
 
 /** Minta um token de sessão para o primeiro usuário, direto na tabela. */
 function mintarSessao(): string {
-  const db = new Database(`${DATA_DIR}/dbee.sqlite`);
+  const db = new Database(bancoDev());
   const user = db.query<{ id: string }, []>("SELECT id FROM users LIMIT 1").get();
   if (user === null) throw new Error(`sem usuário em ${DATA_DIR}/dbee.sqlite`);
   const token = randomBytes(32).toString("base64url");
