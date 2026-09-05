@@ -2,7 +2,7 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.1.2] — 2026-09-05
 
 ### Adicionado
 - **Export de tabela como `.sql`** (novo formato no menu Exportar, na aba Dados):
@@ -18,6 +18,9 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   database vazio e confere a recriação.
 
 ### Corrigido
+- **Tab completa a sugestão do autocomplete** no editor SQL, em vez de pular para o
+  botão Consultar. `acceptCompletion` entra antes do `completionKeymap`: com o popup
+  aberto, Tab aceita; fechado, Tab segue o comportamento normal.
 - **Popover de Exportar** agora dispõe os formatos em grade 2×2 em vez de uma fila
   única — com o quarto formato (SQL), a fila apertava e cortava o rótulo. Largura
   do popover limitada à viewport (`min(20rem, 100vw − 1.5rem)`) para não vazar a
