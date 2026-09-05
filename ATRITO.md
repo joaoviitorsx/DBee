@@ -8,7 +8,9 @@
 - **Cache de schema bloqueava na entrada vencida** (498 ms local / 872 ms com RTT): stale-while-revalidate em `schema.service.ts` (`#revalidar`), servindo o vencido e revalidando em background pelo `#emVoo`.
 - **Pool cheio devolvia 502** culpando o Postgres: já resolvido (503 honesto em `pool.ts`).
 
-Restam da auditoria: split do payload `/schema` (2,66 MB), virtualização de colunas do grid.
+- **`/schema` de 2,66 MB por desenho da árvore**: split feito — `/schema/tree` leve (só nomes/tipos) para a navegação; colunas/índices/FKs vêm do `/schema` completo só quando a tabela é aberta.
+
+Resta da auditoria: virtualização de colunas do grid.
 
 
 Registro de fricção do uso real (DBee.md §10).

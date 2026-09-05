@@ -1,4 +1,4 @@
-import type { Connection, DatabaseInfo, DatabaseSchema } from "@dbee/shared";
+import type { Connection, DatabaseInfo, DatabaseSchema, DatabaseTree } from "@dbee/shared";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 
@@ -51,6 +51,8 @@ export function useConnections() {
 
 export const databasesKey = (id: string): readonly unknown[] => ["databases", id];
 export const schemaKey = (id: string, db: string): readonly unknown[] => ["schema", id, db];
+/** Chave da árvore leve — separada do schema completo (payloads distintos). */
+export const schemaTreeKey = (id: string, db: string): readonly unknown[] => ["schema-tree", id, db];
 
 /**
  * Databases de uma conexão. `enabled` amarrado à expansão: nó fechado não
@@ -92,11 +94,14 @@ export function useSchema(connectionId: string, database: string, enabled: boole
 export function useExpandedSchemas(alvos: readonly SchemaTarget[]) {
   return useQueries({
     queries: alvos.map((alvo) => ({
-      queryKey: schemaKey(alvo.connectionId, alvo.database),
-      queryFn: async (): Promise<DatabaseSchema> => {
+      // Árvore **leve** (`/schema/tree`): só nomes e tipos, dezenas de KB. O
+      // detalhe de uma tabela (colunas, índices) vem do `useSchema` completo
+      // quando a tabela é aberta — chave e payload diferentes, sob demanda.
+      queryKey: schemaTreeKey(alvo.connectionId, alvo.database),
+      queryFn: async (): Promise<DatabaseTree> => {
         const { data, error } = await api.api
           .connections({ id: alvo.connectionId })
-          .schema.get({ query: { database: alvo.database } });
+          .schema.tree.get({ query: { database: alvo.database } });
         if (error !== null) throw new Error(mensagemDe(error));
         return data;
       },

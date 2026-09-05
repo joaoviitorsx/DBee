@@ -73,6 +73,36 @@ export const DatabaseSchema = t.Object({
 });
 export type DatabaseSchema = Static<typeof DatabaseSchema>;
 
+/**
+ * Árvore **leve** de navegação (`GET /connections/:id/schema/tree`).
+ *
+ * Só o que a árvore desenha: schema → relação (nome, tipo, estimativa). Sem
+ * colunas, índices, FKs nem comentários — que são a maior parte do payload e só
+ * interessam quando uma tabela é aberta. Num catálogo de 800 relações o `schema`
+ * completo passa de 2,6 MB; esta versão fica em dezenas de KB (ATRITO). Os
+ * detalhes vêm sob demanda por `GET /schema`.
+ */
+export const RelationTree = t.Object({
+  name: t.String(),
+  kind: RelationKind,
+  estimatedRows: t.Union([t.Integer(), t.Null()]),
+});
+export type RelationTree = Static<typeof RelationTree>;
+
+export const SchemaTreeNode = t.Object({
+  name: t.String(),
+  relations: t.Array(RelationTree),
+});
+export type SchemaTreeNode = Static<typeof SchemaTreeNode>;
+
+export const DatabaseTree = t.Object({
+  database: t.String(),
+  schemas: t.Array(SchemaTreeNode),
+  fetchedAt: t.String(),
+  cached: t.Boolean(),
+});
+export type DatabaseTree = Static<typeof DatabaseTree>;
+
 /** Um database do cluster (`GET /connections/:id/databases`). */
 export const DatabaseInfo = t.Object({
   name: t.String(),

@@ -248,6 +248,7 @@ sem cobertura faz o teste falhar sozinha.
 - `GET /connections/:id/databases` — lista databases do cluster (`pg_database`, filtrando templates)
 
 ### Schema
+- `GET /connections/:id/schema/tree?database=X` — árvore **leve** de navegação (schema → relação: nome, tipo, estimativa), dezenas de KB. É o que a árvore desenha; o detalhe vem sob demanda pelo `/schema` completo (ATRITO).
 - `GET /connections/:id/schema?database=X` — árvore schemas → tabelas/views → colunas, tipos, PK/FK, índices. Cacheado em memória, TTL 5 min **com stale-while-revalidate** (entrada vencida é servida na hora e revalidada em background); `?refresh=1` força fresco.
 
 ### Query

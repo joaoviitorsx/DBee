@@ -5,6 +5,12 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Split do `/schema`** (Fase 2, dívida de perf): a árvore de navegação passou a
+  usar um endpoint leve `GET /schema/tree` (só schema → relação: nome, tipo,
+  estimativa) em vez do schema completo. Num catálogo de 800 relações o payload
+  cai de ~2,66 MB para dezenas de KB; colunas/índices/FKs vêm do `/schema`
+  completo só quando uma tabela é aberta. "Copiar lista de colunas" no menu da
+  árvore passou a buscar o schema completo sob demanda.
 - **Nova linha (INSERT)** (v0.2), fechando a escrita: `POST /rows/insert` informa só
   as colunas escolhidas — as omitidas ficam com default/sequence do Postgres. O
   formulário nasce esperto (coluna com default ou nullable já vem em "default";

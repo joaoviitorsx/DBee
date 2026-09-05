@@ -525,3 +525,27 @@ describe.if(temDocker)("o keyset vira Index Cond, não Filter", () => {
     }
   }, 180_000);
 });
+
+describe.if(temDocker)("árvore leve (/schema/tree)", () => {
+  it("lista as relações sem colunas nem índices", async () => {
+    const res = await app.handle(
+      new Request(`http://localhost/api/connections/${conn}/schema/tree?database=rows`, {
+        headers: { cookie },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const arvore = (await res.json()) as {
+      schemas: { name: string; relations: { name: string; kind: string; estimatedRows: number | null }[] }[];
+    };
+    const publico = arvore.schemas.find((s) => s.name === "public");
+    expect(publico).toBeDefined();
+    const nomes = publico?.relations.map((r) => r.name) ?? [];
+    expect(nomes).toContain("itens");
+    expect(nomes).toContain("composta");
+    // A prova do "leve": a relação NÃO traz o campo de colunas do schema completo.
+    const itens = publico?.relations.find((r) => r.name === "itens");
+    expect(itens).toBeDefined();
+    expect(itens && "columns" in itens).toBe(false);
+    expect(itens?.kind).toBe("table");
+  });
+});

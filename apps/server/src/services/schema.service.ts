@@ -2,11 +2,12 @@ import type {
   ActivityList,
   DatabaseInfo,
   DatabaseSchema,
+  DatabaseTree,
   DatabasesOverview,
 } from "@dbee/shared";
 
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
-import { introspect, listActivity, listDatabases, overviewDatabases } from "../pg/introspect";
+import { introspect, introspectTree, listActivity, listDatabases, overviewDatabases } from "../pg/introspect";
 import type { PoolManager } from "../pg/pool";
 import { type ServiceResult, fail, ok } from "./result";
 
@@ -49,6 +50,10 @@ export class SchemaService {
    * fila que ele mesmo criou.
    */
   readonly #emVoo = new Map<string, Promise<DatabaseSchema>>();
+
+  /** Cache da árvore leve, separado do completo — payloads e chaves distintos. */
+  readonly #cacheTree = new Map<string, Map<string, { value: DatabaseTree; expiresAt: number }>>();
+  readonly #emVooTree = new Map<string, Promise<DatabaseTree>>();
 
   constructor({ repository, pools }: SchemaServiceDeps) {
     this.#repository = repository;
@@ -116,6 +121,62 @@ export class SchemaService {
    * sucesso. Serve os dois caminhos: o sincrono (miss/refresh, aguardado) e o
    * de background do stale-while-revalidate (disparado sem await).
    */
+  /**
+   * Árvore leve de navegação, cacheada como o `get` completo mas num mapa à
+   * parte. Sem stale-while-revalidate: o payload é pequeno e a busca é uma
+   * consulta só, então esperar o fresco no vencimento não dói como no completo.
+   */
+  async tree(
+    connectionId: string,
+    database: string | undefined,
+    refresh: boolean,
+    now = Date.now(),
+  ): Promise<ServiceResult<DatabaseTree>> {
+    let connection;
+    try {
+      connection = this.#repository.resolve(connectionId);
+    } catch {
+      return fail("decryption_failed");
+    }
+    if (connection === null) return fail("not_found");
+
+    const target = database ?? connection.database;
+    const emVooKey = `${connectionId}\u001f${target}`;
+
+    if (!refresh) {
+      const hit = this.#cacheTree.get(connectionId)?.get(target);
+      if (hit !== undefined && hit.expiresAt > now) {
+        return ok(Object.freeze({ ...hit.value, cached: true }));
+      }
+    }
+
+    let fresh: DatabaseTree;
+    try {
+      let voo = this.#emVooTree.get(emVooKey);
+      if (voo === undefined) {
+        voo = this.#pools
+          .withReadOnly(connection, target, (client) => introspectTree(client, target), "repeatable-read")
+          .then((arvore) => {
+            let byDatabase = this.#cacheTree.get(connectionId);
+            if (byDatabase === undefined) {
+              byDatabase = new Map();
+              this.#cacheTree.set(connectionId, byDatabase);
+            }
+            byDatabase.set(target, { value: arvore, expiresAt: Date.now() + TTL_MS });
+            return arvore;
+          })
+          .finally(() => {
+            this.#emVooTree.delete(emVooKey);
+          });
+        this.#emVooTree.set(emVooKey, voo);
+      }
+      fresh = await voo;
+    } catch (err: unknown) {
+      return fail("upstream_error", err instanceof Error ? err.message : "erro desconhecido");
+    }
+    return ok(Object.freeze({ ...fresh }));
+  }
+
   #revalidar(
     connectionId: string,
     connection: ResolvedConnection,
@@ -227,6 +288,7 @@ export class SchemaService {
   /** Invalida o cache de uma conexão — ao editá-la ou apagá-la. */
   evict(connectionId: string): void {
     this.#cache.delete(connectionId);
+    this.#cacheTree.delete(connectionId);
   }
 
   /** Introspecções em voo — para teste e diagnóstico. */

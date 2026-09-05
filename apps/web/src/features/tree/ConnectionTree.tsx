@@ -1,4 +1,4 @@
-import type { Connection, DatabaseSchema, Relation, RelationKind , ConnectionWarning } from "@dbee/shared";
+import type { Connection, DatabaseTree, RelationKind, RelationTree , ConnectionWarning } from "@dbee/shared";
 import {
   ChevronRight,
   Database,
@@ -59,7 +59,7 @@ export type TreeTarget =
       readonly connection: Connection;
       readonly database: string;
       readonly schema: string;
-      readonly relation: Relation;
+      readonly relation: RelationTree;
     };
 
 interface ConnectionTreeProps {
@@ -462,7 +462,7 @@ function DatabaseBranch({
    *  exige o `| undefined` explícito no `data`. */
   readonly schema:
     | {
-        data?: DatabaseSchema | undefined;
+        data?: DatabaseTree | undefined;
         isPending: boolean;
         isError: boolean;
         error: Error | null;
@@ -559,7 +559,7 @@ function SchemaBranch({
   readonly connection: Connection;
   readonly database: string;
   readonly schemaName: string;
-  readonly relations: readonly Relation[];
+  readonly relations: readonly RelationTree[];
   readonly forceOpen: boolean;
   readonly tree: TreeState;
   readonly onOpenRelation: (target: TableTarget) => void;

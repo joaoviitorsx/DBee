@@ -3,10 +3,12 @@ import type { PoolClient } from "pg";
 import type {
   Column,
   DatabaseSchema,
+  DatabaseTree,
   ForeignKey,
   Index,
   Relation,
   RelationKind,
+  RelationTree,
   SchemaNode,
 } from "@dbee/shared";
 
@@ -280,6 +282,36 @@ export async function introspect(client: PoolClient, database: string): Promise<
   return {
     database,
     schemas: tree,
+    fetchedAt: new Date().toISOString(),
+    cached: false,
+  };
+}
+
+/**
+ * Árvore **leve** — só as relações, sem colunas/índices/FKs.
+ *
+ * Uma consulta só (a mesma `RELATIONS_SQL` da introspecção completa), então é
+ * barata e o payload fica em dezenas de KB. A árvore de navegação usa isto; o
+ * detalhe de uma tabela continua vindo do `introspect` completo, sob demanda.
+ */
+export async function introspectTree(client: PoolClient, database: string): Promise<DatabaseTree> {
+  const relations = await client.query<RelationRow>(RELATIONS_SQL);
+
+  const schemas = new Map<string, RelationTree[]>();
+  for (const rel of relations.rows) {
+    const relation: RelationTree = {
+      name: rel.name,
+      kind: KIND_BY_RELKIND[rel.relkind] ?? "table",
+      estimatedRows: rel.reltuples < 0 ? null : Math.round(rel.reltuples),
+    };
+    const bucket = schemas.get(rel.schema);
+    if (bucket === undefined) schemas.set(rel.schema, [relation]);
+    else bucket.push(relation);
+  }
+
+  return {
+    database,
+    schemas: [...schemas].map(([name, rels]) => ({ name, relations: rels })),
     fetchedAt: new Date().toISOString(),
     cached: false,
   };

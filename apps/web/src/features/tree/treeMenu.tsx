@@ -2,12 +2,34 @@ import { Activity, Code2, Copy, Database, Pencil, Plug, RefreshCw, ScrollText, S
 
 import type { MenuSection } from "../../components/ContextMenu";
 import type { TableTarget } from "../../app/workspace";
+import { api } from "../../lib/api";
 import type { TreeTarget } from "./ConnectionTree";
 import type { Tradutor } from "../../i18n";
 
 /** Copia para a área de transferência, em silêncio se o navegador recusar. */
 function copiar(texto: string): void {
   void navigator.clipboard.writeText(texto).catch(() => undefined);
+}
+
+/**
+ * Copiar a lista de colunas busca o schema **completo** sob demanda: a árvore
+ * agora é leve (`/schema/tree`, sem colunas), então as colunas vêm de `/schema`
+ * só quando esta ação é acionada. O servidor cacheia, então o clique é rápido se
+ * a tabela já foi aberta.
+ */
+async function copiarColunas(
+  connectionId: string,
+  database: string,
+  schemaName: string,
+  relation: string,
+): Promise<void> {
+  const { data } = await api.api
+    .connections({ id: connectionId })
+    .schema.get({ query: { database } });
+  const rel = data?.schemas
+    .find((s) => s.name === schemaName)
+    ?.relations.find((r) => r.name === relation);
+  if (rel !== undefined) copiar(rel.columns.map((c) => c.name).join(", "));
 }
 
 const icone = "h-3.5 w-3.5 text-muted";
@@ -193,8 +215,14 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
               id: "copy-columns",
               label: t("menu.copiarColunas"),
               icon: <Copy aria-hidden className={icone} />,
-              disabled: target.relation.columns.length === 0,
-              onSelect: () => { copiar(target.relation.columns.map((c) => c.name).join(", ")); },
+              onSelect: () => {
+                void copiarColunas(
+                  target.connection.id,
+                  target.database,
+                  target.schema,
+                  target.relation.name,
+                );
+              },
             },
           ],
         },

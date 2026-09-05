@@ -1,4 +1,4 @@
-import type { DatabaseSchema, Relation, SchemaNode } from "@dbee/shared";
+import type { DatabaseTree, RelationTree, SchemaTreeNode } from "@dbee/shared";
 
 /**
  * Filtro da árvore por nome (DBee.md §9, trazido da v0.3 para a v0.1).
@@ -21,10 +21,10 @@ export function matches(needle: string, haystack: string): boolean {
 }
 
 export interface FilteredSchema {
-  readonly node: SchemaNode;
+  readonly node: SchemaTreeNode;
   /** `true` quando o próprio nome do schema casou: mostra tudo dentro dele. */
   readonly schemaMatched: boolean;
-  readonly relations: readonly Relation[];
+  readonly relations: readonly RelationTree[];
 }
 
 /**
@@ -34,7 +34,7 @@ export interface FilteredSchema {
  * em vendas, não só as tabelas com "vendas" no nome. Schema que não casa
  * aparece só com as relações que casaram, e some se nenhuma casar.
  */
-export function filterSchema(tree: DatabaseSchema, query: string): FilteredSchema[] {
+export function filterSchema(tree: DatabaseTree, query: string): FilteredSchema[] {
   const termo = query.trim();
   if (termo === "") {
     return tree.schemas.map((node) => ({ node, schemaMatched: true, relations: node.relations }));
