@@ -504,7 +504,7 @@ vezes e guardar a preferência em `localStorage` para migrar depois.
 - [x] Modo escrita por conexão, com indicador visual permanente (já na v0.1: `write_enabled`, tarja de perigo, `BEGIN READ ONLY/WRITE`)
 - [x] Edição inline de célula com diff do SQL antes de aplicar — concorrência otimista + cardinalidade provada antes do commit
 - [x] `DELETE` de linha pela UI (mesma peça: WHERE por PK + cardinalidade). **`INSERT` fica para a fatia seguinte** (defaults, sequences, colunas geradas — problema diferente)
-- [ ] Cancelamento de query em execução
+- [x] Cancelamento de query em execução — `pg_cancel_backend` por conexão à parte; a query volta com 57014 e o log marca `cancelled`
 - [x] Tela de auditoria (histórico pesquisável) — busca por SQL/estado/conexão, keyset
 
 ### v0.3 — Workflow

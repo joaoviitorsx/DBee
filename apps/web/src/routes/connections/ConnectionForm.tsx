@@ -16,6 +16,20 @@ const SSL_OPTIONS: readonly { value: SslMode; label: ChaveI18n; hint: ChaveI18n 
   { value: "verify-full", label: "form.tlsVerificar", hint: "form.tlsVerificarAjuda" },
 ];
 
+/**
+ * Fusos IANA — a lista nativa do runtime (`Intl.supportedValuesOf`), com UTC no
+ * topo. Um select fecha a porta para o erro de digitação que um input livre
+ * deixava passar (`America/Sao_Palo`), e o Postgres recusaria só na conexão.
+ */
+const TIMEZONES: readonly string[] = (() => {
+  const suportados = (Intl as { supportedValuesOf?: (chave: string) => string[] }).supportedValuesOf;
+  const todos = suportados?.("timeZone") ?? [];
+  const semUtc = todos.filter((z) => z !== "UTC");
+  return semUtc.length > 0
+    ? ["UTC", ...semUtc]
+    : ["UTC", "America/Sao_Paulo", "America/Fortaleza", "America/Manaus", "America/New_York", "Europe/London", "Europe/Lisbon"];
+})();
+
 const TAGS: readonly { color: string; name: ChaveI18n }[] = [
   { color: "#E5484D", name: "cor.vermelho" },
   { color: "#F5A623", name: "cor.ambar" },
@@ -239,13 +253,24 @@ export function ConnectionForm({
               </Field>
 
               <Field label={t("form.timezone")} htmlFor="timezone" hint={t("form.timezoneAjuda")}>
-                <Input
+                <select
                   id="timezone"
                   required
-                  mono
-                  value={draft.timezone}
+                  value={draft.timezone ?? "UTC"}
                   onChange={(e) => { set("timezone", e.target.value); }}
-                />
+                  className="h-10 cursor-pointer rounded-[4px] border border-line bg-sunken px-3 font-mono text-sm text-ink transition-colors duration-150 hover:border-line-strong"
+                >
+                  {/* Se a conexão editada tem um fuso fora da lista nativa, ele
+                      entra no topo para não sumir na edição. */}
+                  {(TIMEZONES.includes(draft.timezone ?? "UTC")
+                    ? TIMEZONES
+                    : [draft.timezone ?? "UTC", ...TIMEZONES]
+                  ).map((tz) => (
+                    <option key={tz} value={tz}>
+                      {tz}
+                    </option>
+                  ))}
+                </select>
               </Field>
 
               {/* Escrita: o estado perigoso, e o formulário diz o que ele custa. */}

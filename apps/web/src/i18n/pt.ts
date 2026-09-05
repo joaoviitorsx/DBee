@@ -278,6 +278,8 @@ export const pt = {
   "dados.haMais": " · há mais",
   "dados.semPk": "Sem chave primária: navegação limitada. A ordem entre páginas pode repetir ou pular linha.",
   "query.executarTudo": "Executar tudo",
+  "query.cancelar": "Cancelar",
+  "query.cancelando": "Cancelando…",
   "query.permitirEscrita": "Permitir escrita nesta execução",
   "query.avisoEscrita": "A próxima execução roda em transação gravável e é commitada.",
   "query.resultado": "Resultado",

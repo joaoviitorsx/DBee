@@ -1,6 +1,13 @@
 import { Elysia, t } from "elysia";
 
-import { ErrorResponse, QueryLogEntry, QueryRequest, QueryResponse } from "@dbee/shared";
+import {
+  CancelRequest,
+  CancelResponse,
+  ErrorResponse,
+  QueryLogEntry,
+  QueryRequest,
+  QueryResponse,
+} from "@dbee/shared";
 
 import type { QueryService } from "../services/query.service";
 import type { UsersRepository } from "../db/users.repo";
@@ -44,6 +51,17 @@ export const queryRoutes = (service: QueryService, users: UsersRepository) =>
           500: ErrorResponse,
           502: ErrorResponse,
         },
+      },
+    )
+    .post(
+      "/:id/query/cancel",
+      // Sem `actor`: cancelar não é execução — a query cancelada é que registra
+      // seu próprio `cancelled` no log. A sessão vem do guard global.
+      ({ params, body }) => service.cancelar(params.id, body.queryId),
+      {
+        params: t.Object({ id: t.String() }),
+        body: CancelRequest,
+        response: { 200: CancelResponse, 401: ErrorResponse, 403: ErrorResponse },
       },
     )
     .get(

@@ -5,6 +5,14 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Cancelamento de query** (v0.2): o cliente manda um `queryId` na execução; um
+  botão "Cancelar" (visível enquanto roda) chama `POST /query/cancel`, que dispara
+  `pg_cancel_backend(pid)` numa conexão **fora do pool** (cancela-se justamente
+  quando o pool está ocupado). A query volta com o código 57014 e o `query_log`
+  marca `cancelled`, não `error`. Só o próprio backend é sinalizado — nunca
+  `pg_terminate_backend` (ADR 006). Integração contra Postgres real.
+- Timezone no cadastro de conexão virou **select** (lista IANA nativa do runtime),
+  fechando a porta ao erro de digitação que só aparecia ao conectar.
 - **Edição de linha** (v0.2), a metade de UI da fatia de escrita: duplo clique numa
   célula edita inline; Enter abre o **preview do diff** (o SQL com valores
   literais, '2026-03-01' e não `$1`) para confirmar antes de aplicar; selecionar

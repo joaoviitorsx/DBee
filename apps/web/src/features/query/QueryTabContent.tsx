@@ -1,7 +1,7 @@
 import { splitStatements, type QueryResponse, type StatementResult } from "@dbee/shared";
 import { useMutation } from "@tanstack/react-query";
-import { Play, Table2, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { Play, Square, Table2, TriangleAlert } from "lucide-react";
+import { useRef, useState } from "react";
 
 import { Badge, Button } from "../../components/ui";
 import { api } from "../../lib/api";
@@ -35,6 +35,8 @@ export function QueryTabContent({
   const t = useT();
   const [sql, setSql] = useState(tab.initialSql);
   const [pedirEscrita, setPedirEscrita] = useState(false);
+  // Id da execução em voo, para o botão Cancelar mandar o cancelamento certo.
+  const queryIdRef = useRef("");
 
   // A árvore do database, para o autocomplete do editor. Já costuma estar em
   // cache (a navegação a buscou); aqui ela é reusada, não rebuscada.
@@ -62,9 +64,14 @@ export function QueryTabContent({
 
   const executar = useMutation({
     mutationFn: async (aExecutar: string): Promise<QueryResponse> => {
+      // Um id por execução, guardado no ref antes do request: é o que o Cancelar
+      // usa para achar o backend certo enquanto a query roda.
+      const queryId = crypto.randomUUID();
+      queryIdRef.current = queryId;
       const { data, error } = await api.api.connections({ id: tab.connectionId }).query.post({
         sql: aExecutar,
         database: tab.database,
+        queryId,
         // Só manda quando o usuário pediu: campo ausente significa leitura, e
         // o servidor trata assim de propósito.
         ...(writeEnabled && pedirEscrita ? { readOnly: false } : {}),
@@ -74,6 +81,17 @@ export function QueryTabContent({
     },
     // Executou: o olho quer o resultado, não os dados da tabela.
     onSuccess: () => { setPainel("resultado"); },
+  });
+
+  const cancelar = useMutation({
+    mutationFn: async () => {
+      if (queryIdRef.current === "") return;
+      // O cancelamento faz a query voltar com 57014; o resultado (erro
+      // "cancelada") chega pela própria promessa do `executar`, não por aqui.
+      await api.api.connections({ id: tab.connectionId }).query.cancel.post({
+        queryId: queryIdRef.current,
+      });
+    },
   });
 
   const resposta = executar.data;
@@ -111,6 +129,19 @@ export function QueryTabContent({
             <Play aria-hidden className="h-3.5 w-3.5" />
             {t("query.executarTudo")}
           </Button>
+
+          {executar.isPending ? (
+            <Button
+              variant="danger"
+              size="sm"
+              loading={cancelar.isPending}
+              loadingLabel={t("query.cancelando")}
+              onClick={() => { cancelar.mutate(); }}
+            >
+              <Square aria-hidden className="h-3 w-3" />
+              {t("query.cancelar")}
+            </Button>
+          ) : null}
 
           <span className="text-2xs text-subtle">{t("query.cmdEnter")}</span>
 

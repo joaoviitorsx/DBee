@@ -54,8 +54,27 @@ export const QueryRequest = t.Object({
    * conexão read-only: `false` aqui não desliga a proteção da conexão.
    */
   readOnly: t.Optional(t.Boolean()),
+  /**
+   * Id da execução, gerado pelo cliente, para poder **cancelar** enquanto roda.
+   * O servidor registra o backend PID sob este id; `POST .../query/cancel` com o
+   * mesmo id dispara `pg_cancel_backend` numa conexão à parte. Opcional: sem ele
+   * a query roda normal, só não dá para cancelar.
+   */
+  queryId: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
 });
 export type QueryRequest = Static<typeof QueryRequest>;
+
+/** Pedido de cancelamento de uma query em execução (v0.2). */
+export const CancelRequest = t.Object({
+  queryId: t.String({ minLength: 1, maxLength: 64 }),
+});
+export type CancelRequest = Static<typeof CancelRequest>;
+
+export const CancelResponse = t.Object({
+  /** `true` quando o sinal de cancelamento foi enviado ao backend. */
+  cancelled: t.Boolean(),
+});
+export type CancelResponse = Static<typeof CancelResponse>;
 
 export const QueryResponse = t.Object({
   results: t.Array(StatementResult),

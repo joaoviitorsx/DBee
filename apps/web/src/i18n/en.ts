@@ -278,6 +278,8 @@ export const en: Record<ChaveI18n, string> = {
   "dados.haMais": " · more available",
   "dados.semPk": "No primary key: limited navigation. Order between pages may repeat or skip rows.",
   "query.executarTudo": "Run all",
+  "query.cancelar": "Cancel",
+  "query.cancelando": "Cancelling…",
   "query.permitirEscrita": "Allow writes in this run",
   "query.avisoEscrita": "The next run executes in a writable transaction and is committed.",
   "query.resultado": "Result",

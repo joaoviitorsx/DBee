@@ -1,4 +1,4 @@
-import { Pool, type PoolClient } from "pg";
+import { Client, Pool, type PoolClient } from "pg";
 
 import type { ResolvedConnection } from "../db/connections.repo";
 import { sslConfigFor } from "./ssl";
@@ -372,6 +372,43 @@ export class PoolManager {
       this.#pools.set(connectionId, byDatabase);
     }
     byDatabase.set(database, { pool, lastUsedAt, leases, doomed: false });
+  }
+
+  /**
+   * Cancela a query rodando no backend `pid`, por uma conexão **à parte**.
+   *
+   * Fora do pool de propósito: cancela-se justamente quando as queries longas
+   * seguram os empréstimos, e uma conexão do pool ficaria na fila sem nunca
+   * conectar. `pg_cancel_backend` sinaliza o cancelamento de UMA query no
+   * próprio backend — não `pg_terminate_backend`, que derrubaria a sessão
+   * (fronteira, ADR 006). Só funciona sobre backends do mesmo papel, que é
+   * exatamente o caso: a query e o cancelamento usam a mesma credencial.
+   *
+   * `statement_timeout` curto: se o próprio cancelamento travar, ele mesmo
+   * desiste em vez de virar mais uma conexão pendurada.
+   */
+  async cancelBackend(
+    connection: ResolvedConnection,
+    database: string,
+    pid: number,
+  ): Promise<boolean> {
+    const client = new Client({
+      host: connection.host,
+      port: connection.port,
+      database,
+      user: connection.username,
+      password: connection.password,
+      ssl: sslConfigFor(connection.sslMode, this.#caCert, connection.host),
+      connectionTimeoutMillis: 5000,
+      statement_timeout: 5000,
+    });
+    try {
+      await client.connect();
+      const res = await client.query<{ ok: boolean }>("SELECT pg_cancel_backend($1) AS ok", [pid]);
+      return res.rows[0]?.ok ?? false;
+    } finally {
+      await client.end().catch(() => undefined);
+    }
   }
 
   async shutdown(): Promise<void> {
