@@ -5,6 +5,7 @@ import { HealthResponse } from "@dbee/shared";
 import { ConnectionsRepository } from "./db/connections.repo";
 import { UsersRepository } from "./db/users.repo";
 import { QueryLogRepository } from "./db/queryLog.repo";
+import { SavedQueriesRepository } from "./db/savedQueries.repo";
 import { MutationService } from "./services/mutation.service";
 import { AuditService } from "./services/audit.service";
 import type { Store } from "./db/client";
@@ -18,6 +19,7 @@ import { sessionGuard } from "./routes/guard";
 import { mutationRoutes } from "./routes/mutation";
 import { queryRoutes } from "./routes/query";
 import { rowsRoutes } from "./routes/rows";
+import { savedQueriesRoutes } from "./routes/savedQueries";
 import { schemaRoutes } from "./routes/schema";
 import { AuthService } from "./services/auth.service";
 import { ConnectionsService } from "./services/connections.service";
@@ -49,6 +51,7 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert), data
   const schema = new SchemaService({ repository, pools });
   const log = new QueryLogRepository(store.db);
   const audit = new AuditService(log);
+  const savedQueries = new SavedQueriesRepository(store.db);
   const query = new QueryService({ repository, pools, log });
   const mutation = new MutationService({ repository, pools, log });
   const rows = new RowsService({ repository, pools, schema, log });
@@ -94,6 +97,7 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert), data
       .use(mutationRoutes(mutation, users))
       .use(exportRoutes(exportar, users))
       .use(auditRoutes(audit))
+      .use(savedQueriesRoutes(savedQueries))
   );
 }
 

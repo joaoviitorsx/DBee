@@ -1,4 +1,4 @@
-import type { Connection, RelationKind } from "@dbee/shared";
+import type { Connection, RelationKind, RowFilter } from "@dbee/shared";
 
 import type { Tradutor } from "../i18n";
 
@@ -30,6 +30,12 @@ export interface TableTab {
   readonly view: TableView;
   /** Coluna selecionada, que alimenta o inspetor. */
   readonly selectedColumn: string | null;
+  /**
+   * Filtros iniciais da aba Dados, quando ela nasce de um salto por FK — a
+   * tabela referenciada abre já filtrada pela linha de origem. Semeia o estado
+   * do `DataTab` uma vez, na montagem; depois o usuário manda nos filtros.
+   */
+  readonly initialFilters?: readonly RowFilter[];
 }
 
 /**
@@ -142,6 +148,31 @@ export function openTable(ws: Workspace, target: TableTarget): Workspace {
 }
 
 let sequencia = 0;
+
+/**
+ * Salto por FK: abre a tabela referenciada numa aba **nova**, já filtrada pela
+ * linha de origem, sem tocar na aba atual (o caminho de volta).
+ *
+ * Diferente de `openTable`, **sempre cria** — dois saltos para a mesma tabela
+ * carregam filtros diferentes, então são duas abas. O id é único (não o
+ * `tableTabId` determinístico), justamente para coexistirem.
+ */
+export function openTableFiltered(
+  ws: Workspace,
+  target: TableTarget,
+  filters: readonly RowFilter[],
+): Workspace {
+  sequencia++;
+  const tab: TableTab = {
+    kind: "table",
+    id: `table-fk:${String(sequencia)}`,
+    target,
+    view: "data",
+    selectedColumn: null,
+    initialFilters: filters,
+  };
+  return { ...ws, tabs: [...ws.tabs, tab], activeTabId: tab.id };
+}
 
 /**
  * Abre uma aba de query nova.

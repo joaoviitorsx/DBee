@@ -104,6 +104,26 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 - `splitStatements` movido para `packages/shared`: o editor e o servidor separam
   statements com a **mesma** função.
 
+### Adicionado
+- **Navegação por FK.** Na aba Estrutura, a coluna com FK abre a tabela
+  referenciada; no grid (Dados), a célula de uma coluna com FK ganha um salto que
+  abre a tabela referenciada **já filtrada pela linha** (FK composta usa todas as
+  colunas na ordem). Se o papel não pode ler a tabela referenciada, o salto não
+  aparece (a introspecção filtra por `has_table_privilege` da referenciada).
+- **Queries salvas.** Salvar a query da aba com nome, listar/abrir/renomear/
+  excluir, busca por nome e por conteúdo do SQL. Abrir cria aba atrelada à conexão
+  de origem. Liga a tabela `saved_queries`, que existia desde a migration 001.
+
+### Corrigido
+- **Grid estourava em qualquer coluna de data (`[object Date]`).** O Eden Treaty
+  converte, por padrão, strings ISO em `Date`; uma célula `date`/`timestamptz` (ou
+  texto que pareça data) chegava como `Date` e o grid quebrava — e, sem quebrar,
+  perdia o valor textual exato do Postgres. `parseDate: false` no cliente Eden
+  (`lib/api.ts`). Ver DBee.md §11.43.
+
+### Alterado
+- Lockup "DBee" ganhou tipo próprio (Space Grotesk) e mais presença no cabeçalho.
+
 ### Segurança
 - **Primeiro acesso pela tela de setup — nenhuma senha em log.** Antes o boot
   gerava a senha do `admin` e a imprimia no log do container (visível no painel

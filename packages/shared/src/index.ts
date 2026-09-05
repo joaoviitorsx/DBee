@@ -9,5 +9,6 @@ export * from "./mutation";
 export * from "./overview";
 export * from "./query";
 export * from "./rows";
+export * from "./savedQueries";
 export * from "./schema";
 export * from "./split";

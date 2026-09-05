@@ -1,10 +1,11 @@
-import { splitStatements, type QueryResponse, type StatementResult } from "@dbee/shared";
+import { splitStatements, type QueryResponse, type SavedQuery, type StatementResult } from "@dbee/shared";
 import { useMutation } from "@tanstack/react-query";
-import { Play, Square, Table2, TriangleAlert } from "lucide-react";
+import { BookmarkPlus, FolderOpen, Play, Square, Table2, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Badge, Button } from "../../components/ui";
 import { api } from "../../lib/api";
+import { SaveQueryDialog, SavedQueriesModal } from "./SavedQueriesModal";
 import { DataTab } from "../tabs/DataTab";
 import { ExportButton } from "../export/ExportButton";
 import { Mascote } from "../mascote";
@@ -13,7 +14,8 @@ import { ResultGrid } from "../grid/ResultGrid";
 import { cn } from "../../lib/cn";
 import { useT } from "../../i18n";
 import { useSchema } from "../tree/useTree";
-import type { QueryTab } from "../../app/workspace";
+import type { QueryTab, TableTarget } from "../../app/workspace";
+import type { RowFilter } from "@dbee/shared";
 import { SqlEditor } from "./SqlEditor";
 
 /**
@@ -28,13 +30,24 @@ import { SqlEditor } from "./SqlEditor";
 export function QueryTabContent({
   tab,
   writeEnabled,
+  onOpenTableFiltered,
+  onAbrirSalva,
+  nomeConexao,
 }: {
   readonly tab: QueryTab;
   readonly writeEnabled: boolean;
+  /** Salto por FK a partir do painel "Tabela" (os dados da tabela de origem). */
+  readonly onOpenTableFiltered: (target: TableTarget, filters: readonly RowFilter[]) => void;
+  /** Abrir uma query salva numa aba nova, atrelada à conexão de origem. */
+  readonly onAbrirSalva: (query: SavedQuery) => void;
+  /** Nome legível de uma conexão pelo id (ou null se foi apagada). */
+  readonly nomeConexao: (connectionId: string | null) => string | null;
 }) {
   const t = useT();
   const [sql, setSql] = useState(tab.initialSql);
   const [pedirEscrita, setPedirEscrita] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [mostrarSalvas, setMostrarSalvas] = useState(false);
   // Id da execução em voo, para o botão Cancelar mandar o cancelamento certo.
   const queryIdRef = useRef("");
 
@@ -143,6 +156,20 @@ export function QueryTabContent({
             </Button>
           ) : null}
 
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={sql.trim() === ""}
+            onClick={() => { setSalvando(true); }}
+          >
+            <BookmarkPlus aria-hidden className="h-3.5 w-3.5" />
+            {t("salvas.salvar")}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => { setMostrarSalvas(true); }}>
+            <FolderOpen aria-hidden className="h-3.5 w-3.5" />
+            {t("salvas.abrirLista")}
+          </Button>
+
           <span className="text-2xs text-subtle">{t("query.cmdEnter")}</span>
 
           {writeEnabled ? (
@@ -168,6 +195,21 @@ export function QueryTabContent({
           </p>
         ) : null}
       </div>
+
+      {salvando ? (
+        <SaveQueryDialog
+          sql={sql}
+          connectionId={tab.connectionId}
+          onClose={() => { setSalvando(false); }}
+        />
+      ) : null}
+      {mostrarSalvas ? (
+        <SavedQueriesModal
+          onClose={() => { setMostrarSalvas(false); }}
+          onOpen={onAbrirSalva}
+          nomeConexao={nomeConexao}
+        />
+      ) : null}
 
       {/*
         * Painel de baixo com duas faces. A barra de faces só existe quando há
@@ -203,7 +245,8 @@ export function QueryTabContent({
             target={tab.source}
             estimatedRows={relOrigem?.estimatedRows ?? null}
             writeEnabled={writeEnabled}
-            {...(relOrigem !== null ? { colunasSchema: relOrigem.columns } : {})}
+            onOpenTableFiltered={onOpenTableFiltered}
+            {...(relOrigem !== null ? { colunasSchema: relOrigem.columns, foreignKeys: relOrigem.foreignKeys } : {})}
             // "Consultar" aqui recarrega o SELECT da tabela no editor de cima,
             // em vez de abrir outra aba: já estamos na aba de consulta dela.
             onConsultar={() => {

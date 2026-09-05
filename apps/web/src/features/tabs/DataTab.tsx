@@ -1,4 +1,4 @@
-import type { Column, RowFilter, RowsResponse } from "@dbee/shared";
+import type { Column, ForeignKey, RowFilter, RowsResponse } from "@dbee/shared";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Filter, Plus, Trash2, TriangleAlert, X } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -30,6 +30,9 @@ export function DataTab({
   estimatedRows = null,
   writeEnabled = false,
   colunasSchema,
+  foreignKeys,
+  initialFilters,
+  onOpenTableFiltered,
   leading,
   trailing,
 }: {
@@ -41,6 +44,12 @@ export function DataTab({
   readonly writeEnabled?: boolean;
   /** Colunas do schema (com nullable/default), para o formulário de "Nova linha". */
   readonly colunasSchema?: readonly Column[];
+  /** FKs da tabela — habilitam o salto de navegação nas células. */
+  readonly foreignKeys?: readonly ForeignKey[];
+  /** Filtros iniciais quando a aba nasce de um salto por FK. */
+  readonly initialFilters?: readonly RowFilter[];
+  /** Salto por FK: abre a tabela referenciada, filtrada, em aba nova. */
+  readonly onOpenTableFiltered?: (target: TableTarget, filters: readonly RowFilter[]) => void;
   /** Sub-abas, à esquerda da toolbar — uma linha só (ver `SubTabs`). */
   readonly leading?: React.ReactNode;
   /** Ações à direita, ex.: o botão do inspetor. */
@@ -49,7 +58,9 @@ export function DataTab({
   const t = useT();
   const [orderBy, setOrderBy] = useState<string | null>(null);
   const [orderDirection, setOrderDirection] = useState<"asc" | "desc">("asc");
-  const [filtros, setFiltros] = useState<RowFilter[]>([]);
+  // Semeado uma vez com os filtros do salto por FK (a tabela referenciada abre
+  // já filtrada); depois o usuário manda. `initialFilters` só é lido na montagem.
+  const [filtros, setFiltros] = useState<RowFilter[]>(() => [...(initialFilters ?? [])]);
   const [rascunho, setRascunho] = useState({ column: "", value: "" });
   // Edição de linha (v0.2): o modal do diff, e a linha selecionada para excluir.
   const [pendente, setPendente] = useState<Pendente | null>(null);
@@ -99,6 +110,47 @@ export function DataTab({
   // identifica a linha com segurança (a rota também recusaria).
   const pk = primeira?.primaryKey ?? [];
   const editavel = writeEnabled && (primeira?.keyset ?? false) && pk.length > 0;
+
+  // Colunas com FK ganham o gatilho de salto no grid.
+  const fkColunas = useMemo(
+    () => new Set((foreignKeys ?? []).flatMap((f) => f.columns)),
+    [foreignKeys],
+  );
+
+  /**
+   * Salto por FK: abre a tabela referenciada, filtrada pela linha de origem.
+   *
+   * FK composta usa **todas** as colunas, na ordem preservada
+   * (`columns[i]` → `referencedColumns[i]`). Se qualquer valor da FK é nulo, a
+   * linha não referencia nada e o salto não acontece.
+   */
+  const saltarFk = (li: number, col: number): void => {
+    const coluna = colunas[col]?.name;
+    const linha = linhas[li];
+    if (coluna === undefined || linha === undefined || onOpenTableFiltered === undefined) return;
+    const fk = (foreignKeys ?? []).find((f) => f.columns.includes(coluna));
+    if (fk === undefined) return;
+
+    const filters: RowFilter[] = [];
+    for (let i = 0; i < fk.columns.length; i++) {
+      const idx = colunas.findIndex((c) => c.name === fk.columns[i]);
+      const valor = idx >= 0 ? linha[idx] : undefined;
+      const refCol = fk.referencedColumns[i];
+      if (valor === undefined || valor === null || refCol === undefined) return;
+      filters.push({ column: refCol, operator: "eq", value: valor });
+    }
+
+    onOpenTableFiltered(
+      {
+        connectionId: target.connectionId,
+        database: target.database,
+        schema: fk.referencedSchema,
+        relation: fk.referencedTable,
+        kind: "table",
+      },
+      filters,
+    );
+  };
 
   /** Valores da PK de uma linha, ou `null` se algum for nulo (não identifica). */
   const pkDaLinha = (li: number): PkValor[] | null => {
@@ -299,6 +351,8 @@ export function DataTab({
             onSort={ordenarPor}
             editavel={editavel}
             onEditCell={abrirEdicao}
+            fkColunas={fkColunas}
+            {...(onOpenTableFiltered !== undefined ? { onSaltoFk: saltarFk } : {})}
             onCellClick={(li) => { setLinhaSel(li); }}
             loadingMore={consulta.isFetchingNextPage}
             onReachEnd={() => {

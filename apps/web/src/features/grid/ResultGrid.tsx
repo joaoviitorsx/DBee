@@ -1,5 +1,5 @@
 import type { ResultColumn } from "@dbee/shared";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, CornerUpRight } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef, useState } from "react";
 
@@ -64,6 +64,14 @@ export interface ResultGridProps {
   readonly editavel?: boolean;
   /** Duplo clique numa célula, editado e confirmado com Enter, chega aqui. */
   readonly onEditCell?: (linha: number, coluna: number, valor: string) => void;
+  /**
+   * Nomes de coluna com FK — ganham a affordance de salto (navegação por FK).
+   * O consumidor sabe quais têm FK (a tabela, pela introspecção); o grid só
+   * pinta o gatilho.
+   */
+  readonly fkColunas?: ReadonlySet<string>;
+  /** Clicar no salto de uma célula de coluna com FK chega aqui. */
+  readonly onSaltoFk?: (linha: number, coluna: number) => void;
 }
 
 export function ResultGrid({
@@ -77,6 +85,8 @@ export function ResultGrid({
   onSort,
   editavel = false,
   onEditCell,
+  fkColunas,
+  onSaltoFk,
 }: ResultGridProps) {
   const scroller = useRef<HTMLDivElement>(null);
   // Célula em edição inline (duplo clique). `valor` é o rascunho do input.
@@ -371,9 +381,16 @@ export function ResultGrid({
                       />
                     );
                   }
+                  // Coluna com FK e valor não nulo ganha o gatilho de salto.
+                  // Valor nulo não referencia linha nenhuma, então não salta.
+                  const temFk = (fkColunas?.has(columns[j]?.name ?? "") ?? false) && celula !== null;
                   return (
-                  <button
+                  <div
                     key={j}
+                    className="group/cel relative shrink-0"
+                    style={{ width: larguraDe(columns[j]?.name ?? "") }}
+                  >
+                  <button
                     type="button"
                     onDoubleClick={
                       editavel
@@ -391,14 +408,13 @@ export function ResultGrid({
                     }}
                     title={celula ?? undefined}
                     className={cn(
-                      "shrink-0 cursor-default truncate border-r border-line/40 px-3 text-left font-mono text-xs leading-[26px]",
+                      "block w-full cursor-default truncate border-r border-line/40 px-3 text-left font-mono text-xs leading-[26px]",
                       alinhamentos[j] === "right" && "text-right",
                       celula === null ? "text-subtle" : "text-ink",
                       // Faixa de seleção: tinta fraca, não o âmbar sólido do
                       // selo — seleção é interação, selo é informação.
                       dentro(faixa, item.index, j) && "bg-amber/12 text-ink",
                     )}
-                    style={{ width: larguraDe(columns[j]?.name ?? "") }}
                   >
                     {/*
                       * Três coisas que precisam ser distinguíveis a olho
@@ -414,6 +430,21 @@ export function ResultGrid({
                       celula
                     )}
                   </button>
+                  {temFk ? (
+                    // Só no hover da célula: um ícone por célula-FK sempre visível
+                    // viraria ruído. Fica sobre a borda direita, com fundo sólido
+                    // para ser legível sobre qualquer tinta de seleção.
+                    <button
+                      type="button"
+                      aria-label="Abrir tabela referenciada por esta linha"
+                      title="Abrir a tabela referenciada, filtrada por esta linha"
+                      onClick={(e) => { e.stopPropagation(); onSaltoFk?.(item.index, j); }}
+                      className="absolute inset-y-0 right-0 z-10 hidden items-center rounded-l-[3px] border-l border-accent-line bg-overlay pl-1 pr-1.5 text-accent hover:bg-accent-soft group-hover/cel:flex"
+                    >
+                      <CornerUpRight aria-hidden className="h-3 w-3" />
+                    </button>
+                  ) : null}
+                  </div>
                   );
                 })}
               </div>

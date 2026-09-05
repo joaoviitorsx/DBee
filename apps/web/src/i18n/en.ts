@@ -208,6 +208,22 @@ export const en: Record<ChaveI18n, string> = {
   "estrutura.referencia": "Reference",
   "estrutura.pkAria": "primary key",
   "estrutura.fkAria": "foreign key",
+  "estrutura.abrirReferencia": "Open the referenced table",
+
+  // --- saved queries ---
+  "salvas.titulo": "Saved queries",
+  "salvas.salvar": "Save",
+  "salvas.salvarTitulo": "Save query",
+  "salvas.nomeDaQuery": "Query name",
+  "salvas.abrirLista": "Saved",
+  "salvas.buscar": "Search by name or SQL…",
+  "salvas.vazio": "No saved queries yet.",
+  "salvas.semResultado": "Nothing found.",
+  "salvas.abrir": "Open",
+  "salvas.renomear": "Rename",
+  "salvas.excluir": "Delete",
+  "salvas.confirmarExcluir": "Confirm delete",
+  "salvas.semConexao": "connection removed",
   "estrutura.semColunas": "No columns.",
 
   // --- indexes ---

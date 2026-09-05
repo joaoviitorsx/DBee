@@ -1,5 +1,5 @@
-import type { Relation } from "@dbee/shared";
-import { KeyRound, Link2 } from "lucide-react";
+import type { ForeignKey, Relation } from "@dbee/shared";
+import { CornerUpRight, KeyRound, Link2 } from "lucide-react";
 
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
@@ -14,16 +14,20 @@ export function StructureTab({
   relation,
   selectedColumn,
   onSelectColumn,
+  onOpenReference,
 }: {
   readonly relation: Relation;
   readonly selectedColumn: string | null;
   readonly onSelectColumn: (name: string) => void;
+  /** Abrir a tabela referenciada por uma FK (navegação por FK). */
+  readonly onOpenReference?: (fk: ForeignKey) => void;
 }) {
   const t = useT();
-  const fkPorColuna = new Map<string, string>();
+  // Coluna → a FK inteira, para o salto ter schema/tabela referenciados.
+  const fkPorColuna = new Map<string, ForeignKey>();
   for (const fk of relation.foreignKeys) {
     for (const coluna of fk.columns) {
-      fkPorColuna.set(coluna, `${fk.referencedSchema}.${fk.referencedTable}`);
+      fkPorColuna.set(coluna, fk);
     }
   }
 
@@ -45,7 +49,7 @@ export function StructureTab({
         </thead>
         <tbody>
           {relation.columns.map((column) => {
-            const referencia = fkPorColuna.get(column.name);
+            const fk = fkPorColuna.get(column.name);
             const selecionada = column.name === selectedColumn;
 
             return (
@@ -60,7 +64,7 @@ export function StructureTab({
                 <td className="py-1.5 pl-4">
                   {column.isPrimaryKey ? (
                     <KeyRound aria-label={t("estrutura.pkAria")} className="h-3 w-3 text-accent" />
-                  ) : referencia !== undefined ? (
+                  ) : fk !== undefined ? (
                     <Link2 aria-label={t("estrutura.fkAria")} className="h-3 w-3 text-subtle" />
                   ) : null}
                 </td>
@@ -70,7 +74,25 @@ export function StructureTab({
                 <td className="max-w-[16rem] truncate py-1.5 pr-4 font-mono text-subtle">
                   {column.defaultValue ?? "—"}
                 </td>
-                <td className="py-1.5 pr-4 font-mono text-subtle">{referencia ?? "—"}</td>
+                <td className="py-1.5 pr-4 font-mono text-subtle">
+                  {fk === undefined ? (
+                    "—"
+                  ) : onOpenReference !== undefined ? (
+                    // Clicar abre a tabela referenciada. `stopPropagation` para
+                    // não disparar o select de linha da `<tr>` junto.
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onOpenReference(fk); }}
+                      title={t("estrutura.abrirReferencia")}
+                      className="inline-flex items-center gap-1 rounded-[3px] px-1 text-accent hover:bg-accent-soft"
+                    >
+                      {fk.referencedSchema}.{fk.referencedTable}
+                      <CornerUpRight aria-hidden className="h-3 w-3" />
+                    </button>
+                  ) : (
+                    `${fk.referencedSchema}.${fk.referencedTable}`
+                  )}
+                </td>
               </tr>
             );
           })}

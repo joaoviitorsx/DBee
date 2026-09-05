@@ -90,7 +90,8 @@ próxima sessão no que já foi decidido. Fora desta lista, ainda vale perguntar
 | `clsx`, `tailwind-merge`, `class-variance-authority` | base do shadcn/ui |
 | `lucide-react` | ícones do shadcn/ui |
 | `@radix-ui/react-*` | primitivos por trás dos componentes shadcn/ui em uso |
-| `@fontsource-variable/sora` | Sora bundlada, subset latin — sem CDN |
+| `@fontsource-variable/sora` | Sora (corpo/interface) bundlada, subset latin — sem CDN |
+| `@fontsource-variable/space-grotesk` | Space Grotesk — **só o lockup "DBee"** (`.font-marca`), bundlada, subset latin |
 | `codemirror`, `@codemirror/lang-sql` | editor SQL (v0.1) |
 | `@codemirror/autocomplete` | autocomplete de tabela/coluna no editor (abre ao digitar; Ctrl+Espaço força) |
 | `@dagrejs/dagre` | layout do diagrama ERD — ver nota abaixo |
@@ -288,6 +289,11 @@ sem cobertura faz o teste falhar sozinha.
   Medido contra Postgres real (`exporter.integration.test.ts`): 150 mil linhas / 39,5 MB de corpo,
   primeiro byte em **5 ms** de 1,7 s, pico de heap **+14 MB** contra +0 MB para 5 mil linhas.
   A memória não acompanha o tamanho do resultado — é o que a rota existe para garantir.
+
+### Queries salvas
+- `GET /saved-queries?q=` — lista, filtrada por texto em **nome ou SQL** (`instr`, sem distinção de caixa). Lista global (a tabela não tem dono; compartilhamento entre usuários é fora de escopo).
+- `POST /saved-queries` — `{ name, sql, connectionId? }` salva. `connectionId` viaja junto para a query abrir atrelada à conexão de origem.
+- `PATCH /saved-queries/:id` — `{ name }` renomeia. `DELETE /saved-queries/:id` exclui (404 se já não existe).
 
 ### Meta
 - `GET /meta/version` — `{ current, latest, updateAvailable, releaseUrl }`
@@ -601,6 +607,8 @@ Registradas aqui para não serem redescobertas pela terceira vez:
 21. **`oid::int` faz wrap para negativo acima de 2^31.** O cast é binário-coercível e não dá erro. O `pg` lê o `dataTypeID` de um resultado como **não sinalizado**, então a árvore e o resultado de query divergiriam num cluster antigo. Use `::bigint` — e lembre que aí o valor chega como string (§11.2).
 
 22. **`array_agg` sobre `indkey` filtrando `attnum > 0` mente em índice misto.** Em `CREATE INDEX ON t (lower(a), b)` o filtro descarta a expressão e devolve `['b']` — array não-nulo e incompleto, que a UI mostra como índice de coluna única em `b`. É falso na direção que importa: `b` é a segunda chave e o índice não serve para `WHERE b = ?`. Se qualquer chave for expressão, devolva NULL e caia para a definição literal.
+
+43. **O Eden Treaty converte, por padrão, toda string que pareça data ISO em `Date` — e isso quebra a regra 10.** O servidor garante que **todo valor de célula trafega como string** (regra 10, `TUDO_TEXTO` no driver). Mas o `@elysiajs/eden` reanalisa o JSON da resposta com um reviver que troca qualquer string casando o regex de data/hora ISO por um objeto `Date`. Efeito medido: abrir uma tabela com coluna `date`/`timestamptz` — ou uma coluna de **texto** cujo valor seja `"2026-08-01"` — fazia a célula chegar como `Date`, o grid renderizava `[object Date]` e a aba inteira estourava (`Objects are not valid as a React child`). Pior que o crash é o silencioso: o valor exato do Postgres virava a formatação do `Date` do JS, perdendo a representação textual que o `TUDO_TEXTO` existe para preservar. Conserto: `treaty<App>(origin, { parseDate: false })` em `lib/api.ts` — uma linha, e o valor chega intacto. O teste que trava isto não é unitário: é abrir uma tabela com data num Postgres real (foi o screenshot da fatia de FK que o pegou, não a suíte). Vale para **qualquer** dado cru que o front receba por Eden: a conversão automática de tipos do cliente é tão perigosa quanto a do driver (regra 10 existe pelos dois lados).
 
 ### Transação, read-only e contenção
 

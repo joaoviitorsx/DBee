@@ -22,6 +22,24 @@
     U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/*
+ * Space Grotesk — só o lockup "DBee" (marca), não o corpo. O corpo é Sora; a
+ * marca ganha um tipo próprio, geométrico com caráter (o 'e' e o 'a' fogem do
+ * neutro), para o wordmark ser reconhecível e não se confundir com um texto
+ * qualquer da interface. Bundlado, latin only, mesmo padrão do Sora — sem CDN.
+ */
+@font-face {
+  font-family: "Space Grotesk Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 300 700;
+  src: url("@fontsource-variable/space-grotesk/files/space-grotesk-latin-wght-normal.woff2")
+    format("woff2-variations");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+    U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+    U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 /**
  * Tokens do DBee — derivados de assets/ (ver docs/design-system.md).
  * Nenhum valor aqui é arbitrário: os cinco da marca estão em @theme como base,
@@ -81,6 +99,7 @@
 
   /* --- tipo --- */
   --font-display: "Sora Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-brand: "Space Grotesk Variable", "Sora Variable", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Code", Menlo, monospace;
 
   /* --- escala 1.25 ancorada em 14px (densidade de ferramenta) --- */
@@ -192,6 +211,12 @@
     font-size: var(--text-sm);
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
+  }
+
+  /* Lockup da marca "DBee" — só o wordmark usa o tipo próprio (Space Grotesk). */
+  .font-marca {
+    font-family: var(--font-brand);
+    font-feature-settings: "ss01" 1;
   }
 
   /* Foco visível é inegociável: a ferramenta é operada por teclado. */

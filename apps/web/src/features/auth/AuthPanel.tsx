@@ -110,7 +110,7 @@ export function AuthPanel({
                * em âmbar (a abelha, o produto), "D" em osso. Sem diferença de
                * corpo, então "DB" alinha em altura.
                */}
-              <span className="text-3xl font-bold tracking-[-0.04em]">
+              <span className="font-marca text-3xl font-bold tracking-[-0.03em]">
                 <span className="text-bone">D</span>
                 <span className="text-amber">Bee</span>
               </span>

@@ -208,6 +208,22 @@ export const pt = {
   "estrutura.referencia": "Referência",
   "estrutura.pkAria": "chave primária",
   "estrutura.fkAria": "chave estrangeira",
+  "estrutura.abrirReferencia": "Abrir a tabela referenciada",
+
+  // --- queries salvas ---
+  "salvas.titulo": "Queries salvas",
+  "salvas.salvar": "Salvar",
+  "salvas.salvarTitulo": "Salvar query",
+  "salvas.nomeDaQuery": "Nome da query",
+  "salvas.abrirLista": "Salvas",
+  "salvas.buscar": "Buscar por nome ou SQL…",
+  "salvas.vazio": "Nenhuma query salva ainda.",
+  "salvas.semResultado": "Nada encontrado.",
+  "salvas.abrir": "Abrir",
+  "salvas.renomear": "Renomear",
+  "salvas.excluir": "Excluir",
+  "salvas.confirmarExcluir": "Confirmar exclusão",
+  "salvas.semConexao": "conexão removida",
   "estrutura.semColunas": "Sem colunas.",
 
   // --- índices ---

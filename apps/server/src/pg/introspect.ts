@@ -157,6 +157,13 @@ const CONSTRAINTS_SQL = `
    WHERE con.contype IN ('p', 'f')
      AND n.nspname NOT IN ${SYSTEM_SCHEMAS}
      AND has_table_privilege(c.oid, 'SELECT')
+     -- Um FK só entra se o papel também pode ler a tabela REFERENCIADA. Sem
+     -- isto, a UI ofereceria um salto de navegação para uma tabela onde o
+     -- SELECT falharia com "permission denied". O CASE evita chamar
+     -- has_table_privilege sobre o confrelid=0 de um PK.
+     AND CASE WHEN con.contype = 'f'
+              THEN has_table_privilege(con.confrelid, 'SELECT')
+              ELSE true END
 `;
 
 const INDEXES_SQL = `

@@ -1,4 +1,4 @@
-import type { Connection } from "@dbee/shared";
+import type { Connection, RowFilter } from "@dbee/shared";
 import { Code2, PanelLeft, PanelRight, Plus, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -38,6 +38,7 @@ import {
   openDiagram,
   openQuery,
   openTable,
+  openTableFiltered,
   selectColumn,
   setView,
   tabsOfLiveConnections,
@@ -113,11 +114,31 @@ export function AppShell({
     setWs((atual) => openTable(atual, target));
   }, []);
 
+  // Salto por FK: tabela referenciada em aba nova, já filtrada, sem trocar a atual.
+  const abrirFiltrada = useCallback((target: TableTarget, filters: readonly RowFilter[]) => {
+    setWs((atual) => openTableFiltered(atual, target, filters));
+  }, []);
+
   const novaConsulta = useCallback(
     (connectionId: string, database: string, sql?: string, source?: TableTarget) => {
     setWs((atual) => openQuery(atual, connectionId, database, sql, source));
     },
     [],
+  );
+
+  // Abrir uma query salva: aba nova atrelada à conexão de origem, no database
+  // dela. Se a conexão sumiu (FK ON DELETE SET NULL), não há onde atrelar.
+  const abrirSalva = useCallback(
+    (q: { connectionId: string | null; sql: string }) => {
+      const conn = connections.find((c) => c.id === q.connectionId);
+      if (conn === undefined) return;
+      setWs((atual) => openQuery(atual, conn.id, conn.database, q.sql));
+    },
+    [connections],
+  );
+  const nomeConexao = useCallback(
+    (id: string | null) => connections.find((c) => c.id === id)?.name ?? null,
+    [connections],
   );
 
   const abrirDiagrama = useCallback((connectionId: string, database: string) => {
@@ -278,6 +299,9 @@ export function AppShell({
               key={abaQuery.id}
               tab={abaQuery}
               writeEnabled={conexaoAtiva?.writeEnabled === true}
+              onOpenTableFiltered={abrirFiltrada}
+              onAbrirSalva={abrirSalva}
+              nomeConexao={nomeConexao}
             />
           ) : abaTabela === null ? (
             <TelaVazia
@@ -305,6 +329,7 @@ export function AppShell({
               }}
               onView={(view) => { setWs((a) => setView(a, abaTabela.id, view)); }}
               onOpenTable={(alvo) => { abrir(alvo); }}
+              onOpenTableFiltered={abrirFiltrada}
               onSelectColumn={(nome) => { setWs((a) => selectColumn(a, abaTabela.id, nome)); }}
               inspectorOpen={visivel.inspectorOpen}
               onToggleInspector={() => { setWs(toggleInspector); }}
@@ -462,10 +487,13 @@ function TopBar({
         </Button>
       ) : null}
 
-      <div className="relative flex items-center gap-2">
-        <Marca className="h-6 w-6" />
-        {/* Mesma marca do login: "Bee" em âmbar, distinção só de cor. */}
-        <span className="text-sm font-semibold tracking-[-0.025em]">
+      <div className="relative flex items-center gap-2.5">
+        {/* Ícone maior, com um leve halo âmbar para ganhar presença sem virar
+            enfeite — a marca é a âncora do cabeçalho, não mais um controle. */}
+        <Marca className="h-8 w-8 drop-shadow-[0_1px_5px_rgba(245,166,35,0.28)]" />
+        {/* Mesma marca do login: "Bee" em âmbar, distinção só de cor. Tipo
+            próprio (Space Grotesk) só no lockup — ver `.font-marca`. */}
+        <span className="font-marca text-xl font-bold leading-none tracking-[-0.03em]">
           <span className="text-ink">D</span>
           <span className="text-accent">Bee</span>
         </span>
@@ -576,6 +604,7 @@ function TableTabContent({
   onConsultar,
   onView,
   onOpenTable,
+  onOpenTableFiltered,
   onSelectColumn,
   inspectorOpen,
   onToggleInspector,
@@ -585,6 +614,7 @@ function TableTabContent({
   readonly onConsultar: () => void;
   readonly onView: (view: TableView) => void;
   readonly onOpenTable: (target: TableTarget) => void;
+  readonly onOpenTableFiltered: (target: TableTarget, filters: readonly RowFilter[]) => void;
   readonly onSelectColumn: (name: string) => void;
   readonly inspectorOpen: boolean;
   readonly onToggleInspector: () => void;
@@ -659,6 +689,15 @@ function TableTabContent({
               relation={rel}
               selectedColumn={tab.selectedColumn}
               onSelectColumn={onSelectColumn}
+              onOpenReference={(fk) => {
+                onOpenTable({
+                  connectionId,
+                  database,
+                  schema: fk.referencedSchema,
+                  relation: fk.referencedTable,
+                  kind: "table",
+                });
+              }}
             />
           </div>
         </>
@@ -676,6 +715,9 @@ function TableTabContent({
           estimatedRows={rel.estimatedRows}
           writeEnabled={danger}
           colunasSchema={rel.columns}
+          foreignKeys={rel.foreignKeys}
+          onOpenTableFiltered={onOpenTableFiltered}
+          {...(tab.initialFilters !== undefined ? { initialFilters: tab.initialFilters } : {})}
           leading={<SubTabButtons value={tab.view} onChange={onView} counts={counts} />}
           trailing={inspetorBtn}
         />
