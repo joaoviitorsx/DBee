@@ -17,3 +17,15 @@ dist/
 
 # spike do dia 1 — o script é versionado, as deps não
 scratch/node_modules/
+
+# banco do app em qualquer nível (contém hash de senha e credencial cifrada)
+data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# documentos internos (não vão para o repo público)
+/ATRITO.md
+/CLAUDE.md
+/docs/DBee.md
+/docs/adr/
