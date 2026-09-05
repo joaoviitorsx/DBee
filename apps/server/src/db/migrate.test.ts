@@ -2,11 +2,18 @@ import { Database } from "bun:sqlite";
 import { describe, expect, it } from "bun:test";
 
 import { migrate } from "./migrate";
-import { MIGRATIONS } from "./migrations";
+import { EXPECTED_SCHEMA, MIGRATIONS } from "./migrations";
 
 const latest = Math.max(...MIGRATIONS.map((m) => m.version));
 
 describe("migrations", () => {
+  it("EXPECTED_SCHEMA casa com a última migration", () => {
+    // O boot aborta se o banco ficar abaixo de EXPECTED_SCHEMA. Se este valor
+    // derivar da última migration, ou o boot rejeita um banco atual, ou deixa
+    // passar um defasado. Trava os dois.
+    expect(EXPECTED_SCHEMA).toBe(latest);
+  });
+
   it("aplica tudo num banco vazio", () => {
     const db = new Database(":memory:");
     expect(migrate(db)).toBe(latest);

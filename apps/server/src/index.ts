@@ -3,6 +3,7 @@ import { avisarPrimeiroUsuario, criarPrimeiroUsuario } from "./db/bootstrap";
 import { UsersRepository } from "./db/users.repo";
 import { PoolManager } from "./pg/pool";
 import { openStore } from "./db/client";
+import { EXPECTED_SCHEMA } from "./db/migrations";
 import { loadConfig } from "./lib/config";
 
 const config = loadConfig();
@@ -31,6 +32,21 @@ if (Bun.argv.includes("--healthcheck")) {
 
 // Abre o SQLite, aplica migrations e deriva a chave de cifra (~700 ms, uma vez).
 const store = openStore(config);
+
+// Aborta se o schema ficou abaixo do que este código exige — mesmo espírito da
+// checagem de porta abaixo. Sob condições normais `migrate` já traz o banco ao
+// topo; isto pega o anormal (migrate não aplicou, mount read-only, arquivo de db
+// velho) antes de servir rotas que o banco não suporta.
+if (store.schemaVersion < EXPECTED_SCHEMA) {
+  console.error(
+    `[dbee] schema do banco é v${String(store.schemaVersion)}, mas este código exige ` +
+      `v${String(EXPECTED_SCHEMA)}. As migrations não foram aplicadas (banco em mount ` +
+      `read-only, arquivo de db errado, ou migrate falhou). Um servidor com schema ` +
+      `defasado serve rotas que o banco não suporta e o erro aparece na UI como falha ` +
+      `de conexão. Encerrando.`,
+  );
+  process.exit(1);
+}
 
 // Varre pools ociosos de minuto em minuto (DBee.md §6).
 const pools = new PoolManager(config.caCert);

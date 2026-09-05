@@ -18,3 +18,14 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 2, name: "002_users", sql: users },
   { version: 3, name: "003_user_locale", sql: userLocale },
 ];
+
+/**
+ * Versão de schema que ESTE código exige. É a maior das migrations acima — o
+ * teste "EXPECTED_SCHEMA casa com a última migration" trava o valor para não
+ * derivar. O boot aborta se o banco aberto ficar abaixo disto (mesmo padrão do
+ * aborto por porta ocupada): migrate não rodou, banco em mount read-only, ou
+ * arquivo de db errado/velho. Backend velho servindo schema defasado já bloqueou
+ * duas vezes, e uma se disfarçou de erro de conexão na UI — erro alto no boot é
+ * mais barato que diagnóstico errado na tela.
+ */
+export const EXPECTED_SCHEMA = 3;

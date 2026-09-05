@@ -30,6 +30,8 @@ let cookie = "";
 let userId = "";
 let connWrite = "";
 let connReadOnly = "";
+/** Conexão de escrita ao MESMO banco, mas com TimeZone diferente (Asia/Tokyo). */
+let connTokyo = "";
 
 const call = (path: string, body: unknown, method = "POST"): Promise<Response> =>
   app.handle(
@@ -100,6 +102,21 @@ beforeAll(async () => {
         -- casar por ::text, senão editar quebra com 42883.
         CREATE TABLE jsoncol (id int PRIMARY KEY, meta json);
         INSERT INTO jsoncol VALUES (1, '{"a":1}');
+
+        -- Tipos cuja representação textual pode divergir entre a leitura e o
+        -- apply da guarda (numeric com escala, float, timestamptz por TimeZone,
+        -- jsonb que normaliza chaves). Medição de falso positivo da guarda.
+        CREATE TABLE tipos (
+          id int PRIMARY KEY,
+          n_scaled numeric(10,2),  -- guardado como 1.00 mesmo inserindo 1.0
+          n_free   numeric,        -- guarda a escala que foi inserida
+          f        float8,
+          ts       timestamptz,
+          jb       jsonb           -- normaliza: {"b":2,"a":1} vira {"a": 1, "b": 2}
+        );
+        INSERT INTO tipos VALUES
+          (1, 1.0, 1.0, 0.1, '2026-03-01 12:00:00+00', '{"b":2,"a":1}'),
+          (2, 1.0, 1.0, 0.1, '2026-03-01 12:00:00+00', '{"b":2,"a":1}');
       `),
     },
   );
@@ -110,15 +127,16 @@ beforeAll(async () => {
   app = createApp({ store, caCert: undefined, pools });
   ({ cookie, userId } = await autenticar(store));
 
-  const criar = async (name: string, writeEnabled: boolean): Promise<string> => {
+  const criar = async (name: string, writeEnabled: boolean, timezone = "UTC"): Promise<string> => {
     const res = await call("/api/connections", {
       name, host: "127.0.0.1", port: PORTA, database: "app",
-      username: "postgres", password: SENHA, timezone: "UTC", writeEnabled,
+      username: "postgres", password: SENHA, timezone, writeEnabled,
     });
     return ((await res.json()) as { id: string }).id;
   };
   connWrite = await criar("write", true);
   connReadOnly = await criar("ro", false);
+  connTokyo = await criar("tokyo", true, "Asia/Tokyo");
 }, 180_000);
 
 afterAll(async () => {
@@ -307,6 +325,73 @@ describe.skipIf(!temDocker)("edição de linha — INSERT", () => {
       values: [{ column: "nome", value: "X" }],
     });
     expect(res.status).toBe(403);
+  });
+});
+
+describe.skipIf(!temDocker)("guarda otimista — fidelidade textual por tipo (medição)", () => {
+  // Lê a célula pela MESMA rota que a UI usa (/rows, TUDO_TEXTO): a string que a
+  // guarda vai carregar como `from` é exatamente a que o usuário viu.
+  const lerCelula = async (conn: string, id: string, coluna: string): Promise<string> => {
+    const res = await call(`/api/connections/${conn}/tables/public/tipos/rows`, { limit: 10 });
+    const body = (await res.json()) as { columns: { name: string }[]; rows: (string | null)[][] };
+    const linha = body.rows.find((r) => r[0] === id); // id é a coluna 0 (SELECT *)
+    const ci = body.columns.findIndex((c) => c.name === coluna);
+    const v = linha?.[ci];
+    if (v === undefined || v === null) throw new Error(`sem valor de ${coluna} para id ${id}`);
+    return v;
+  };
+
+  // Guarda a coluna pelo valor lido sem mudá-la de fato (to = from). Se a repr
+  // textual da leitura divergir de `col::text` no apply, a guarda casa 0 -> 409.
+  const medir = async (
+    connLer: string,
+    connApply: string,
+    id: string,
+    coluna: string,
+  ): Promise<{ lido: string; status: number; code: string }> => {
+    const lido = await lerCelula(connLer, id, coluna);
+    const res = await call(`/api/connections/${connApply}/rows/update`, {
+      ...alvo, table: "tipos",
+      pk: [{ column: "id", value: id }],
+      changes: [{ column: coluna, from: lido, to: lido }],
+    });
+    const status = res.status;
+    const code = status === 200 ? "ok" : ((await res.json()) as { code: string }).code;
+    return { lido, status, code };
+  };
+
+  it("mesma conexão/TimeZone: numeric(escala), float e jsonb NÃO dão falso positivo", async () => {
+    const relato: string[] = [];
+    for (const col of ["n_scaled", "n_free", "f", "jb", "ts"]) {
+      const r = await medir(connWrite, connWrite, "1", col);
+      relato.push(`  ${col.padEnd(9)} lido=${JSON.stringify(r.lido).padEnd(30)} -> ${String(r.status)} ${r.code}`);
+    }
+    console.log("[medição same-TZ]\n" + relato.join("\n"));
+    // A repr da leitura e col::text vêm ambas do Postgres, sob o mesmo TimeZone e
+    // os mesmos GUCs -> idênticas. Nenhuma delas deve disparar row_changed.
+    for (const col of ["n_scaled", "n_free", "f", "jb", "ts"]) {
+      const r = await medir(connWrite, connWrite, "1", col);
+      expect(r.status).toBe(200);
+    }
+  });
+
+  it("cross-TimeZone em timestamptz: mede (não corrige) o falso positivo", async () => {
+    // Lê ts sob UTC, aplica a guarda sob Asia/Tokyo — mesma linha, ninguém mudou.
+    const lidoUTC = await lerCelula(connWrite, "2", "ts");
+    const lidoTokyo = await lerCelula(connTokyo, "2", "ts");
+    const res = await call(`/api/connections/${connTokyo}/rows/update`, {
+      ...alvo, table: "tipos",
+      pk: [{ column: "id", value: "2" }],
+      changes: [{ column: "ts", from: lidoUTC, to: lidoUTC }],
+    });
+    const status = res.status;
+    const code = status === 200 ? "ok" : ((await res.json()) as { code: string }).code;
+    console.log(
+      `[medição cross-TZ ts]\n  lido@UTC=${lidoUTC}\n  lido@Tokyo=${lidoTokyo}\n` +
+        `  apply@Tokyo(from=UTC) -> ${String(status)} ${code}`,
+    );
+    // Só mede e registra — a decisão de saída fica para depois da evidência.
+    expect([200, 409]).toContain(status);
   });
 });
 

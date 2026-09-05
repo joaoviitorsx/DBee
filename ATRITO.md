@@ -1,5 +1,9 @@
 # ATRITO
 
+2026-09-05 · **INSERT não detecta coluna gerada / `GENERATED ALWAYS AS IDENTITY`.** A introspecção atual (`Column`) não traz `is_generated`, então o formulário de "Nova linha" oferece essas colunas como preenchíveis. Preencher uma faz o Postgres recusar (`cannot insert into column ...`) e o erro vai inteiro para a tela — falha alto e visível, sem escrita errada em silêncio, por isso o botão fica ligado. Fatia curta: introspectar `attgenerated`/`is_identity` no `/schema`, marcar a coluna e ocultá-la (ou travá-la) no `InsertModal`. Fecha a última aspereza do INSERT sem mudar a garantia de segurança.
+
+2026-09-05 · **A árvore mostra o mesmo sinal (barra vermelha) para "rota não existe" e "conexão falhou".** Quando o backend estava defasado e a rota `/schema/tree` não existia (404), a árvore pintou a conexão com a mesma barra vermelha de erro de conexão — e o diagnóstico foi para o lado errado ("o Postgres caiu?") em vez de "reinicie o servidor". São causas de camadas diferentes: 404/`rota não encontrada` é o cliente e o servidor fora de sincronia (deploy/migration), enquanto falha de conexão é o Postgres ou a credencial. Precisam ser distinguíveis no sinal: erro de app (4xx/5xx do próprio DBee, especialmente 404 de rota) merece um estado diferente de erro de upstream (conexão/decifra/timeout do Postgres) — texto e/ou cor distintos, e a mensagem apontando a ação certa. O `EXPECTED_SCHEMA` no boot (feito) fecha o caso do schema defasado pela origem; este item é a defesa na UI para o próximo desencontro de contrato. Fatia de UI pequena, mas toca o mapeamento de erro→estado da árvore.
+
 ### Resolvido — Fase pós-v0.1 (dívida de perf medida)
 
 2026-09-05 · Fechados da auditoria de perf:
