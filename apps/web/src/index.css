@@ -47,6 +47,20 @@
   /* --- semântica --- */
   --color-accent: #f5a623;
   --color-accent-ink: #191612;
+
+  /*
+   * Âmbar como **ambiente**, não só como acento pontual.
+   *
+   * `accent-soft` é o âmbar rebaixado a fundo (âmbar ~14% sobre a superfície):
+   * o leito de estados ativos e hover — aba ativa, sub-aba, botão fantasma sob
+   * o cursor — para a cor da marca aparecer em mais lugares sem virar texto
+   * ilegível nem roubar o vermelho de perigo. `accent-line` é a mesma ideia na
+   * borda. Hex fixo (não `color-mix`) para o `contrast.test.ts` conferir a
+   * tinta que cai por cima. Os dois viram claros no tema claro, mais abaixo.
+   */
+  --color-accent-soft: #382a14;
+  --color-accent-line: #725322;
+
   --color-ok: #5fa777;
   --color-danger: #e5484d;
   --color-line: #2e2822;
@@ -86,13 +100,89 @@
   --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/**
+ * Tema claro.
+ *
+ * ## Não é a paleta escura invertida
+ *
+ * Inverter luminância mantendo o matiz produz cinza-azulado; os neutros aqui
+ * continuam **quentes**, no mesmo matiz da placa da marca, e a superfície
+ * principal é o `bone` de `assets/README.txt`. O tema muda de lado, não de
+ * família.
+ *
+ * ## O âmbar da marca não serve como texto sobre claro
+ *
+ * `#F5A623` sobre `#F7F3EC` dá **1,83:1** — reprova em tudo. Por isso os dois
+ * papéis do âmbar, que no escuro eram a mesma cor, aqui se separam:
+ *
+ * - `--color-amber` é o **preenchimento**: continua `#F5A623` nos dois temas,
+ *   e âmbar cheio com tinta grafite dá 8,9:1 em qualquer fundo. Botão
+ *   primário, selo de escrita e a marca usam este.
+ * - `--color-accent` é o **traço e o texto**: `#F5A623` no escuro, `#8F5A08` no
+ *   claro (5,22:1 sobre a superfície, 4,57:1 sobre a elevada). Palavra-chave do
+ *   editor, coluna ordenada, ícone de PK, régua do login e o anel de foco usam
+ *   este.
+ *
+ * Confundir os dois é como o tema claro quebra: um `text-amber` que passou
+ * despercebido vira texto ilegível só para quem escolheu claro, e ninguém que
+ * trabalha no escuro percebe. `contrast.test.ts` roda as **duas** paletas
+ * contra as mesmas regras.
+ */
+:root[data-theme="light"] {
+  /*
+   * Elevação sobe para o **branco**, não para o creme escuro.
+   *
+   * Antes o `raised` (#ebe4d8) era mais escuro que o `surface` — no escuro
+   * elevar clareia, e a paleta clara tinha herdado o passo ao contrário: aba
+   * ativa, card e hover viravam manchas de creme mais escuro em vez de saltar.
+   * Agora o creme fica no **fundo** (`sunken`, a mesa) e o que se eleva
+   * embranquece (`surface` → `raised` → `overlay`), então a aba ativa, o botão
+   * secundário e o menu ganham contorno de luz contra o fundo quente.
+   */
+  --color-sunken: #ece5d6;
+  --color-surface: #f8f3eb;
+  --color-raised: #fdfbf6;
+  --color-overlay: #ffffff;
+
+  --color-ink: #1c1917;
+  --color-muted: #5c5449;
+  --color-subtle: #8a8071;
+
+  /* O âmbar legível. O de preenchimento (`--color-amber`) não muda. */
+  --color-accent: #8f5a08;
+
+  /* Âmbar de ambiente no claro: creme quente (fundo) e mel (borda). */
+  --color-accent-soft: #f8e7cb;
+  --color-accent-line: #d8b171;
+  --color-ok: #2f7d4f;
+  --color-danger: #c0272d;
+
+  --color-line: #dcd3c4;
+  --color-line-strong: #c5b9a5;
+
+  /* Perigo: mesmo papel, matiz quente sobre claro. ΔE 0,04 contra a normal. */
+  --color-danger-surface: #fbe3e1;
+  --color-danger-raised: #f7d4d1;
+  --color-danger-line: #e39c98;
+  --color-danger-ink: #9c1c20;
+}
+
 @layer base {
   * {
     border-color: var(--color-line);
   }
 
+  /*
+   * `color-scheme` alinha o que o navegador desenha por conta própria —
+   * scrollbar nativa, `<select>`, autofill. Sem isto, o tema claro fica com
+   * caixas de formulário escuras do sistema no meio da página.
+   */
   html {
     color-scheme: dark;
+  }
+
+  html[data-theme="light"] {
+    color-scheme: light;
   }
 
   body {
@@ -194,6 +284,24 @@
   to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/*
+ * O mascote flutua, com uma leve inclinação — bicho vivo, não figura colada.
+ * Amplitude maior que a da marca (`dbee-hover`), porque o mascote é grande e
+ * um deslocamento de 2px nele não se notaria.
+ */
+@keyframes dbee-float {
+  0%,
+  100% { transform: translateY(0) rotate(-1deg); }
+  50%  { transform: translateY(-10px) rotate(1deg); }
+}
+
+/* Sucesso: o mascote dá um pulinho de comemoração, uma vez. */
+@keyframes dbee-pop {
+  0%   { transform: scale(0.7) translateY(8px); opacity: 0; }
+  60%  { transform: scale(1.06) translateY(-4px); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
 @utility animate-wing {
   transform-origin: center;
   animation: dbee-wing 900ms ease-in-out infinite;
@@ -201,6 +309,14 @@
 
 @utility animate-hover {
   animation: dbee-hover 2.4s ease-in-out infinite;
+}
+
+@utility animate-float {
+  animation: dbee-float 4s ease-in-out infinite;
+}
+
+@utility animate-pop {
+  animation: dbee-pop 420ms var(--ease-enter) both;
 }
 
 @utility animate-shimmer {
@@ -213,4 +329,41 @@
 
 @utility animate-settle {
   animation: dbee-settle 200ms var(--ease-enter) both;
+}
+
+/*
+ * Credencial recusada.
+ *
+ * A quinta animação do sistema, e a única que não é de carregamento. Ganha
+ * lugar porque **responde a uma ação e chega antes da leitura**: quem errou a
+ * senha por memória muscular sabe que precisa redigitar antes de ler a
+ * mensagem. Curta e sem eco — é uma fechadura que não gira, não um alerta.
+ */
+@keyframes dbee-refuse {
+  0%, 100% { transform: translateX(0); }
+  20%      { transform: translateX(-5px); }
+  40%      { transform: translateX(4px); }
+  60%      { transform: translateX(-2px); }
+  80%      { transform: translateX(1px); }
+}
+
+@utility animate-refuse {
+  animation: dbee-refuse 260ms ease-out;
+}
+
+/*
+ * Entrada encenada da vitrine do login.
+ *
+ * Um único gesto de carregamento de página — não um fade em cada seção. Os
+ * filhos sobem em sequência (delay por elemento, no JSX), da marca à frase.
+ * `both` trava o estado final; sob prefers-reduced-motion o bloco acima zera a
+ * duração e o conteúdo nasce no lugar, visível, sem piscar.
+ */
+@keyframes dbee-enter {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@utility animate-enter {
+  animation: dbee-enter 560ms var(--ease-enter) both;
 }

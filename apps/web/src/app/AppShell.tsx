@@ -1,18 +1,29 @@
 import type { Connection } from "@dbee/shared";
-import { Code2, PanelLeft, PanelRight, TriangleAlert } from "lucide-react";
+import { Code2, PanelLeft, PanelRight, Plus, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import type { ConnectionWarning } from "@dbee/shared";
 import { ContextMenu, type MenuAnchor, type MenuSection } from "../components/ContextMenu";
-import { Mark } from "../components/Mark";
+import { HoneycombCluster } from "../components/HoneycombCluster";
+import { Marca } from "../components/Marca";
 import { Button } from "../components/ui";
 import { cn } from "../lib/cn";
 import { useLayoutLargo } from "../lib/useMediaQuery";
 import { Inspector } from "../features/inspector/Inspector";
+import { ActivityTab } from "../features/overview/ActivityTab";
+import { DatabasesOverviewTab } from "../features/overview/DatabasesOverview";
+import { DiagramTabContent } from "../features/diagram/DiagramTabContent";
+import { DiagramView } from "../features/diagram/DiagramView";
 import { QueryTabContent } from "../features/query/QueryTabContent";
+import { UserChip } from "../features/auth/UserChip";
+import { Trabalhando } from "../features/motion/Trabalhando";
+import { IdiomaToggle } from "../features/idioma/IdiomaToggle";
+import { useT } from "../i18n";
+import { ThemeToggle } from "../features/theme/ThemeToggle";
 import { DataTab } from "../features/tabs/DataTab";
 import { IndexesTab } from "../features/tabs/IndexesTab";
 import { StructureTab } from "../features/tabs/StructureTab";
-import { SubTabs, TabStrip } from "../features/tabs/TabStrip";
+import { SubTabButtons, SubTabs, TabStrip } from "../features/tabs/TabStrip";
 import { ConnectionTree, type ConnectionHealth, type TreeTarget } from "../features/tree/ConnectionTree";
 import { treeMenuSections, treeMenuTitle, type TreeMenuActions } from "../features/tree/treeMenu";
 import { useSchema, useTreeExpansion } from "../features/tree/useTree";
@@ -21,6 +32,8 @@ import {
   closeTab,
   emptyWorkspace,
   focusTab,
+  openCluster,
+  openDiagram,
   openQuery,
   openTable,
   selectColumn,
@@ -30,6 +43,7 @@ import {
   type QueryTab,
   type TableTab,
   type TableTarget,
+  type TableView,
   type Workspace,
 } from "./workspace";
 
@@ -39,11 +53,15 @@ const LARGURA_MAX = 480;
 export interface AppShellProps {
   readonly connections: readonly Connection[];
   readonly health: Readonly<Record<string, ConnectionHealth>>;
+  readonly warnings: Readonly<Record<string, readonly ConnectionWarning[]>>;
   readonly onNewConnection: () => void;
   /** Ações que o menu da árvore dispara sobre uma conexão. */
   readonly connectionActions: (
     connection: Connection,
-  ) => Omit<TreeMenuActions, "onOpenRelation" | "onRefreshSchema" | "onNewQuery">;
+  ) => Omit<
+    TreeMenuActions,
+    "onOpenRelation" | "onRefreshSchema" | "onNewQuery" | "onOpenDiagram" | "onOpenCluster"
+  >;
   readonly onRefreshSchema: (connectionId: string, database: string) => void;
 }
 
@@ -57,6 +75,7 @@ export interface AppShellProps {
 export function AppShell({
   connections,
   health,
+  warnings,
   onNewConnection,
   connectionActions,
   onRefreshSchema,
@@ -65,9 +84,12 @@ export function AppShell({
   const [larguraArvore, setLarguraArvore] = useState(260);
   const [menu, setMenu] = useState<{ target: TreeTarget; anchor: MenuAnchor } | null>(null);
   const [menuAba, setMenuAba] = useState<{ id: string; anchor: MenuAnchor } | null>(null);
+  // Botão direito no vazio da árvore: a única ação que cabe ali é acrescentar.
+  const [menuFundo, setMenuFundo] = useState<MenuAnchor | null>(null);
   const [arvoreAberta, setArvoreAberta] = useState(false);
   const largo = useLayoutLargo();
   const tree = useTreeExpansion();
+  const t = useT();
 
   /**
    * Aba de conexão excluída some por **derivação**, não por efeito.
@@ -86,9 +108,23 @@ export function AppShell({
     setWs((atual) => openTable(atual, target));
   }, []);
 
-  const novaConsulta = useCallback((connectionId: string, database: string, sql?: string) => {
-    setWs((atual) => openQuery(atual, connectionId, database, sql));
+  const novaConsulta = useCallback(
+    (connectionId: string, database: string, sql?: string, source?: TableTarget) => {
+    setWs((atual) => openQuery(atual, connectionId, database, sql, source));
+    },
+    [],
+  );
+
+  const abrirDiagrama = useCallback((connectionId: string, database: string) => {
+    setWs((atual) => openDiagram(atual, connectionId, database));
   }, []);
+
+  const abrirCluster = useCallback(
+    (connectionId: string, kind: "overview" | "activity") => {
+      setWs((atual) => openCluster(atual, connectionId, kind));
+    },
+    [],
+  );
 
   /**
    * `Ctrl+T` / `Cmd+T` abre consulta no alvo da aba ativa.
@@ -101,11 +137,16 @@ export function AppShell({
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "t") return;
       const atual = activeTab(ws);
       if (atual === null) return;
-      e.preventDefault();
+      // Abas de cluster (databases/processos) não têm database — não há consulta
+      // a abrir a partir delas.
       const alvo =
         atual.kind === "table"
           ? { c: atual.target.connectionId, d: atual.target.database }
-          : { c: atual.connectionId, d: atual.database };
+          : atual.kind === "query" || atual.kind === "diagram"
+            ? { c: atual.connectionId, d: atual.database }
+            : null;
+      if (alvo === null) return;
+      e.preventDefault();
       novaConsulta(alvo.c, alvo.d);
     };
     window.addEventListener("keydown", tecla);
@@ -115,6 +156,8 @@ export function AppShell({
   const aba = activeTab(visivel);
   const abaTabela: TableTab | null = aba?.kind === "table" ? aba : null;
   const abaQuery: QueryTab | null = aba?.kind === "query" ? aba : null;
+  const abaDiagrama = aba?.kind === "diagram" ? aba : null;
+  const abaCluster = aba?.kind === "overview" || aba?.kind === "activity" ? aba : null;
 
   const alvoAtivo =
     abaTabela !== null
@@ -147,7 +190,7 @@ export function AppShell({
         {!largo && arvoreAberta ? (
           <button
             type="button"
-            aria-label="Fechar árvore"
+            aria-label={t("arvore.fechar")}
             onClick={() => { setArvoreAberta(false); }}
             className="fixed inset-0 z-30 cursor-default bg-black/50"
           />
@@ -168,10 +211,12 @@ export function AppShell({
           <ConnectionTree
             connections={connections}
             health={health}
+            warnings={warnings}
             tree={tree}
             onOpenRelation={(alvo) => { abrir(alvo); if (!largo) setArvoreAberta(false); }}
             onNewConnection={onNewConnection}
             onContextMenu={(target, anchor) => { setMenu({ target, anchor }); }}
+            onBackgroundContextMenu={setMenuFundo}
             activeTarget={abaTabela?.target ?? null}
           />
         </aside>
@@ -193,7 +238,20 @@ export function AppShell({
             }
           />
 
-          {abaQuery !== null ? (
+          {abaCluster !== null ? (
+            abaCluster.kind === "overview" ? (
+              <DatabasesOverviewTab key={abaCluster.id} connectionId={abaCluster.connectionId} />
+            ) : (
+              <ActivityTab key={abaCluster.id} connectionId={abaCluster.connectionId} />
+            )
+          ) : abaDiagrama !== null ? (
+            <DiagramTabContent
+              key={abaDiagrama.id}
+              connectionId={abaDiagrama.connectionId}
+              database={abaDiagrama.database}
+              onOpenTable={(alvo) => { abrir(alvo); if (!largo) setArvoreAberta(false); }}
+            />
+          ) : abaQuery !== null ? (
             <QueryTabContent
               key={abaQuery.id}
               tab={abaQuery}
@@ -218,9 +276,13 @@ export function AppShell({
                   abaTabela.target.connectionId,
                   abaTabela.target.database,
                   `SELECT *\nFROM ${abaTabela.target.schema}.${abaTabela.target.relation}\nLIMIT 100;`,
+                  // A origem viaja junto: é o que deixa o painel de baixo
+                  // mostrar os dados desta tabela enquanto se escreve o SQL.
+                  abaTabela.target,
                 );
               }}
               onView={(view) => { setWs((a) => setView(a, abaTabela.id, view)); }}
+              onOpenTable={(alvo) => { abrir(alvo); }}
               onSelectColumn={(nome) => { setWs((a) => selectColumn(a, abaTabela.id, nome)); }}
               inspectorOpen={visivel.inspectorOpen}
               onToggleInspector={() => { setWs(toggleInspector); }}
@@ -249,7 +311,9 @@ export function AppShell({
             onOpenRelation: abrir,
             onRefreshSchema,
             onNewQuery: novaConsulta,
-          })}
+            onOpenDiagram: abrirDiagrama,
+            onOpenCluster: abrirCluster,
+          }, t)}
           onClose={() => { setMenu(null); }}
         />
       ) : null}
@@ -259,6 +323,25 @@ export function AppShell({
           anchor={menuAba.anchor}
           sections={tabMenuSections(menuAba.id, visivel.tabs, setWs)}
           onClose={() => { setMenuAba(null); }}
+        />
+      ) : null}
+
+      {menuFundo !== null ? (
+        <ContextMenu
+          anchor={menuFundo}
+          sections={[
+            {
+              items: [
+                {
+                  id: "nova-conexao",
+                  label: "Nova conexão",
+                  icon: <Plus aria-hidden className="h-3.5 w-3.5" />,
+                  onSelect: onNewConnection,
+                },
+              ],
+            },
+          ]}
+          onClose={() => { setMenuFundo(null); }}
         />
       ) : null}
     </div>
@@ -314,23 +397,56 @@ function TopBar({
   readonly onToggleTree: (() => void) | null;
 }) {
   const perigo = connection?.writeEnabled === true;
+  const t = useT();
 
   return (
     <header
       className={cn(
-        "flex shrink-0 items-center gap-3 border-b px-3 py-2",
+        "relative flex shrink-0 items-center gap-3 overflow-hidden border-b px-3 py-2",
         perigo ? "border-danger-line bg-danger-surface" : "border-line bg-surface",
       )}
     >
+      {/*
+        * Favo de mel no canto direito, atrás dos controles — o motivo da
+        * abelha assinando o cabeçalho de leve. `mask` desvanece para a esquerda
+        * para não competir com o miolo. Some no estado de perigo, onde a cor já
+        * carrega a mensagem sozinha.
+        */}
+      {!perigo ? (
+        <HoneycombCluster
+          aria-hidden
+          className="pointer-events-none absolute -right-3 -top-2 h-14 -scale-x-100 text-accent opacity-[0.14]"
+          size={9}
+        />
+      ) : null}
+
+      {/*
+        * Cacho hexagonal no canto superior esquerdo, casando com a marca —
+        * hexágonos flat-top cheios/contorno atrás do "DBee", desvanecendo para
+        * a direita para não invadir o breadcrumb. Some no perigo, onde o
+        * vermelho já carrega a mensagem.
+        */}
+      {!perigo ? (
+        <HoneycombCluster
+          aria-hidden
+          className="pointer-events-none absolute -left-3 -top-2 h-14 text-accent opacity-[0.14]"
+          size={9}
+        />
+      ) : null}
+
       {onToggleTree !== null ? (
-        <Button size="icon" variant="ghost" aria-label="Abrir árvore" onClick={onToggleTree}>
+        <Button size="icon" variant="ghost" aria-label={t("arvore.abrir")} onClick={onToggleTree}>
           <PanelLeft aria-hidden className="h-4 w-4" />
         </Button>
       ) : null}
 
-      <div className="flex items-center gap-2">
-        <Mark className={cn("h-5 w-5", perigo ? "text-danger-ink" : "text-amber")} />
-        <span className="text-sm font-semibold tracking-[-0.025em] text-ink">DBee</span>
+      <div className="relative flex items-center gap-2">
+        <Marca className="h-6 w-6" />
+        {/* Mesma marca do login: "Bee" em âmbar, distinção só de cor. */}
+        <span className="text-sm font-semibold tracking-[-0.025em]">
+          <span className="text-ink">D</span>
+          <span className="text-accent">Bee</span>
+        </span>
       </div>
 
       {connection !== null && database !== null ? (
@@ -353,11 +469,17 @@ function TopBar({
       {perigo ? (
         <span className="ml-auto flex shrink-0 items-center gap-1.5 rounded-[4px] bg-danger px-2 py-1 text-2xs font-semibold text-ink">
           <TriangleAlert aria-hidden className="h-3 w-3" />
-          Escrita habilitada
+          {t("conexao.escritaHabilitada")}
         </span>
-      ) : (
-        <span className="ml-auto shrink-0 text-2xs text-subtle">v{__APP_VERSION__}</span>
-      )}
+      ) : null}
+
+      <div className={cn("relative flex shrink-0 items-center gap-2", perigo ? "" : "ml-auto")}>
+        <span className="hidden text-2xs text-subtle sm:inline">v{__APP_VERSION__}</span>
+        <IdiomaToggle />
+        <ThemeToggle />
+        {/* Quem está logado é o `actor` do query_log — informação, não perfil. */}
+        <UserChip />
+      </div>
     </header>
   );
 }
@@ -370,6 +492,7 @@ function Resizer({
   readonly largura: number;
   readonly onChange: (largura: number) => void;
 }) {
+  const t = useT();
   const arrastando = useRef(false);
 
   useEffect(() => {
@@ -391,7 +514,7 @@ function Resizer({
     <div
       role="separator"
       aria-orientation="vertical"
-      aria-label="Redimensionar árvore"
+      aria-label={t("arvore.redimensionar")}
       aria-valuenow={largura}
       aria-valuemin={LARGURA_MIN}
       aria-valuemax={LARGURA_MAX}
@@ -412,6 +535,7 @@ function TableTabContent({
   danger,
   onConsultar,
   onView,
+  onOpenTable,
   onSelectColumn,
   inspectorOpen,
   onToggleInspector,
@@ -419,11 +543,13 @@ function TableTabContent({
   readonly tab: TableTab;
   readonly danger: boolean;
   readonly onConsultar: () => void;
-  readonly onView: (view: "data" | "structure" | "indexes") => void;
+  readonly onView: (view: TableView) => void;
+  readonly onOpenTable: (target: TableTarget) => void;
   readonly onSelectColumn: (name: string) => void;
   readonly inspectorOpen: boolean;
   readonly onToggleInspector: () => void;
 }) {
+  const t = useT();
   const { connectionId, database, schema, relation } = tab.target;
   const arvore = useSchema(connectionId, database, true);
 
@@ -431,47 +557,87 @@ function TableTabContent({
     arvore.data?.schemas.find((s) => s.name === schema)?.relations.find((r) => r.name === relation) ??
     null;
 
+  const counts = { columns: rel?.columns.length ?? 0, indexes: rel?.indexes.length ?? 0 };
+  const inspetorBtn = (
+    <Button
+      size="icon"
+      variant="ghost"
+      className="h-7 w-7 shrink-0"
+      aria-label={inspectorOpen ? "Fechar inspetor" : "Abrir inspetor"}
+      aria-pressed={inspectorOpen}
+      onClick={onToggleInspector}
+    >
+      <PanelRight aria-hidden className="h-4 w-4" />
+    </Button>
+  );
+
+  /*
+   * A aba Dados monta as sub-abas **dentro da própria toolbar**: sub-abas à
+   * esquerda, Consultar/filtro/export à direita, o inspetor no fim — uma linha
+   * só. Antes eram dois contêineres, cada um com sua borda, dois filetes
+   * colados. As outras vistas não têm toolbar, então usam a barra `SubTabs`
+   * comum, com o inspetor no `trailing`.
+   */
+  const barraComum = (
+    <SubTabs value={tab.view} onChange={onView} counts={counts} trailing={inspetorBtn} />
+  );
+
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col", danger && "border-l-2 border-l-danger")}>
-      <div className="flex items-center justify-between border-b border-line">
-        <SubTabs
-          value={tab.view}
-          onChange={onView}
-          counts={{ columns: rel?.columns.length ?? 0, indexes: rel?.indexes.length ?? 0 }}
-        />
-        <Button
-          size="icon"
-          variant="ghost"
-          aria-label={inspectorOpen ? "Fechar inspetor" : "Abrir inspetor"}
-          aria-pressed={inspectorOpen}
-          onClick={onToggleInspector}
-          className="mr-2"
-        >
-          <PanelRight aria-hidden className="h-4 w-4" />
-        </Button>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        {arvore.isPending ? (
-          <p className="px-4 py-8 text-xs text-muted">Lendo o catálogo…</p>
-        ) : arvore.isError ? (
+      {arvore.isPending ? (
+        <>
+          {barraComum}
+          <Trabalhando rotulo={t("arvore.lendoCatalogo")} cronometro />
+        </>
+      ) : arvore.isError ? (
+        <>
+          {barraComum}
           <p className="px-4 py-8 text-xs text-danger">{arvore.error.message}</p>
-        ) : rel === null ? (
+        </>
+      ) : rel === null ? (
+        <>
+          {barraComum}
           <p className="px-4 py-8 text-xs text-subtle">
             A relação não está mais no catálogo. Atualize a árvore.
           </p>
-        ) : tab.view === "structure" ? (
-          <StructureTab
-            relation={rel}
-            selectedColumn={tab.selectedColumn}
-            onSelectColumn={onSelectColumn}
+        </>
+      ) : tab.view === "diagram" ? (
+        <>
+          {barraComum}
+          <DiagramView
+            schema={arvore.data}
+            connectionId={tab.target.connectionId}
+            database={tab.target.database}
+            onOpenTable={onOpenTable}
           />
-        ) : tab.view === "indexes" ? (
-          <IndexesTab relation={rel} />
-        ) : (
-          <DataTab target={tab.target} onConsultar={onConsultar} />
-        )}
-      </div>
+        </>
+      ) : tab.view === "structure" ? (
+        <>
+          {barraComum}
+          <div className="min-h-0 flex-1 overflow-auto">
+            <StructureTab
+              relation={rel}
+              selectedColumn={tab.selectedColumn}
+              onSelectColumn={onSelectColumn}
+            />
+          </div>
+        </>
+      ) : tab.view === "indexes" ? (
+        <>
+          {barraComum}
+          <div className="min-h-0 flex-1 overflow-auto">
+            <IndexesTab relation={rel} />
+          </div>
+        </>
+      ) : (
+        <DataTab
+          target={tab.target}
+          onConsultar={onConsultar}
+          estimatedRows={rel.estimatedRows}
+          leading={<SubTabButtons value={tab.view} onChange={onView} counts={counts} />}
+          trailing={inspetorBtn}
+        />
+      )}
     </div>
   );
 }
@@ -510,7 +676,7 @@ function TelaVazia({
 }) {
   return (
     <div className="mx-auto mt-28 max-w-sm px-6 text-center">
-      <Mark className="mx-auto h-9 w-9 text-line-strong" />
+      <Marca className="mx-auto h-12 w-12" apagada />
       <h2 className="mt-4 text-base text-ink">
         {temConexoes ? "Escolha uma tabela na árvore" : "Comece cadastrando uma conexão"}
       </h2>

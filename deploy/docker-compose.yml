@@ -6,10 +6,16 @@ services:
     image: ghcr.io/joaoviitorsx/dbee:latest
     restart: unless-stopped
     environment:
+      # Único obrigatório. Deriva a chave que cifra as senhas das conexões;
+      # perdê-lo torna as conexões ilegíveis (README, DBee.md §7). Guarde nos
+      # secrets do Dokploy, não em `.env` versionado.
       APP_SECRET: ${APP_SECRET}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      DOKPLOY_DEPLOY_WEBHOOK: ${DOKPLOY_DEPLOY_WEBHOOK:-}
+      # DBEE_DATA_DIR fica no default /data, persistido pelo volume abaixo.
+      # ADMIN_PASSWORD e DOKPLOY_DEPLOY_WEBHOOK NÃO existem no código — a senha
+      # do admin nasce no log do primeiro boot. Ver README.
     volumes:
+      # O SQLite E o salt de cifra vivem aqui. Perder este volume = perder as
+      # conexões, mesmo com o APP_SECRET certo.
       - dbee-data:/data
     networks:
       - dokploy-network

@@ -29,7 +29,9 @@ docker build -t dbee .
 5. **Nunca logar nem retornar credencial.** Nem em erro, nem em debug, nem em exceção.
 6. **Nunca conectar no PgBouncer (6432).** Sempre 5432 direto.
 7. **Streaming é `DECLARE CURSOR` em SQL, com `FETCH` em lotes.** Não trazer `pg-cursor` nem `pg-query-stream`. `FETCH n` materializa n linhas na memória — export sempre em laço. Ver §6.
-8. **Nunca validar SQL do usuário com regex ou parser.** A proteção de escrita é o modo da transação: `BEGIN READ ONLY` (ou `BEGIN READ WRITE` no modo escrita), declarado no próprio `BEGIN`. **`SET LOCAL default_transaction_read_only` não protege a transação corrente** — se aparecer no código, é regressão de segurança. Ver §6 e §11.4b.
+8. **Nunca validar SQL do usuário com regex ou parser.** A proteção contra escrita de linhas é o modo da transação: `BEGIN READ ONLY` (ou `BEGIN READ WRITE` no modo escrita), declarado no próprio `BEGIN`. **`SET LOCAL default_transaction_read_only` não protege a transação corrente** — se aparecer no código, é regressão de segurança. Ver §6 e §11.4b.
+
+   **Ressalva de contenção (§11.37):** READ ONLY barra DML e DDL, **não** `COPY … TO PROGRAM`. Num papel superusuário isso é execução de comando no host do Postgres, dentro de uma conexão "somente leitura". Não dá para consertar sem parser (que esta regra proíbe); a mitigação é detectar o papel privilegiado no teste de conexão e avisar. Read-only é proteção contra o acidente comum, não caixa de contenção contra um papel privilegiado.
 9. **Nunca montar o socket do Docker** no container do app.
 10. **Todo valor de célula trafega como string.** Não confie na conversão automática de tipos do driver.
 11. **Grid sempre virtualizado.** Nenhum `.map()` direto sobre linhas de resultado.

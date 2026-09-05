@@ -1,7 +1,9 @@
 import type { Connection } from "@dbee/shared";
-import { Code2, Eye, Layers, Plus, Table2, X } from "lucide-react";
+import { Activity, Code2, Database, Eye, Layers, Plus, Share2, Table2, X } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { cn } from "../../lib/cn";
+import { useT } from "../../i18n";
 import { isDangerous, tabTitle, type Tab } from "../../app/workspace";
 
 const ICON = {
@@ -39,6 +41,7 @@ export function TabStrip({
   /** `undefined` quando não há alvo — sem conexão ativa não há onde consultar. */
   readonly onNew?: (() => void) | undefined;
 }) {
+  const t = useT();
   if (tabs.length === 0) return null;
 
   return (
@@ -46,18 +49,33 @@ export function TabStrip({
       {tabs.map((tab) => {
         const ativa = tab.id === activeTabId;
         const perigo = isDangerous(tab, connections);
-        const Icon = tab.kind === "table" ? ICON[tab.target.kind] : Code2;
+        const Icon =
+          tab.kind === "table"
+            ? ICON[tab.target.kind]
+            : tab.kind === "diagram"
+              ? Share2
+              : tab.kind === "overview"
+                ? Database
+                : tab.kind === "activity"
+                  ? Activity
+                  : Code2;
 
         return (
           <div
             key={tab.id}
             onContextMenu={(e) => { e.preventDefault(); onContextMenu(tab.id, { x: e.clientX, y: e.clientY }); }}
             className={cn(
-              "group/tab flex shrink-0 items-center gap-1.5 border-r border-line pl-3 pr-1.5 transition-colors duration-150",
-              ativa ? "bg-surface" : "hover:bg-surface/60",
-              // Tarja herdada: fina no topo, para não competir com o conteúdo.
-              perigo && "border-t-2 border-t-danger",
-              perigo && ativa && "bg-danger-surface",
+              // Faixa superior de 2px sempre presente (transparente quando
+              // inativa) para a aba não pular quando ganha a cor.
+              "group/tab flex shrink-0 items-center gap-1.5 border-r border-t-2 border-t-transparent border-line pl-3 pr-1.5 transition-colors duration-150",
+              // Aba ativa assume a cor da marca: topo âmbar e leito `accent-soft`.
+              // Perigo (conexão gravável) vence o âmbar — vermelho é o sinal
+              // mais forte e não pode ser diluído pela cor de marca.
+              perigo
+                ? cn("border-t-danger", ativa && "bg-danger-surface")
+                : ativa
+                  ? "border-t-accent bg-accent-soft"
+                  : "hover:bg-accent-soft/50",
             )}
           >
             <button
@@ -82,7 +100,7 @@ export function TabStrip({
             </button>
             <button
               type="button"
-              aria-label={`Fechar ${tabTitle(tab)}`}
+              aria-label={`${t("comum.fechar")} ${tabTitle(tab)}`}
               onClick={() => { onClose(tab.id); }}
               className={cn(
                 "cursor-pointer rounded p-0.5 text-subtle transition-opacity duration-150 hover:text-ink",
@@ -99,8 +117,8 @@ export function TabStrip({
         <button
           type="button"
           onClick={onNew}
-          aria-label="Nova consulta"
-          title="Nova consulta (Cmd+T)"
+          aria-label={t("aba.novaConsulta")}
+          title={t("aba.novaConsultaAtalho")}
           className="flex shrink-0 cursor-pointer items-center px-3 text-subtle transition-colors duration-150 hover:text-ink"
         >
           <Plus aria-hidden className="h-3.5 w-3.5" />
@@ -111,23 +129,64 @@ export function TabStrip({
 }
 
 /** Sub-abas da aba de tabela. */
+type TableView = "data" | "structure" | "indexes" | "diagram";
+
+/**
+ * Sub-abas de uma tabela, numa **barra única** com as ações da vista à direita.
+ *
+ * Antes as sub-abas e a barra de "Consultar" eram dois contêineres empilhados,
+ * cada um com sua borda inferior — dois filetes quase colados, dividindo o que é
+ * um cabeçalho só. Agora as sub-abas ficam à esquerda e as ações da vista
+ * (`trailing`) à direita, na mesma linha, com uma borda só.
+ */
 export function SubTabs({
   value,
   onChange,
   counts,
+  trailing,
 }: {
-  readonly value: "data" | "structure" | "indexes";
-  readonly onChange: (view: "data" | "structure" | "indexes") => void;
+  readonly value: TableView;
+  readonly onChange: (view: TableView) => void;
+  readonly counts: { readonly columns: number; readonly indexes: number };
+  /** Ações da vista atual — Consultar, filtro, export — na mesma barra. */
+  readonly trailing?: ReactNode;
+}) {
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-line pl-3 pr-2">
+      <SubTabButtons value={value} onChange={onChange} counts={counts} />
+      {trailing !== undefined ? (
+        <div className="ml-auto flex min-w-0 items-center gap-2 py-1.5">{trailing}</div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Só os botões das sub-abas, sem barra nem borda.
+ *
+ * Extraído para a aba Dados poder montá-los **dentro da própria toolbar** — as
+ * sub-abas à esquerda, Consultar/filtro/export à direita, uma linha só. Sem
+ * isto, sub-abas e toolbar eram dois contêineres com duas bordas.
+ */
+export function SubTabButtons({
+  value,
+  onChange,
+  counts,
+}: {
+  readonly value: TableView;
+  readonly onChange: (view: TableView) => void;
   readonly counts: { readonly columns: number; readonly indexes: number };
 }) {
+  const t = useT();
   const itens = [
-    { id: "data", label: "Dados", badge: null },
-    { id: "structure", label: "Estrutura", badge: counts.columns },
-    { id: "indexes", label: "Índices", badge: counts.indexes },
+    { id: "data", label: t("aba.dados"), badge: null },
+    { id: "structure", label: t("aba.estrutura"), badge: counts.columns },
+    { id: "indexes", label: t("aba.indices"), badge: counts.indexes },
+    { id: "diagram", label: t("aba.diagrama"), badge: null },
   ] as const;
 
   return (
-    <div role="tablist" className="flex shrink-0 items-center gap-1 border-b border-line px-3">
+    <div role="tablist" className="flex shrink-0 items-center gap-1">
       {itens.map((item) => (
         <button
           key={item.id}
@@ -136,10 +195,10 @@ export function SubTabs({
           aria-selected={value === item.id}
           onClick={() => { onChange(item.id); }}
           className={cn(
-            "-mb-px cursor-pointer border-b-2 px-2 py-1.5 text-xs transition-colors duration-150",
+            "-mb-px cursor-pointer rounded-t-[4px] border-b-2 px-2.5 py-2 text-xs transition-colors duration-150",
             value === item.id
-              ? "border-amber text-ink"
-              : "border-transparent text-muted hover:text-ink",
+              ? "border-accent bg-accent-soft text-ink"
+              : "border-transparent text-muted hover:bg-accent-soft/50 hover:text-ink",
           )}
         >
           {item.label}

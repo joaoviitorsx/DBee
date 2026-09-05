@@ -1,7 +1,12 @@
-import type { DatabaseInfo, DatabaseSchema } from "@dbee/shared";
+import type {
+  ActivityList,
+  DatabaseInfo,
+  DatabaseSchema,
+  DatabasesOverview,
+} from "@dbee/shared";
 
 import type { ConnectionsRepository } from "../db/connections.repo";
-import { introspect, listDatabases } from "../pg/introspect";
+import { introspect, listActivity, listDatabases, overviewDatabases } from "../pg/introspect";
 import type { PoolManager } from "../pg/pool";
 import { type ServiceResult, fail, ok } from "./result";
 
@@ -39,7 +44,7 @@ export class SchemaService {
    * Introspecções em voo, por (conexão, database).
    *
    * Sem isto, N requisições simultâneas na mesma chave viram N introspecções
-   * completas. Com `max: 5` no pool, as excedentes ficam na fila e morrem por
+   * completas. Com `max: 3` no pool, as excedentes ficam na fila e morrem por
    * `connectionTimeoutMillis`, virando 502 — o DBee culpando o Postgres por uma
    * fila que ele mesmo criou.
    */
@@ -137,6 +142,58 @@ export class SchemaService {
         await this.#pools.withReadOnly(connection, connection.database, (client) =>
           listDatabases(client, connection.database),
         ),
+      );
+    } catch (err: unknown) {
+      return fail("upstream_error", err instanceof Error ? err.message : "erro desconhecido");
+    }
+  }
+
+  /**
+   * Visão geral dos databases: tamanho, encoding, dono, conexões. Sem cache,
+   * como a lista de databases — é um instantâneo, e servir tamanho velho seria
+   * enganar quem está justamente olhando quanto o banco cresceu.
+   */
+  async databasesOverview(connectionId: string): Promise<ServiceResult<DatabasesOverview>> {
+    let connection;
+    try {
+      connection = this.#repository.resolve(connectionId);
+    } catch {
+      return fail("decryption_failed");
+    }
+    if (connection === null) return fail("not_found");
+
+    try {
+      return ok(
+        await this.#pools.withReadOnly(connection, connection.database, async (client) => {
+          const databases = await overviewDatabases(client, connection.database);
+          const versao = await client.query<{ v: string }>("SELECT version() AS v");
+          return { databases, serverVersion: versao.rows[0]?.v ?? "desconhecida" };
+        }),
+      );
+    } catch (err: unknown) {
+      return fail("upstream_error", err instanceof Error ? err.message : "erro desconhecido");
+    }
+  }
+
+  /**
+   * O que está rodando no servidor agora (`pg_stat_activity`). Um instantâneo,
+   * relido a cada chamada — o front decide se atualiza sozinho.
+   */
+  async activity(connectionId: string): Promise<ServiceResult<ActivityList>> {
+    let connection;
+    try {
+      connection = this.#repository.resolve(connectionId);
+    } catch {
+      return fail("decryption_failed");
+    }
+    if (connection === null) return fail("not_found");
+
+    try {
+      return ok(
+        await this.#pools.withReadOnly(connection, connection.database, async (client) => ({
+          sessions: await listActivity(client),
+          fetchedAt: new Date().toISOString(),
+        })),
       );
     } catch (err: unknown) {
       return fail("upstream_error", err instanceof Error ? err.message : "erro desconhecido");

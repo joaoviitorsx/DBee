@@ -57,8 +57,41 @@ export function deltaE(a: string, b: string): number {
 }
 
 /** Tokens do @theme em index.css, na mesma ordem do design system. */
-export const TOKENS = {
+/**
+ * As duas paletas, espelhando `index.css`.
+ *
+ * `amber` é o **preenchimento** e não muda de tema: âmbar cheio com tinta
+ * grafite passa nos dois. `accent` é o **traço e o texto** — no claro ele
+ * precisa escurecer, porque `#F5A623` sobre `#F7F3EC` dá 1,83:1.
+ */
+export interface Paleta {
+  readonly amber: string;
+  readonly accent: string;
+  readonly accentSoft: string;
+  readonly accentLine: string;
+  readonly sunken: string;
+  readonly surface: string;
+  readonly raised: string;
+  readonly overlay: string;
+  readonly ink: string;
+  readonly muted: string;
+  readonly subtle: string;
+  readonly accentInk: string;
+  readonly ok: string;
+  readonly danger: string;
+  readonly line: string;
+  readonly lineStrong: string;
+  readonly dangerSurface: string;
+  readonly dangerRaised: string;
+  readonly dangerLine: string;
+  readonly dangerInk: string;
+}
+
+export const DARK: Paleta = {
   amber: "#f5a623",
+  accent: "#f5a623",
+  accentSoft: "#382a14",
+  accentLine: "#725322",
   sunken: "#141210",
   surface: "#191612",
   raised: "#221e19",
@@ -75,4 +108,35 @@ export const TOKENS = {
   dangerRaised: "#3a1c19",
   dangerLine: "#5c2b26",
   dangerInk: "#ff9d9d",
-} as const;
+};
+
+export const LIGHT: Paleta = {
+  amber: "#f5a623",
+  accent: "#8f5a08",
+  accentSoft: "#f8e7cb",
+  accentLine: "#d8b171",
+  sunken: "#ece5d6",
+  surface: "#f8f3eb",
+  raised: "#fdfbf6",
+  overlay: "#ffffff",
+  ink: "#1c1917",
+  muted: "#5c5449",
+  subtle: "#8a8071",
+  accentInk: "#191612",
+  ok: "#2f7d4f",
+  danger: "#c0272d",
+  line: "#dcd3c4",
+  lineStrong: "#c5b9a5",
+  dangerSurface: "#fbe3e1",
+  dangerRaised: "#f7d4d1",
+  dangerLine: "#e39c98",
+  dangerInk: "#9c1c20",
+};
+
+export const PALETAS: readonly (readonly [string, Paleta])[] = [
+  ["escuro", DARK],
+  ["claro", LIGHT],
+];
+
+/** Compatibilidade: o tema escuro é o padrão do produto. */
+export const TOKENS = DARK;

@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 
-import { DatabaseInfo, DatabaseSchema, ErrorResponse } from "@dbee/shared";
+import { DatabaseInfo, DatabaseSchema, ErrorResponse , ActivityList, DatabasesOverview } from "@dbee/shared";
 
 import type { SchemaService } from "../services/schema.service";
 import { FAILURES } from "./failures";
@@ -33,9 +33,45 @@ export const schemaRoutes = (service: SchemaService) =>
         response: {
           200: t.Array(DatabaseInfo),
           400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
           404: ErrorResponse,
           500: ErrorResponse,
           502: ErrorResponse,
+        },
+      },
+    )
+    .get(
+      "/:id/databases/overview",
+      async ({ params, status }) => {
+        const result = await service.databasesOverview(params.id);
+        if (result.ok) return result.value;
+        const { status: code, body } = FAILURES[result.failure];
+        return status(code, result.detail === undefined ? body : { ...body, message: result.detail });
+      },
+      {
+        params: idParam,
+        response: {
+          200: DatabasesOverview,
+          400: ErrorResponse, 401: ErrorResponse, 403: ErrorResponse,
+          404: ErrorResponse, 500: ErrorResponse, 502: ErrorResponse,
+        },
+      },
+    )
+    .get(
+      "/:id/activity",
+      async ({ params, status }) => {
+        const result = await service.activity(params.id);
+        if (result.ok) return result.value;
+        const { status: code, body } = FAILURES[result.failure];
+        return status(code, result.detail === undefined ? body : { ...body, message: result.detail });
+      },
+      {
+        params: idParam,
+        response: {
+          200: ActivityList,
+          400: ErrorResponse, 401: ErrorResponse, 403: ErrorResponse,
+          404: ErrorResponse, 500: ErrorResponse, 502: ErrorResponse,
         },
       },
     )
@@ -61,6 +97,8 @@ export const schemaRoutes = (service: SchemaService) =>
         response: {
           200: DatabaseSchema,
           400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
           404: ErrorResponse,
           500: ErrorResponse,
           502: ErrorResponse,

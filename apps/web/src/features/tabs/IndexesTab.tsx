@@ -1,6 +1,7 @@
 import type { Relation } from "@dbee/shared";
 
 import { Badge } from "../../components/ui";
+import { useT } from "../../i18n";
 
 /**
  * Sub-aba Índices.
@@ -10,8 +11,9 @@ import { Badge } from "../../components/ui";
  * parcial de colunas faria o usuário acreditar num índice que não existe.
  */
 export function IndexesTab({ relation }: { readonly relation: Relation }) {
+  const t = useT();
   if (relation.indexes.length === 0) {
-    return <p className="px-4 py-8 text-center text-xs text-subtle">Nenhum índice.</p>;
+    return <p className="px-4 py-8 text-center text-xs text-subtle">{t("indices.nenhum")}</p>;
   }
 
   return (
@@ -20,8 +22,8 @@ export function IndexesTab({ relation }: { readonly relation: Relation }) {
         <li key={index.name} className="px-4 py-2.5">
           <div className="flex items-center gap-2">
             <span className="font-medium text-ink">{index.name}</span>
-            {index.isPrimary ? <Badge tone="key">PK</Badge> : null}
-            {index.isUnique && !index.isPrimary ? <Badge tone="neutral">único</Badge> : null}
+            {index.isPrimary ? <Badge tone="key">{t("indices.pk")}</Badge> : null}
+            {index.isUnique && !index.isPrimary ? <Badge tone="neutral">{t("indices.unico")}</Badge> : null}
           </div>
 
           {index.columns.length > 0 ? (

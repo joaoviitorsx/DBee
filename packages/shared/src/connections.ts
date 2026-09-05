@@ -112,11 +112,27 @@ export const UPDATE_SCHEMAS = { UpdateConnection } as const;
  * Resultado do teste de conexão. Erro do Postgres vai inteiro para a UI, com
  * `code` e `message` (CLAUDE.md, "Ao escrever código").
  */
+/**
+ * Aviso do teste de conexão.
+ *
+ * O caso que existe hoje: o papel do banco é privilegiado o bastante para
+ * `COPY … TO PROGRAM`, e aí **o modo read-only não é uma barreira de contenção**
+ * — ele barra DML e DDL, mas não a execução de programa no host do Postgres,
+ * que do ponto de vista da transação não modifica linhas. Ver §11.
+ */
+export const ConnectionWarning = t.Object({
+  code: t.Literal("privileged_role"),
+  message: t.String(),
+});
+export type ConnectionWarning = Static<typeof ConnectionWarning>;
+
 export const TestConnectionResult = t.Union([
   t.Object({
     ok: t.Literal(true),
     serverVersion: t.String(),
     durationMs: t.Integer(),
+    /** Vazio quando não há o que avisar. */
+    warnings: t.Array(ConnectionWarning),
   }),
   t.Object({
     ok: t.Literal(false),

@@ -153,3 +153,31 @@ controle do DBee.
 
 **Detectar escrita por regex ou parser de SQL.** Recusada antes deste ADR, em
 `DBee.md` §11.4. Repetida aqui porque é a alternativa que sempre volta.
+
+---
+
+## Emenda (2026-09-05) — o limite do read-only
+
+A revisão adversarial de segurança reproduziu, ponta a ponta, um caminho que
+este ADR não previa: **`COPY … TO PROGRAM` não é barrado por `BEGIN READ ONLY`.**
+Do ponto de vista do modo de transação ele não modifica linhas, então passa — e
+num papel superusuário ou com `pg_execute_server_program` é execução de comando
+no host do Postgres, dentro de uma conexão que a UI chama de "somente leitura".
+Confirmado: `COPY (SELECT 1) TO PROGRAM 'echo … > /tmp/rce'` cria o arquivo no
+host, e a resposta ainda diz `readOnly: true`.
+
+Isto **não invalida a decisão** — `BEGIN READ ONLY` continua sendo a proteção
+certa contra escrita de linhas, que é o acidente comum, e continua sendo melhor
+que as alternativas recusadas acima. O que muda é o **alcance da afirmação**: a
+frase "a proteção de escrita é o modo da transação" descrevia contenção total e
+entregava contenção de DML/DDL. A diferença importa porque o público-alvo
+conecta como `postgres` no banco do cliente.
+
+Não há conserto pelo lado do DBee: parser é proibido (regra 8) e erraria, e um
+superusuário desfaz qualquer `SET` de sessão. A mitigação, deliberadamente
+parcial, é **detectar e avisar**: `testConnection` marca o papel privilegiado e
+a árvore mostra que o read-only não contém aquela sessão, recomendando um papel
+restrito. Travado em `readonly-copy.integration.test.ts` e documentado em
+`DBee.md` §11.37. A segunda camada do lado do servidor — um papel Postgres sem
+esses privilégios — que este ADR já citava como "boa segunda camada" passa a ser
+a **única** contenção real contra este vetor, e o app agora diz isso.

@@ -1,33 +1,27 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Switch from "@radix-ui/react-switch";
 import type { Connection, CreateConnection, SslMode } from "@dbee/shared";
-import { X } from "lucide-react";
+import { Plug, X } from "lucide-react";
 import { useState, type ComponentProps } from "react";
 
 import { Button, Field, Input } from "../../components/ui";
+import { useT } from "../../i18n";
+import type { ChaveI18n } from "../../i18n/pt";
 import { cn } from "../../lib/cn";
 
 /** Rótulos honestos: o que cada modo garante de fato (ADR 003). */
-const SSL_OPTIONS: readonly { value: SslMode; label: string; hint: string }[] = [
-  { value: "disable", label: "Desativado", hint: "Texto claro. Use em rede privada." },
-  {
-    value: "require",
-    label: "Exigir TLS",
-    hint: "Criptografa, mas não autentica o servidor — não protege contra interceptação ativa.",
-  },
-  {
-    value: "verify-full",
-    label: "Exigir e verificar",
-    hint: "Criptografa e valida o certificado e o hostname. O único que autentica o servidor.",
-  },
+const SSL_OPTIONS: readonly { value: SslMode; label: ChaveI18n; hint: ChaveI18n }[] = [
+  { value: "disable", label: "form.tlsDesativado", hint: "form.tlsDesativadoAjuda" },
+  { value: "require", label: "form.tlsExigir", hint: "form.tlsExigirAjuda" },
+  { value: "verify-full", label: "form.tlsVerificar", hint: "form.tlsVerificarAjuda" },
 ];
 
-const TAGS: readonly { color: string; name: string }[] = [
-  { color: "#E5484D", name: "Vermelho" },
-  { color: "#F5A623", name: "Âmbar" },
-  { color: "#5FA777", name: "Verde" },
-  { color: "#5B8FF9", name: "Azul" },
-  { color: "#A78BFA", name: "Roxo" },
+const TAGS: readonly { color: string; name: ChaveI18n }[] = [
+  { color: "#E5484D", name: "cor.vermelho" },
+  { color: "#F5A623", name: "cor.ambar" },
+  { color: "#5FA777", name: "cor.verde" },
+  { color: "#5B8FF9", name: "cor.azul" },
+  { color: "#A78BFA", name: "cor.roxo" },
 ];
 
 export interface ConnectionDraft extends CreateConnection {
@@ -73,6 +67,7 @@ export function ConnectionForm({
   // O estado inicial vale por montagem: o pai passa `key` para remontar quando
   // troca o alvo, que é o reset idiomático — sem useEffect de sincronização.
   const [draft, setDraft] = useState<ConnectionDraft>(() => initialDraft(editing));
+  const t = useT();
 
   const set = <K extends keyof ConnectionDraft>(field: K, value: ConnectionDraft[K]): void => {
     setDraft((current) => ({ ...current, [field]: value }));
@@ -84,31 +79,46 @@ export function ConnectionForm({
   };
 
   const isEdit = editing !== null;
-  const sslHint = SSL_OPTIONS.find((o) => o.value === draft.sslMode)?.hint;
+  const sslHintKey = SSL_OPTIONS.find((o) => o.value === draft.sslMode)?.hint;
+  const sslHint = sslHintKey === undefined ? undefined : t(sslHintKey);
+
+  /*
+   * A régua da esquerda assume **a cor escolhida da conexão**.
+   *
+   * Não é enfeite: é a mesma tag de 3px que identifica a conexão na árvore, e
+   * pô-la aqui faz o modal mostrar como aquela conexão vai aparecer depois. Sem
+   * cor escolhida ela é âmbar — o acento do produto.
+   */
+  const regua = draft.color ?? "var(--color-accent)";
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=open]:fade-in" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[3px] data-[state=open]:animate-in data-[state=open]:fade-in" />
         <Dialog.Content
           className={cn(
-            "fixed inset-y-0 right-0 z-50 flex w-full max-w-lg flex-col",
-            "border-l border-line bg-surface shadow-[-16px_0_40px_rgba(0,0,0,.45)]",
+            // Centrado, não gaveta lateral: o formulário é o assunto enquanto
+            // está aberto, e a gaveta sugeria um painel auxiliar sobre um
+            // conteúdo que continua sendo usado — o que não é o caso.
+            "fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[calc(100%-2rem)] max-w-2xl",
+            "-translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden",
+            "rounded-lg border border-line bg-surface shadow-[0_24px_64px_rgba(0,0,0,.5)]",
+            "animate-settle",
           )}
+          style={{ borderLeft: `3px solid ${regua}` }}
         >
-          <header className="flex items-center justify-between border-b border-line px-6 py-4">
-            <div>
-              <Dialog.Title className="text-lg font-semibold text-ink">
-                {isEdit ? "Editar conexão" : "Nova conexão"}
+          <header className="flex items-start justify-between gap-4 border-b border-line px-6 py-5">
+            <div className="min-w-0">
+              <Dialog.Title className="flex items-center gap-2 text-lg font-semibold text-ink">
+                <Plug aria-hidden className="h-4 w-4 shrink-0 text-accent" />
+                {isEdit ? t("form.editarTitulo") : t("form.novoTitulo")}
               </Dialog.Title>
-              <Dialog.Description className="mt-0.5 text-xs text-muted">
-                {isEdit
-                  ? "Deixe a senha em branco para manter a atual."
-                  : "A senha é cifrada antes de ir para o disco."}
+              <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted">
+                {isEdit ? t("form.editarDescricao") : t("form.novoDescricao")}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
-              <Button size="icon" variant="ghost" aria-label="Fechar">
+              <Button size="icon" variant="ghost" aria-label={t("comum.fechar")}>
                 <X aria-hidden className="h-4 w-4" />
               </Button>
             </Dialog.Close>
@@ -116,25 +126,25 @@ export function ConnectionForm({
 
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
             <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-              <Field label="Nome" htmlFor="name" hint="Como você reconhece este banco.">
+              <Field label={t("form.nome")} htmlFor="name" hint={t("form.nomeAjuda")}>
                 <Input
                   id="name"
                   required
                   autoFocus
                   value={draft.name}
                   onChange={(e) => { set("name", e.target.value); }}
-                  placeholder="Produção Assertivus"
+                  placeholder={t("form.nomePlaceholder")}
                 />
               </Field>
 
               <div>
-                <span className="text-xs font-medium text-muted">Tag</span>
+                <span className="text-xs font-medium text-muted">{t("form.tag")}</span>
                 <div className="mt-1.5 flex items-center gap-2">
                   {TAGS.map((tag) => (
                     <button
                       key={tag.color}
                       type="button"
-                      aria-label={tag.name}
+                      aria-label={t(tag.name)}
                       aria-pressed={draft.color === tag.color}
                       onClick={() => { set("color", draft.color === tag.color ? null : tag.color); }}
                       className={cn(
@@ -147,13 +157,13 @@ export function ConnectionForm({
                     />
                   ))}
                   <span className="ml-1 text-2xs text-subtle">
-                    {draft.color === null ? "Sem tag" : "Vermelho costuma marcar produção"}
+                    {draft.color === null ? t("form.semTag") : t("form.tagAjuda")}
                   </span>
                 </div>
               </div>
 
               <div className="grid grid-cols-[1fr_7rem] gap-3">
-                <Field label="Host" htmlFor="host">
+                <Field label={t("form.host")} htmlFor="host">
                   <Input
                     id="host"
                     required
@@ -163,7 +173,7 @@ export function ConnectionForm({
                     placeholder="10.0.0.4"
                   />
                 </Field>
-                <Field label="Porta" htmlFor="port" hint="Nunca o PgBouncer.">
+                <Field label={t("form.porta")} htmlFor="port" hint={t("form.portaAjuda")}>
                   <Input
                     id="port"
                     type="number"
@@ -178,7 +188,7 @@ export function ConnectionForm({
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Database" htmlFor="database">
+                <Field label={t("form.database")} htmlFor="database">
                   <Input
                     id="database"
                     required
@@ -187,7 +197,7 @@ export function ConnectionForm({
                     onChange={(e) => { set("database", e.target.value); }}
                   />
                 </Field>
-                <Field label="Usuário" htmlFor="username">
+                <Field label={t("form.usuario")} htmlFor="username">
                   <Input
                     id="username"
                     required
@@ -199,9 +209,9 @@ export function ConnectionForm({
               </div>
 
               <Field
-                label="Senha"
+                label={t("form.senha")}
                 htmlFor="password"
-                hint={isEdit ? "Em branco mantém a senha atual." : undefined}
+                hint={isEdit ? t("form.senhaAjuda") : undefined}
               >
                 <Input
                   id="password"
@@ -213,7 +223,7 @@ export function ConnectionForm({
                 />
               </Field>
 
-              <Field label="Criptografia" htmlFor="ssl" hint={sslHint}>
+              <Field label={t("form.criptografia")} htmlFor="ssl" hint={sslHint}>
                 <select
                   id="ssl"
                   value={draft.sslMode}
@@ -222,13 +232,13 @@ export function ConnectionForm({
                 >
                   {SSL_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
-                      {option.label}
+                      {t(option.label)}
                     </option>
                   ))}
                 </select>
               </Field>
 
-              <Field label="Timezone" htmlFor="timezone" hint="Como timestamptz aparece na grade.">
+              <Field label={t("form.timezone")} htmlFor="timezone" hint={t("form.timezoneAjuda")}>
                 <Input
                   id="timezone"
                   required
@@ -242,11 +252,10 @@ export function ConnectionForm({
               <div className="flex items-start justify-between gap-4 rounded-[6px] border border-line bg-sunken p-3">
                 <div>
                   <label htmlFor="write" className="text-sm font-medium text-ink">
-                    Permitir escrita
+                    {t("form.permitirEscrita")}
                   </label>
                   <p className="mt-0.5 text-2xs text-subtle">
-                    Desligado, as queries rodam em transação read-only e o Postgres recusa
-                    qualquer alteração. Ligue só quando for alterar dado de propósito.
+                    {t("form.permitirEscritaAjuda")}
                   </p>
                 </div>
                 <Switch.Root
@@ -269,11 +278,11 @@ export function ConnectionForm({
             <footer className="flex items-center justify-end gap-2 border-t border-line px-6 py-4">
               <Dialog.Close asChild>
                 <Button type="button" variant="ghost">
-                  Cancelar
+                  {t("comum.cancelar")}
                 </Button>
               </Dialog.Close>
-              <Button type="submit" variant="primary" loading={saving} loadingLabel="Salvando…">
-                {isEdit ? "Salvar alterações" : "Cadastrar conexão"}
+              <Button type="submit" variant="primary" loading={saving} loadingLabel={t("form.salvando")}>
+                {isEdit ? t("form.salvarAlteracoes") : t("form.cadastrar")}
               </Button>
             </footer>
           </form>

@@ -307,3 +307,130 @@ export async function listDatabases(
   const res = await client.query<{ name: string }>(DATABASES_SQL);
   return res.rows.map((row) => ({ name: row.name, isDefault: row.name === current }));
 }
+
+/**
+ * Visão geral dos databases: tamanho, encoding, collation, dono, conexões.
+ *
+ * `pg_database_size` só quando `has_database_privilege(... 'CONNECT')` — medir
+ * um database sem permissão dá erro, então protegemos com `CASE`. Tudo do
+ * catálogo, uma consulta.
+ */
+const DATABASES_OVERVIEW_SQL = `
+  SELECT d.datname AS name,
+         CASE WHEN has_database_privilege(d.datname, 'CONNECT')
+              THEN pg_database_size(d.datname) ELSE NULL END AS size_bytes,
+         pg_encoding_to_char(d.encoding) AS encoding,
+         d.datcollate AS collate,
+         pg_get_userbyid(d.datdba) AS owner,
+         (SELECT count(*) FROM pg_stat_activity a WHERE a.datname = d.datname) AS connections
+    FROM pg_database d
+   WHERE NOT d.datistemplate
+     AND d.datallowconn
+     AND has_database_privilege(d.datname, 'CONNECT')
+   ORDER BY d.datname
+`;
+
+interface DatabaseOverviewRow {
+  name: string;
+  size_bytes: string | null;
+  encoding: string;
+  collate: string;
+  owner: string;
+  connections: string;
+}
+
+export async function overviewDatabases(
+  client: PoolClient,
+  current: string,
+): Promise<
+  {
+    name: string;
+    isDefault: boolean;
+    sizeBytes: number | null;
+    encoding: string;
+    collate: string;
+    owner: string;
+    connections: number;
+  }[]
+> {
+  const res = await client.query<DatabaseOverviewRow>(DATABASES_OVERVIEW_SQL);
+  return res.rows.map((r) => ({
+    name: r.name,
+    isDefault: r.name === current,
+    // `pg_database_size` volta bigint → string; parse seguro, null preservado.
+    sizeBytes: r.size_bytes === null ? null : Number(r.size_bytes),
+    encoding: r.encoding,
+    collate: r.collate,
+    owner: r.owner,
+    connections: Number(r.connections),
+  }));
+}
+
+/**
+ * O que está rodando no servidor agora (`pg_stat_activity`).
+ *
+ * Exclui as próprias linhas de fundo do Postgres (`backend_type <> 'client
+ * backend'` são walwriter, autovacuum, etc.) e a sessão que faz esta consulta
+ * (`pid <> pg_backend_pid()`). `isSelf` marca as sessões cujo `application_name`
+ * é `dbee` — as do próprio cliente.
+ */
+const ACTIVITY_SQL = `
+  SELECT pid,
+         datname AS database,
+         usename AS "user",
+         COALESCE(application_name, '') AS application_name,
+         host(client_addr) AS client_addr,
+         state,
+         EXTRACT(EPOCH FROM (now() - query_start))::float8 AS duration_seconds,
+         wait_event,
+         COALESCE(query, '') AS query,
+         (application_name = 'dbee') AS is_self
+    FROM pg_stat_activity
+   WHERE backend_type = 'client backend'
+     AND pid <> pg_backend_pid()
+   ORDER BY query_start ASC NULLS LAST
+`;
+
+interface ActivityRow {
+  pid: number;
+  database: string | null;
+  user: string | null;
+  application_name: string;
+  client_addr: string | null;
+  state: string | null;
+  duration_seconds: number | null;
+  wait_event: string | null;
+  query: string;
+  is_self: boolean;
+}
+
+export async function listActivity(
+  client: PoolClient,
+): Promise<
+  {
+    pid: number;
+    database: string | null;
+    user: string | null;
+    applicationName: string;
+    clientAddr: string | null;
+    state: string | null;
+    durationSeconds: number | null;
+    waitEvent: string | null;
+    query: string;
+    isSelf: boolean;
+  }[]
+> {
+  const res = await client.query<ActivityRow>(ACTIVITY_SQL);
+  return res.rows.map((r) => ({
+    pid: r.pid,
+    database: r.database,
+    user: r.user,
+    applicationName: r.application_name,
+    clientAddr: r.client_addr,
+    state: r.state,
+    durationSeconds: r.duration_seconds,
+    waitEvent: r.wait_event,
+    query: r.query,
+    isSelf: r.is_self,
+  }));
+}

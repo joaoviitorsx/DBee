@@ -1,4 +1,4 @@
-import type { Connection, DatabaseSchema, Relation, RelationKind } from "@dbee/shared";
+import type { Connection, DatabaseSchema, Relation, RelationKind , ConnectionWarning } from "@dbee/shared";
 import {
   ChevronRight,
   Database,
@@ -10,12 +10,15 @@ import {
   Plus,
   Search,
   Table2,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button, Input } from "../../components/ui";
 import { anchorFromEvent, anchorFromRect, type MenuAnchor } from "../../components/ContextMenu";
+import { HoneycombCluster } from "../../components/HoneycombCluster";
+import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
 import type { TableTarget } from "../../app/workspace";
 import { countRelations, filterSchema } from "./filter";
@@ -59,23 +62,35 @@ export type TreeTarget =
 interface ConnectionTreeProps {
   readonly connections: readonly Connection[];
   readonly health: Readonly<Record<string, ConnectionHealth>>;
+  readonly warnings: Readonly<Record<string, readonly ConnectionWarning[]>>;
   readonly tree: TreeState;
   readonly onOpenRelation: (target: TableTarget) => void;
   readonly onNewConnection: () => void;
   /** Botão direito em qualquer nó, ou o botão "···" da conexão. */
   readonly onContextMenu: (target: TreeTarget, anchor: MenuAnchor) => void;
+  /**
+   * Botão direito no **vazio** da árvore.
+   *
+   * Separado do de cima porque não descreve nó nenhum: o alvo é a lista, e a
+   * única ação que faz sentido ali é acrescentar. Um `TreeTarget` sem conexão
+   * obrigaria todo consumidor do menu a tratar um caso sem alvo.
+   */
+  readonly onBackgroundContextMenu: (anchor: MenuAnchor) => void;
   readonly activeTarget: TableTarget | null;
 }
 
 export function ConnectionTree({
   connections,
   health,
+  warnings,
   tree,
   onOpenRelation,
   onNewConnection,
   onContextMenu,
+  onBackgroundContextMenu,
   activeTarget,
 }: ConnectionTreeProps) {
+  const t = useT();
   const [query, setQuery] = useState("");
 
   return (
@@ -89,14 +104,14 @@ export function ConnectionTree({
         <Input
           value={query}
           onChange={(e) => { setQuery(e.target.value); }}
-          placeholder="Buscar tabela ou schema"
-          aria-label="Buscar na árvore"
+          placeholder={t("arvore.buscar")}
+          aria-label={t("arvore.buscarAria")}
           className="h-8 w-full pl-8 pr-7 text-xs"
         />
         {query !== "" ? (
           <button
             type="button"
-            aria-label="Limpar busca"
+            aria-label={t("arvore.limparBusca")}
             onClick={() => { setQuery(""); }}
             className="absolute right-4 top-1/2 -translate-y-1/2 cursor-pointer text-subtle hover:text-ink"
           >
@@ -105,10 +120,28 @@ export function ConnectionTree({
         ) : null}
       </div>
 
-      <nav aria-label="Conexões" className="min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+      <nav
+        aria-label={t("arvore.conexoes")}
+        className="min-h-0 flex-1 overflow-y-auto px-1 pb-2"
+        onContextMenu={(e) => {
+          /*
+           * Só quando o clique **não** caiu num nó.
+           *
+           * Os nós já param o evento com `preventDefault`, mas o `contextmenu`
+           * borbulha de qualquer jeito — sem esta checagem, o botão direito
+           * numa conexão abriria os dois menus, um por cima do outro.
+           */
+          if (e.defaultPrevented) return;
+          if (e.target !== e.currentTarget && (e.target as HTMLElement).closest("li") !== null) {
+            return;
+          }
+          e.preventDefault();
+          onBackgroundContextMenu(anchorFromEvent(e));
+        }}
+      >
         {connections.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-subtle">
-            Nenhuma conexão ainda. Cadastre a primeira para começar.
+            {t("arvore.nenhumaConexao")}
           </p>
         ) : (
           <ul>
@@ -117,6 +150,7 @@ export function ConnectionTree({
                 key={connection.id}
                 connection={connection}
                 health={health[connection.id] ?? "untested"}
+                warnings={warnings[connection.id] ?? []}
                 tree={tree}
                 query={query}
                 onOpenRelation={onOpenRelation}
@@ -128,10 +162,28 @@ export function ConnectionTree({
         )}
       </nav>
 
-      <div className="shrink-0 border-t border-line p-2">
-        <Button variant="ghost" size="sm" className="w-full justify-start" onClick={onNewConnection}>
+      {/*
+        * Favo de mel no pé da barra, atrás do "Nova conexão" — um **cacho**
+        * hexagonal no canto inferior direito (o mesmo motivo do rodapé do
+        * login), não a tesselação difusa de antes: hexágonos flat-top de
+        * verdade, parte cheios, parte contorno. `mask` desvanece para cima e
+        * para a esquerda, para o favo assinar a lateral sem competir com a
+        * árvore; `text-accent` tinge em dark e light.
+        */}
+      <div className="relative shrink-0 overflow-hidden border-t border-line p-2">
+        <HoneycombCluster
+          aria-hidden
+          className="absolute bottom-0 right-0 h-28 w-28 translate-x-4 translate-y-4 text-accent opacity-[0.13]"
+          size={13}
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="relative w-full justify-start"
+          onClick={onNewConnection}
+        >
           <Plus aria-hidden className="h-3.5 w-3.5" />
-          Nova conexão
+          {t("arvore.novaConexao")}
         </Button>
       </div>
     </div>
@@ -178,6 +230,24 @@ function Row({
       )}
       style={{ paddingLeft: `${String(depth * 12 + 4)}px` }}
     >
+      {/*
+        * A relação aberta ganha a **mesma régua** que identifica a conexão na
+        * linha de cima — 3px na borda esquerda, agora em âmbar. Só o fundo
+        * `raised` era fraco demais numa árvore de cem nós: a linha ativa
+        * sumia junto com a linha sob o cursor, que usa o mesmo tom.
+        *
+        * Não vale para os nós expansíveis: ali "ativo" seria "aberto", e todo
+        * ramo aberto com uma régua transformaria a árvore num campo de barras.
+        */}
+      {active && !expandable ? (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute inset-y-[3px] left-0 w-[3px] rounded-full",
+            danger ? "bg-danger-ink" : "bg-accent",
+          )}
+        />
+      ) : null}
       {leading}
       <button
         type="button"
@@ -218,6 +288,7 @@ const HEALTH_LABEL: Readonly<Record<ConnectionHealth, string>> = {
 function ConnectionBranch({
   connection,
   health,
+  warnings,
   tree,
   query,
   onOpenRelation,
@@ -226,12 +297,14 @@ function ConnectionBranch({
 }: {
   readonly connection: Connection;
   readonly health: ConnectionHealth;
+  readonly warnings: readonly ConnectionWarning[];
   readonly tree: TreeState;
   readonly query: string;
   readonly onOpenRelation: (target: TableTarget) => void;
   readonly onContextMenu: (target: TreeTarget, anchor: MenuAnchor) => void;
   readonly activeTarget: TableTarget | null;
 }) {
+  const t = useT();
   const node = connectionNode(connection.id);
   const expanded = tree.isExpanded(node);
   const perigo = connection.writeEnabled;
@@ -313,13 +386,27 @@ function ConnectionBranch({
           * exatamente o ponto do estado de perigo. Vira ícone, com o texto
           * no rótulo acessível.
           */}
+        {/*
+          * Aviso de segurança do último teste — hoje só o de papel privilegiado.
+          * Fica ANTES do selo de escrita e empurra com `ml-auto` só se o selo
+          * não existir, para os dois não brigarem pela borda direita.
+          */}
+        {warnings.length > 0 ? (
+          <span
+            className={cn("flex shrink-0 items-center", perigo ? "" : "ml-auto")}
+            title={warnings.map((w) => w.message).join("\n\n")}
+          >
+            <TriangleAlert aria-hidden className="h-3.5 w-3.5 text-accent" />
+            <span className="sr-only">{warnings.map((w) => w.message).join(" ")}</span>
+          </span>
+        ) : null}
         {perigo ? (
           <span
             className="ml-auto flex shrink-0 items-center rounded-[3px] bg-amber px-1 py-px"
-            title="Escrita habilitada"
+            title={t("conexao.escritaHabilitada")}
           >
             <Pencil aria-hidden className="h-2.5 w-2.5 text-accent-ink" />
-            <span className="sr-only">escrita habilitada</span>
+            <span className="sr-only">{t("conexao.escritaHabilitadaMin")}</span>
           </span>
         ) : null}
       </Row>
@@ -327,7 +414,7 @@ function ConnectionBranch({
       {expanded ? (
         <ul>
           {databases.isPending ? (
-            <li className="py-1.5 pl-8 text-xs text-subtle">Carregando databases…</li>
+            <li className="py-1.5 pl-8 text-xs text-subtle">{t("arvore.carregandoDatabases")}</li>
           ) : databases.isError ? (
             <li className="py-1.5 pl-8 pr-2 text-xs text-danger">{databases.error.message}</li>
           ) : (
@@ -382,6 +469,7 @@ function DatabaseBranch({
   readonly onContextMenu: (target: TreeTarget, anchor: MenuAnchor) => void;
   readonly activeTarget: TableTarget | null;
 }) {
+  const t = useT();
   const node = databaseNode(connection.id, database);
   const expanded = tree.isExpanded(node);
   const perigo = connection.writeEnabled;
@@ -404,17 +492,17 @@ function DatabaseBranch({
       >
         <Database aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted" />
         <span className="truncate font-mono text-xs text-ink">{database}</span>
-        {isDefault ? <span className="shrink-0 text-2xs text-subtle">padrão</span> : null}
+        {isDefault ? <span className="shrink-0 text-2xs text-subtle">{t("arvore.padrao")}</span> : null}
       </Row>
 
       {expanded ? (
         schema === undefined || schema.isPending ? (
-          <p className="py-1.5 pl-12 text-xs text-subtle">Lendo o catálogo…</p>
+          <p className="py-1.5 pl-12 text-xs text-subtle">{t("arvore.lendoCatalogo")}</p>
         ) : schema.isError ? (
           <p className="py-1.5 pl-12 pr-2 text-xs text-danger">{schema.error?.message}</p>
         ) : filtrado.length === 0 ? (
           <p className="py-1.5 pl-12 text-xs text-subtle">
-            {query === "" ? "Nenhuma relação" : `Nada encontrado para "${query}"`}
+            {query === "" ? t("arvore.nenhumaRelacao") : t("arvore.nadaEncontrado", { q: query })}
           </p>
         ) : (
           <ul>

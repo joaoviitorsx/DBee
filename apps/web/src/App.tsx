@@ -1,8 +1,9 @@
-import type { Connection, TestConnectionResult } from "@dbee/shared";
+import type { Connection, ConnectionWarning, TestConnectionResult } from "@dbee/shared";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
 import { AppShell } from "./app/AppShell";
+import { AuthGate } from "./features/auth/AuthGate";
 import type { ConnectionHealth } from "./features/tree/ConnectionTree";
 import { schemaKey } from "./features/tree/useTree";
 import { ConnectionForm } from "./routes/connections/ConnectionForm";
@@ -15,7 +16,24 @@ type Painel =
 const healthOf = (r: TestConnectionResult | undefined): ConnectionHealth =>
   r === undefined ? "untested" : r.ok ? "ok" : "error";
 
+/**
+ * O portão, e **nada mais**.
+ *
+ * Todo hook de dados vive em `Area`, dentro dele. Fora, eles montavam antes de
+ * existir sessão: `useConnections` disparava no primeiro render, tomava 401,
+ * cacheava o erro — e como o login não invalida a consulta de conexões, a
+ * árvore ficava vazia depois de entrar, com a API respondendo certo. Levou dois
+ * screenshots para eu parar de tratar isso como corrida do roteiro de captura.
+ */
 export function App() {
+  return (
+    <AuthGate>
+      <Area />
+    </AuthGate>
+  );
+}
+
+function Area() {
   const queryClient = useQueryClient();
   const { query, save, remove, test, results } = useConnections();
   const [painel, setPainel] = useState<Painel>({ open: false });
@@ -25,11 +43,22 @@ export function App() {
     connections.map((c) => [c.id, healthOf(results[c.id])]),
   ) as Record<string, ConnectionHealth>;
 
+  // Avisos do último teste, por conexão. Hoje só o de papel privilegiado
+  // (COPY … TO PROGRAM fura o read-only): é aviso de segurança, tem de ser
+  // visível na árvore, não só num toast que some.
+  const warnings = Object.fromEntries(
+    connections.map((c) => {
+      const r = results[c.id];
+      return [c.id, r?.ok === true ? r.warnings : []];
+    }),
+  ) as Record<string, readonly ConnectionWarning[]>;
+
   return (
     <>
       <AppShell
         connections={connections}
         health={health}
+        warnings={warnings}
         onNewConnection={() => { setPainel({ open: true, editing: null }); }}
         onRefreshSchema={(connectionId, database) => {
           void queryClient.invalidateQueries({ queryKey: schemaKey(connectionId, database) });

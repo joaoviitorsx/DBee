@@ -19,7 +19,6 @@ const MAX_ROWS_PADRAO = 1000;
  *
  * Vira o id do usuário quando a fatia de autenticação entrar (DBee.md §7).
  */
-const ACTOR = "unauthenticated";
 
 export interface QueryServiceDeps {
   readonly repository: ConnectionsRepository;
@@ -54,6 +53,15 @@ export class QueryService {
   async run(
     connectionId: string,
     request: QueryRequest,
+    /**
+     * Quem executou, para o `query_log` (DBee.md §2.4, §7).
+     *
+     * Chega como parâmetro vindo da sessão, e **não** tem valor padrão: um padrão
+     * aqui seria o caminho por onde uma rota nova grava auditoria anônima sem
+     * ninguém notar. Sem sessão a requisição nem chega ao serviço — o guard barra
+     * antes.
+     */
+    actor: string,
   ): Promise<ServiceResult<QueryResponse>> {
     let connection;
     try {
@@ -91,7 +99,7 @@ export class QueryService {
         rowCount: outcome.error === null ? linhas : null,
         durationMs: totalDurationMs,
         readOnly,
-        actor: ACTOR,
+        actor,
       });
 
       return ok({ ...outcome, totalDurationMs, readOnly });
@@ -110,7 +118,7 @@ export class QueryService {
         rowCount: null,
         durationMs: Math.round(performance.now() - inicio),
         readOnly,
-        actor: ACTOR,
+        actor,
       });
 
       return fail("upstream_error", message);

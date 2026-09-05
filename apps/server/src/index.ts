@@ -1,4 +1,6 @@
 import { createApp } from "./app";
+import { avisarPrimeiroUsuario, criarPrimeiroUsuario } from "./db/bootstrap";
+import { UsersRepository } from "./db/users.repo";
 import { PoolManager } from "./pg/pool";
 import { openStore } from "./db/client";
 import { loadConfig } from "./lib/config";
@@ -59,6 +61,16 @@ if (await portaOcupada(config.port)) {
   );
   process.exit(1);
 }
+
+/*
+ * Primeiro boot: cria o usuário inicial e imprime a senha **uma vez**.
+ *
+ * Roda depois da checagem de porta de propósito. Se dois processos subissem
+ * juntos, os dois imprimiriam um bloco de senha e só um valeria — e a pessoa
+ * digitaria a errada sem entender por quê.
+ */
+const primeiro = await criarPrimeiroUsuario(new UsersRepository(store.db));
+if (primeiro !== null) avisarPrimeiroUsuario(primeiro);
 
 createApp({ store, caCert: config.caCert, pools }).listen({
   port: config.port,

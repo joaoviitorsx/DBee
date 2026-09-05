@@ -18,7 +18,8 @@ import { resolveColumns } from "./columns";
  * a maior parte do uso diário; pelo executor ela herdaria `maxRows` e a marca
  * de truncamento, e paginar viraria `OFFSET` — que degrada exatamente nas
  * tabelas grandes onde a paginação importa. Keyset faz a página 400 custar o
- * mesmo que a página 2.
+ * mesmo que a página 2 — e **isso é verificado, não afirmado**: a condição
+ * emitida aqui vira `Index Cond`, não `Filter`. Ver `condicaoKeyset` e §11.26.
  *
  * Nada aqui concatena valor vindo do cliente:
  *
@@ -137,51 +138,147 @@ export function planRows(relation: Relation, schema: string, request: RowsReques
     onde.push(condicaoFiltro(filtro.column, tipoDe(filtro.column), filtro, params));
   }
 
-  if (keyset && request.after !== undefined) {
-    if (request.after.primaryKey.length !== pk.length) {
-      throw new RowsError("invalid_cursor", "o cursor não corresponde à chave primária");
-    }
-    onde.push(condicaoKeyset(request.after, orderColumn, tipos, pk, cmp, dir, params));
+  const cursor = keyset ? request.after : undefined;
+  if (cursor !== undefined && cursor.primaryKey.length !== pk.length) {
+    throw new RowsError("invalid_cursor", "o cursor não corresponde à chave primária");
   }
 
-  const ordem = [
-    // NULLS LAST fixa onde os nulos caem, que é o que a condição de keyset
-    // abaixo assume.
-    ...(orderColumn === null ? [] : [`${cite(orderColumn)} ${dir.toUpperCase()} NULLS LAST`]),
-    ...pk.map((c) => `${cite(c)} ${dir.toUpperCase()}`),
-  ];
-
+  const D = dir.toUpperCase();
+  const alvo = `${cite(schema)}.${cite(relation.name)}`;
   const limite = request.limit ?? 100;
+  const teto = `LIMIT ${String(limite + 1)}`;
+
+  /** `ORDER BY` de um ramo: sem `NULLS LAST`, porque dentro dele não há dúvida. */
+  const ordemDoRamo = [
+    ...(orderColumn === null ? [] : [`${cite(orderColumn)} ${D}`]),
+    ...pk.map((c) => `${cite(c)} ${D}`),
+  ].join(", ");
+
+  const ramo = (condicoes: readonly string[]): string =>
+    [
+      `SELECT * FROM ${alvo}`,
+      condicoes.length > 0 ? `WHERE ${condicoes.join(" AND ")}` : "",
+      ordemDoRamo === "" ? "" : `ORDER BY ${ordemDoRamo}`,
+      teto,
+      // Sem PK não há keyset: OFFSET, com o aviso indo na resposta.
+      !keyset && request.offset !== undefined && request.offset > 0
+        ? `OFFSET ${String(request.offset)}`
+        : "",
+    ]
+      .filter((parte) => parte !== "")
+      .join("\n");
+
+  const anulavel =
+    orderColumn !== null &&
+    (relation.columns.find((c) => c.name === orderColumn)?.nullable ?? true);
+
+  /*
+   * Só há dois ramos quando os três valem ao mesmo tempo: existe cursor, a
+   * ordenação é por uma coluna **anulável**, e o cursor ainda está na região
+   * não-nula. Fora disso, um ramo só — e a maioria absoluta do uso cai aqui.
+   */
+  // `anulavel` já implica `orderColumn !== null`, e o TypeScript propaga essa
+  // estreitagem pela constante — repetir a checagem aqui seria ruído que o
+  // lint acusa com razão.
+  const precisaDeDoisRamos = cursor !== undefined && anulavel && !cursor.orderValueIsNull;
+
+  if (!precisaDeDoisRamos) {
+    const condicoes = [...onde];
+    if (cursor !== undefined) {
+      condicoes.push(condicaoKeyset(cursor, orderColumn, tipos, pk, cmp, params));
+    }
+    return { sql: ramo(condicoes), valores: params.valores, orderColumn, primaryKey: pk, keyset };
+  }
+
+  const c = cite(orderColumn);
+  const avanco = comparacaoDeLinha(cursor, orderColumn, tipos, pk, cmp, params);
 
   const sql = [
-    `SELECT * FROM ${cite(schema)}.${cite(relation.name)}`,
-    onde.length > 0 ? `WHERE ${onde.join(" AND ")}` : "",
-    ordem.length > 0 ? `ORDER BY ${ordem.join(", ")}` : "",
-    // limite + 1 revela a próxima página sem contar a tabela.
-    `LIMIT ${String(limite + 1)}`,
-    // Sem PK não há keyset: OFFSET, com o aviso indo na resposta.
-    !keyset && request.offset !== undefined && request.offset > 0
-      ? `OFFSET ${String(request.offset)}`
-      : "",
-  ]
-    .filter((parte) => parte !== "")
-    .join("\n");
+    "SELECT * FROM (",
+    // Ramo 1: o que vem depois do cursor entre os NÃO-NULOS. O `IS NOT NULL`
+    // explícito é o que o planejador dobra dentro do `Index Cond` — medido.
+    `  (${ramo([...onde, `${c} IS NOT NULL`, avanco]).replaceAll("\n", "\n   ")})`,
+    "  UNION ALL",
+    // Ramo 2: os NULL, que com NULLS LAST vêm todos depois. Ordenar por
+    // `(coluna, pk)` em vez de só pela PK é o que deixa o índice composto
+    // servir este ramo: 0,23 ms contra 2,6 ms numa coluna com NULL raro.
+    `  (${ramo([...onde, `${c} IS NULL`]).replaceAll("\n", "\n   ")})`,
+    ") u",
+    `ORDER BY ${c} ${D} NULLS LAST, ${pk.map((k) => `${cite(k)} ${D}`).join(", ")}`,
+    teto,
+  ].join("\n");
 
   return { sql, valores: params.valores, orderColumn, primaryKey: pk, keyset };
 }
 
 /**
- * Condição de keyset, com NULL tratado explicitamente.
+ * Só a chave primária avançando: `(pk1, pk2) > ($1, $2)`.
  *
- * Comparação de linha — `(c, pk) > ($1, $2)` — é o jeito canônico e usa índice,
- * **mas NULL a quebra**: se `c` for NULL, a comparação devolve NULL e a linha
- * some. Numa coluna anulável isso significa perder, em silêncio, todas as
- * linhas com NULL a partir da segunda página.
+ * Comparação de linha, não a disjunção equivalente. **É a forma, não o
+ * conteúdo, que decide se o índice é usado** — ver `condicaoKeyset`.
+ */
+function pkAvancando(
+  cursor: RowCursor,
+  tipos: ReadonlyMap<string, string>,
+  pk: readonly string[],
+  cmp: string,
+  params: Parametros,
+): string {
+  const citada = pk.map(cite).join(", ");
+  const valores = pk
+    .map((coluna, i) => `${params.push(cursor.primaryKey[i] ?? null)}::${tipos.get(coluna) ?? "text"}`)
+    .join(", ");
+  return `(${citada}) ${cmp} (${valores})`;
+}
+
+/**
+ * `(coluna, ...pk) > ($v, ...$p)` — a comparação de linha canônica.
  *
- * Com `NULLS LAST` os nulos ficam no fim, então há dois regimes:
+ * Vale só onde `coluna` não é NULL: a comparação com NULL devolve NULL, e a
+ * linha some. Quem garante isso é quem chama.
+ */
+function comparacaoDeLinha(
+  cursor: RowCursor,
+  orderColumn: string,
+  tipos: ReadonlyMap<string, string>,
+  pk: readonly string[],
+  cmp: string,
+  params: Parametros,
+): string {
+  const colunas = [cite(orderColumn), ...pk.map(cite)].join(", ");
+  const valores = [
+    `${params.push(cursor.orderValue)}::${tipos.get(orderColumn) ?? "text"}`,
+    ...pk.map(
+      (coluna, i) => `${params.push(cursor.primaryKey[i] ?? null)}::${tipos.get(coluna) ?? "text"}`,
+    ),
+  ].join(", ");
+  return `(${colunas}) ${cmp} (${valores})`;
+}
+
+/**
+ * Condição de keyset de **um ramo só**.
  *
- * - **Ainda na região não-nula:** pega o que vem depois **e** todos os NULL.
- * - **Já entre os NULL:** só a PK desempata.
+ * ## A forma decide, não o conteúdo
+ *
+ * `(c, pk) > ($v, $p)` e `c > $v OR (c = $v AND pk > $p)` selecionam
+ * exatamente as mesmas linhas — e têm planos completamente diferentes. Medido
+ * na página 300.000 de uma tabela de 500 mil, coluna indexada:
+ *
+ * | forma | plano | tempo |
+ * |---|---|---|
+ * | disjunção com `OR` | `Filter`, 300.000 linhas descartadas | **76,4 ms** |
+ * | comparação de linha | `Index Cond`, 101 heap fetches | **0,25 ms** |
+ *
+ * **Qualquer `OR` na condição derruba o `Index Cond`** — inclusive
+ * `(c, pk) > ($v, $p) OR c IS NULL`, que parece manter a forma canônica e não
+ * mantém (medido: 19,3 ms, `Filter`). É por isso que a região dos NULL vira um
+ * segundo ramo de `UNION ALL` em `planRows`, em vez de um `OR` aqui.
+ *
+ * Os três casos que cabem num ramo só:
+ *
+ * - **sem coluna de ordenação:** só a PK avança;
+ * - **coluna `NOT NULL` pelo catálogo:** comparação de linha direta;
+ * - **cursor já entre os NULL:** `c IS NULL` mais a PK avançando.
  */
 function condicaoKeyset(
   cursor: RowCursor,
@@ -189,28 +286,17 @@ function condicaoKeyset(
   tipos: ReadonlyMap<string, string>,
   pk: readonly string[],
   cmp: string,
-  dir: SortDirection,
   params: Parametros,
 ): string {
-  const pkCitada = pk.map(cite).join(", ");
-  const pkValores = pk
-    .map((coluna, i) => `${params.push(cursor.primaryKey[i] ?? null)}::${tipos.get(coluna) ?? "text"}`)
-    .join(", ");
-  const pkAvanca = `(${pkCitada}) ${cmp} (${pkValores})`;
+  if (orderColumn === null) return pkAvancando(cursor, tipos, pk, cmp, params);
 
-  if (orderColumn === null) return pkAvanca;
+  // Já entre os NULL (que com NULLS LAST vêm por último): a coluna de ordem
+  // não desempata mais, e `c IS NULL AND pk > $p` é indexável pelo composto.
+  if (cursor.orderValueIsNull) {
+    return `(${cite(orderColumn)} IS NULL AND ${pkAvancando(cursor, tipos, pk, cmp, params)})`;
+  }
 
-  const c = cite(orderColumn);
-
-  // Já entre os NULL (que vêm por último): a coluna de ordem não desempata mais.
-  if (cursor.orderValueIsNull) return `(${c} IS NULL AND ${pkAvanca})`;
-
-  const v = `${params.push(cursor.orderValue)}::${tipos.get(orderColumn) ?? "text"}`;
-  // Com NULLS LAST em ASC, os nulos ainda estão por vir; em DESC eles já
-  // passaram, porque NULLS LAST em DESC os coloca no fim também.
-  const nulosAindaPorVir = dir === "asc" ? ` OR ${c} IS NULL` : "";
-
-  return `(${c} ${cmp} ${v} OR (${c} = ${v} AND ${pkAvanca})${nulosAindaPorVir})`;
+  return comparacaoDeLinha(cursor, orderColumn, tipos, pk, cmp, params);
 }
 
 export async function fetchRows(

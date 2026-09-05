@@ -18,7 +18,7 @@ export interface TableTarget {
 }
 
 /** Sub-abas da aba de tabela. `data` é placeholder até o executor existir. */
-export type TableView = "data" | "structure" | "indexes";
+export type TableView = "data" | "structure" | "indexes" | "diagram";
 
 export interface TableTab {
   readonly kind: "table";
@@ -45,9 +45,43 @@ export interface QueryTab {
   readonly title: string;
   /** Preenchido pelas portas que abrem a aba já com SQL (botão Consultar). */
   readonly initialSql: string;
+  /**
+   * A tabela de origem, quando a aba nasceu de "Consultar" sobre uma tabela.
+   *
+   * É o que permite o painel de baixo alternar entre o resultado da consulta e
+   * **os dados da própria tabela** — para não ter que decorar o nome enquanto
+   * escreve. Ausente na aba de query aberta do zero (pelo `+`), onde não há
+   * tabela de origem para mostrar.
+   */
+  readonly source?: TableTarget;
 }
 
-export type Tab = TableTab | QueryTab;
+/**
+ * Aba de diagrama (ERD) de um database.
+ *
+ * Mostra as tabelas e as FKs entre elas. Uma por database: abrir o mesmo
+ * diagrama duas vezes foca a aba existente, como as tabelas.
+ */
+export interface DiagramTab {
+  readonly kind: "diagram";
+  readonly id: string;
+  readonly connectionId: string;
+  readonly database: string;
+}
+
+/**
+ * Aba no nível da conexão — visão geral dos databases, ou processos.
+ *
+ * Uma por conexão e tipo: reabrir foca a existente, como as tabelas. Não carrega
+ * database porque olha o cluster inteiro.
+ */
+export interface ClusterTab {
+  readonly kind: "overview" | "activity";
+  readonly id: string;
+  readonly connectionId: string;
+}
+
+export type Tab = TableTab | QueryTab | DiagramTab | ClusterTab;
 
 export interface Workspace {
   readonly tabs: readonly Tab[];
@@ -93,7 +127,15 @@ export function openTable(ws: Workspace, target: TableTarget): Workspace {
   const id = tableTabId(target);
   if (ws.tabs.some((tab) => tab.id === id)) return { ...ws, activeTabId: id };
 
-  const tab: TableTab = { kind: "table", id, target, view: "structure", selectedColumn: null };
+  /*
+   * Nasce em **Dados**, não em Estrutura.
+   *
+   * Abrir uma tabela é quase sempre querer ver o que tem dentro dela. Nascer
+   * em Estrutura obrigava um clique a mais em cada abertura para chegar ao
+   * uso comum, e deixava a pessoa olhando para uma lista de tipos quando o que
+   * ela pediu foi a tabela.
+   */
+  const tab: TableTab = { kind: "table", id, target, view: "data", selectedColumn: null };
   return { ...ws, tabs: [...ws.tabs, tab], activeTabId: id };
 }
 
@@ -106,11 +148,30 @@ let sequencia = 0;
  * database são duas abas, porque o conteúdo é o trabalho do usuário e não uma
  * view de algo que já existe.
  */
+export function openCluster(
+  ws: Workspace,
+  connectionId: string,
+  kind: "overview" | "activity",
+): Workspace {
+  const id = `${kind}:${connectionId}`;
+  if (ws.tabs.some((tab) => tab.id === id)) return { ...ws, activeTabId: id };
+  const tab: ClusterTab = { kind, id, connectionId };
+  return { ...ws, tabs: [...ws.tabs, tab], activeTabId: id };
+}
+
+export function openDiagram(ws: Workspace, connectionId: string, database: string): Workspace {
+  const id = `diagram:${connectionId}:${database}`;
+  if (ws.tabs.some((tab) => tab.id === id)) return { ...ws, activeTabId: id };
+  const tab: DiagramTab = { kind: "diagram", id, connectionId, database };
+  return { ...ws, tabs: [...ws.tabs, tab], activeTabId: id };
+}
+
 export function openQuery(
   ws: Workspace,
   connectionId: string,
   database: string,
   initialSql = "",
+  source?: TableTarget,
 ): Workspace {
   sequencia++;
   const tab: QueryTab = {
@@ -120,6 +181,7 @@ export function openQuery(
     database,
     title: `Consulta ${String(sequencia)}`,
     initialSql,
+    ...(source === undefined ? {} : { source }),
   };
   return { ...ws, tabs: [...ws.tabs, tab], activeTabId: tab.id };
 }
@@ -202,9 +264,20 @@ export function toggleInspector(ws: Workspace): Workspace {
   return { ...ws, inspectorOpen: !ws.inspectorOpen };
 }
 
-/** Rótulo curto da aba: `schema.relação`. */
+/** Rótulo curto da aba. */
 export function tabTitle(tab: Tab): string {
-  return tab.kind === "table" ? `${tab.target.schema}.${tab.target.relation}` : tab.title;
+  switch (tab.kind) {
+    case "table":
+      return `${tab.target.schema}.${tab.target.relation}`;
+    case "diagram":
+      return `Diagrama · ${tab.database}`;
+    case "overview":
+      return "Databases";
+    case "activity":
+      return "Processos";
+    case "query":
+      return tab.title;
+  }
 }
 
 /** Conexão a que a aba pertence — o que decide se ela herda a tarja de perigo. */

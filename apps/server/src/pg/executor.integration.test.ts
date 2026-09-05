@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
 import { createApp } from "../app";
 import { openTestStore } from "../db/client";
+import { autenticar } from "../test/sessao";
 import { PoolManager } from "./pool";
 
 /**
@@ -23,6 +24,8 @@ const SENHA = "Zx9QvKp7wTn2";
 const temDocker = Bun.spawnSync(["docker", "version"]).exitCode === 0;
 
 let app: ReturnType<typeof createApp>;
+// Toda rota exige sessão (§7): sem cookie estes testes mediriam o guard.
+let cookie = "";
 let pools: PoolManager | undefined;
 let idLeitura = "";
 let idEscrita = "";
@@ -33,12 +36,17 @@ const sh = (...args: string[]): { ok: boolean; out: string } => {
 };
 
 const call = (path: string, init?: RequestInit): Promise<Response> =>
-  app.handle(new Request(`http://localhost${path}`, init));
+  app.handle(
+    new Request(`http://localhost${path}`, {
+      ...init,
+      headers: { ...(init?.headers as Record<string, string> | undefined), cookie },
+    }),
+  );
 
 const post = (path: string, body: unknown): Promise<Response> =>
   call(path, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", cookie },
     body: JSON.stringify(body),
   });
 
@@ -48,6 +56,9 @@ async function run(id: string, sql: string, extra: object = {}): Promise<QueryRe
   return (await res.json()) as QueryResponse;
 }
 
+// Subir um Postgres em container passa dos 5 s padrão do `bun test` quando
+// vários arquivos de integração disputam o Docker na mesma rodada. Isolado
+// passava; no conjunto, não — e um hook que estoura acusa como falha de teste.
 beforeAll(async () => {
   if (!temDocker) return;
 
@@ -90,7 +101,9 @@ beforeAll(async () => {
   if (seed.exitCode !== 0) throw new Error(`seed falhou: ${seed.stderr.toString()}`);
 
   pools = new PoolManager(undefined);
-  app = createApp({ store: openTestStore(), caCert: undefined, pools });
+  const store = openTestStore();
+  app = createApp({ store, caCert: undefined, pools });
+  ({ cookie } = await autenticar(store));
 
   const criar = async (nome: string, escrita: boolean): Promise<string> => {
     const res = await post("/api/connections", {
@@ -109,7 +122,7 @@ beforeAll(async () => {
 
   idLeitura = await criar("leitura", false);
   idEscrita = await criar("escrita", true);
-});
+}, 180_000);
 
 afterAll(async () => {
   if (!temDocker) return;
@@ -118,7 +131,7 @@ afterAll(async () => {
   // container é justamente o que precisa rodar.
   await pools?.shutdown();
   sh("docker", "rm", "-f", CONTAINER);
-});
+}, 60_000);
 
 describe.if(temDocker)("executor contra Postgres real", () => {
   it("SELECT devolve tudo como string, com o tipo real", async () => {
@@ -448,4 +461,59 @@ describe.if(temDocker)("EXPLAIN ANALYZE executa a query de verdade", () => {
 
     await run(idEscrita, "DROP TABLE ea_probe", { readOnly: false });
   });
+});
+
+/**
+ * Mais requisições concorrentes que o teto do pool.
+ *
+ * O teto é `max: 3` **por par (conexão, database)** — ele multiplica pelo
+ * número de databases, e foi por isso que caiu de 5: medido em
+ * `pg_stat_activity`, uma conexão navegando 2 databases abria 10 backends no
+ * cluster do cliente.
+ *
+ * O que este bloco trava é que baixar o teto muda a **profundidade da fila**,
+ * não a corretude: acima de `max`, as excedentes esperam e passam. Sem ele,
+ * "nenhum teste quebrou ao mudar de 5 para 3" seria uma afirmação sobre a
+ * ausência de teste, não sobre o comportamento.
+ */
+describe.if(temDocker)("concorrência acima do teto do pool", () => {
+  it("8 consultas ao mesmo tempo (teto 3) todas respondem, nenhuma falha", async () => {
+    const respostas = await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        run(idLeitura, `SELECT ${String(i)} AS ordem, pg_sleep(0.2)`),
+      ),
+    );
+
+    expect(respostas).toHaveLength(8);
+    for (const r of respostas) expect(r.error).toBeNull();
+    // As oito rodaram de verdade, cada uma com o seu número.
+    expect(
+      respostas.map((r) => r.results[0]?.rows[0]?.[0]).sort((a, b) => Number(a) - Number(b)),
+    ).toEqual(["0", "1", "2", "3", "4", "5", "6", "7"]);
+  }, 120_000);
+
+  it("enfileira em vez de estourar: o tempo total revela as ondas", async () => {
+    // 6 consultas de 300 ms com teto 3 levam ~2 ondas, não ~1 e não 6 seriais.
+    const inicio = performance.now();
+    const respostas = await Promise.all(
+      Array.from({ length: 6 }, () => run(idLeitura, "SELECT pg_sleep(0.3)")),
+    );
+    const total = performance.now() - inicio;
+
+    for (const r of respostas) expect(r.error).toBeNull();
+    // Se o teto não valesse, tudo sairia em ~1 onda (<300 ms de trabalho).
+    expect(total).toBeGreaterThan(500);
+    // E se serializasse tudo, seriam ~1800 ms.
+    expect(total).toBeLessThan(1600);
+  }, 120_000);
+
+  it("uma requisição trivial passa enquanto outras ocupam o pool", async () => {
+    // O que a pessoa sente: navegar a árvore com uma consulta pesada rodando.
+    const pesadas = Array.from({ length: 4 }, () => run(idLeitura, "SELECT pg_sleep(0.5)"));
+    const leve = run(idLeitura, "SELECT 1 AS leve");
+
+    const [resultadoLeve] = await Promise.all([leve, ...pesadas]);
+    expect(resultadoLeve.error).toBeNull();
+    expect(resultadoLeve.results[0]?.rows[0]?.[0]).toBe("1");
+  }, 120_000);
 });

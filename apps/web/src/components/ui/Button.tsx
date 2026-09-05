@@ -14,8 +14,8 @@ const button = cva(
         // Âmbar sólido: o único acento saturado que a interface produz.
         primary: "bg-amber text-accent-ink hover:bg-amber/90 active:bg-amber/80",
         secondary:
-          "bg-raised text-ink border border-line hover:bg-overlay hover:border-line-strong",
-        ghost: "text-muted hover:bg-raised hover:text-ink",
+          "bg-raised text-ink border border-line hover:bg-accent-soft hover:border-accent-line",
+        ghost: "text-muted hover:bg-accent-soft hover:text-accent",
         danger: "bg-transparent text-danger border border-danger/35 hover:bg-danger/10",
       },
       size: {

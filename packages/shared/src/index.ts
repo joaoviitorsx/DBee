@@ -1,7 +1,10 @@
 /** Schemas TypeBox e tipos compartilhados entre server e web (DBee.md §3). */
 
+export * from "./auth";
 export * from "./connections";
+export * from "./export";
 export * from "./meta";
+export * from "./overview";
 export * from "./query";
 export * from "./rows";
 export * from "./schema";

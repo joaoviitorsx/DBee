@@ -1,8 +1,9 @@
-import { Code2, Copy, Pencil, Plug, RefreshCw, Table2, Trash2 } from "lucide-react";
+import { Activity, Code2, Copy, Database, Pencil, Plug, RefreshCw, Share2, Table2, Trash2 } from "lucide-react";
 
 import type { MenuSection } from "../../components/ContextMenu";
 import type { TableTarget } from "../../app/workspace";
 import type { TreeTarget } from "./ConnectionTree";
+import type { Tradutor } from "../../i18n";
 
 /** Copia para a área de transferência, em silêncio se o navegador recusar. */
 function copiar(texto: string): void {
@@ -18,6 +19,8 @@ export interface TreeMenuActions {
   readonly onDeleteConnection: () => void;
   readonly onRefreshSchema: (connectionId: string, database: string) => void;
   readonly onNewQuery: (connectionId: string, database: string, sql?: string) => void;
+  readonly onOpenDiagram: (connectionId: string, database: string) => void;
+  readonly onOpenCluster: (connectionId: string, kind: "overview" | "activity") => void;
   readonly testing: boolean;
 }
 
@@ -28,7 +31,7 @@ export interface TreeMenuActions {
  * treina o usuário a não ler o menu. Copiar o nome qualificado aparece nos
  * níveis abaixo da conexão porque é o que se cola numa query.
  */
-export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): MenuSection[] {
+export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t: Tradutor): MenuSection[] {
   switch (target.kind) {
     case "connection":
       return [
@@ -36,14 +39,14 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
           items: [
             {
               id: "test",
-              label: actions.testing ? "Testando…" : "Testar conexão",
+              label: actions.testing ? t("menu.testando") : t("menu.testar"),
               icon: <Plug aria-hidden className={icone} />,
               disabled: actions.testing,
               onSelect: actions.onTestConnection,
             },
             {
               id: "edit",
-              label: "Editar",
+              label: t("menu.editar"),
               icon: <Pencil aria-hidden className={icone} />,
               onSelect: actions.onEditConnection,
             },
@@ -52,8 +55,24 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
         {
           items: [
             {
+              id: "overview",
+              label: t("databases.selecionar"),
+              icon: <Database aria-hidden className={icone} />,
+              onSelect: () => { actions.onOpenCluster(target.connection.id, "overview"); },
+            },
+            {
+              id: "activity",
+              label: t("menu.verProcessos"),
+              icon: <Activity aria-hidden className={icone} />,
+              onSelect: () => { actions.onOpenCluster(target.connection.id, "activity"); },
+            },
+          ],
+        },
+        {
+          items: [
+            {
               id: "delete",
-              label: "Excluir conexão",
+              label: t("menu.excluirConexao"),
               icon: <Trash2 aria-hidden className="h-3.5 w-3.5" />,
               danger: true,
               onSelect: actions.onDeleteConnection,
@@ -68,9 +87,15 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
           items: [
             {
               id: "new-query",
-              label: "Nova consulta aqui",
+              label: t("menu.novaConsultaAqui"),
               icon: <Code2 aria-hidden className={icone} />,
               onSelect: () => { actions.onNewQuery(target.connection.id, target.database); },
+            },
+            {
+              id: "diagram",
+              label: t("menu.verDiagrama"),
+              icon: <Share2 aria-hidden className={icone} />,
+              onSelect: () => { actions.onOpenDiagram(target.connection.id, target.database); },
             },
           ],
         },
@@ -78,13 +103,13 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
           items: [
             {
               id: "refresh",
-              label: "Recarregar catálogo",
+              label: t("menu.recarregarCatalogo"),
               icon: <RefreshCw aria-hidden className={icone} />,
               onSelect: () => { actions.onRefreshSchema(target.connection.id, target.database); },
             },
             {
               id: "copy",
-              label: "Copiar nome do database",
+              label: t("menu.copiarNomeDatabase"),
               icon: <Copy aria-hidden className={icone} />,
               onSelect: () => { copiar(target.database); },
             },
@@ -98,7 +123,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
           items: [
             {
               id: "copy",
-              label: "Copiar nome do schema",
+              label: t("menu.copiarNomeSchema"),
               icon: <Copy aria-hidden className={icone} />,
               onSelect: () => { copiar(target.schema); },
             },
@@ -112,7 +137,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
           items: [
             {
               id: "open",
-              label: "Abrir",
+              label: t("menu.abrir"),
               icon: <Table2 aria-hidden className={icone} />,
               onSelect: () => {
                 actions.onOpenRelation({
@@ -130,7 +155,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
           items: [
             {
               id: "query-here",
-              label: "Consultar esta tabela",
+              label: t("menu.consultarTabela"),
               icon: <Code2 aria-hidden className={icone} />,
               onSelect: () => {
                 actions.onNewQuery(
@@ -148,19 +173,19 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
               id: "copy-qualified",
               // O nome qualificado é o que se cola numa query — por isso vem
               // antes do nome simples.
-              label: "Copiar nome qualificado",
+              label: t("menu.copiarNomeQualificado"),
               icon: <Copy aria-hidden className={icone} />,
               onSelect: () => { copiar(`${target.schema}.${target.relation.name}`); },
             },
             {
               id: "copy-name",
-              label: "Copiar nome",
+              label: t("menu.copiarNome"),
               icon: <Copy aria-hidden className={icone} />,
               onSelect: () => { copiar(target.relation.name); },
             },
             {
               id: "copy-columns",
-              label: "Copiar lista de colunas",
+              label: t("menu.copiarColunas"),
               icon: <Copy aria-hidden className={icone} />,
               disabled: target.relation.columns.length === 0,
               onSelect: () => { copiar(target.relation.columns.map((c) => c.name).join(", ")); },

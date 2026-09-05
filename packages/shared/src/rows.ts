@@ -37,7 +37,7 @@ export type RowFilter = Static<typeof RowFilter>;
  * Cursor de keyset.
  *
  * Carrega o valor da coluna de ordenação e os valores da PK da última linha —
- * é o que faz a página 400 custar o mesmo que a página 2. `orderValueIsNull`
+ * é o que *deveria* fazer a página 400 custar o mesmo que a página 2. `orderValueIsNull`
  * existe porque NULL quebra comparação de linha: uma vez na região dos NULL, a
  * condição muda de forma.
  */

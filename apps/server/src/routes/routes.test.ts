@@ -38,7 +38,10 @@ interface Route {
  */
 function routesInSource(source: string, file: string): Route[] {
   const found: Route[] = [];
-  const start = /\.(get|post|patch|put|delete)\(\s*\n?\s*"([^"]*)"/g;
+  // O caminho precisa começar com `/`: sem isso o detector casa qualquer
+  // `.get("...")` do código — `headers.get("cookie")`, por exemplo — e acusa
+  // uma rota que não existe. Toda rota do Elysia aqui é um caminho absoluto.
+  const start = /\.(get|post|patch|put|delete)\(\s*\n?\s*"(\/[^"]*)"/g;
 
   let match: RegExpExecArray | null;
   while ((match = start.exec(source)) !== null) {

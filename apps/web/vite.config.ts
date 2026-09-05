@@ -6,6 +6,10 @@ import pkg from "../../package.json" with { type: "json" };
 
 // A versão exibida na UI vem do package.json da raiz — uma fonte só, a mesma
 // que a tag do release e a do binário no container.
+//
+// O sufixo `-dev` é literal, não enfeite: enquanto a tag `v0.1.0` não existe,
+// mostrar "v0.1.0" no cabeçalho afirma um lançamento que não aconteceu. Some
+// no commit que criar a tag.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   define: {

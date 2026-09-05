@@ -57,7 +57,8 @@ describe("abrir aba", () => {
   });
 
   it("abre em Estrutura — Dados é placeholder nesta fatia", () => {
-    expect(tabelaAtiva(openTable(emptyWorkspace, alvo())).view).toBe("structure");
+    // Abrir tabela é querer ver o que tem dentro dela.
+    expect(tabelaAtiva(openTable(emptyWorkspace, alvo())).view).toBe("data");
   });
 
   it("reabrir a mesma tabela foca em vez de duplicar", () => {
@@ -87,7 +88,7 @@ describe("estado preservado ao alternar", () => {
     ws = selectColumn(ws, idA, "email");
 
     ws = openTable(ws, alvo({ relation: "pedidos" }));
-    expect(tabelaAtiva(ws).view).toBe("structure"); // a nova nasce em Estrutura
+    expect(tabelaAtiva(ws).view).toBe("data"); // a nova nasce em Dados
 
     ws = focusTab(ws, idA);
     const voltou = tabelaAtiva(ws);
@@ -103,7 +104,7 @@ describe("estado preservado ao alternar", () => {
 
     ws = setView(ws, idB, "data");
 
-    expect(ws.tabs.find((t) => t.id === idA)).toMatchObject({ view: "structure" });
+    expect(ws.tabs.find((t) => t.id === idA)).toMatchObject({ view: "data" });
     expect(ws.tabs.find((t) => t.id === idB)).toMatchObject({ view: "data" });
   });
 });

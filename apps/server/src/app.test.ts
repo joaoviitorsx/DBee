@@ -5,16 +5,26 @@ import type { Connection } from "@dbee/shared";
 import { createApp } from "./app";
 import { openTestStore } from "./db/client";
 import { deriveKey, newSalt } from "./lib/crypto";
+import { autenticar } from "./test/sessao";
 
 let app: ReturnType<typeof createApp>;
+let cookie = "";
 
-beforeAll(() => {
+beforeAll(async () => {
   // openTestStore deriva a chave uma vez (~700 ms) para toda a suíte.
-  app = createApp({ store: openTestStore(), caCert: undefined });
+  const store = openTestStore();
+  app = createApp({ store, caCert: undefined });
+  // Toda rota exige sessão (§7): sem cookie, este arquivo testaria o guard.
+  ({ cookie } = await autenticar(store));
 });
 
 const call = (path: string, init?: RequestInit): Promise<Response> =>
-  app.handle(new Request(`http://localhost${path}`, init));
+  app.handle(
+    new Request(`http://localhost${path}`, {
+      ...init,
+      headers: { ...(init?.headers as Record<string, string> | undefined), cookie },
+    }),
+  );
 
 const json = (body: unknown): RequestInit => ({
   method: "POST",
@@ -146,12 +156,14 @@ describe("APP_SECRET trocado (DBee.md §11.5)", () => {
   it("listar continua funcionando, mas testar devolve erro com código", async () => {
     const store = openTestStore("segredo-original");
     const original = createApp({ store, caCert: undefined });
+    // Store próprio, sessão própria.
+    const sessao = await autenticar(store);
 
     const created = (await (
       await original.handle(
         new Request("http://localhost/api/connections", {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", cookie: sessao.cookie },
           body: JSON.stringify(NOVA),
         }),
       )
@@ -164,12 +176,15 @@ describe("APP_SECRET trocado (DBee.md §11.5)", () => {
     });
 
     const listagem = await comOutraChave.handle(
-      new Request("http://localhost/api/connections"),
+      new Request("http://localhost/api/connections", { headers: { cookie: sessao.cookie } }),
     );
     expect(listagem.status).toBe(200); // listar não decifra
 
     const teste = await comOutraChave.handle(
-      new Request(`http://localhost/api/connections/${created.id}/test`, { method: "POST" }),
+      new Request(`http://localhost/api/connections/${created.id}/test`, {
+        method: "POST",
+        headers: { cookie: sessao.cookie },
+      }),
     );
     expect(teste.status).toBe(500);
 

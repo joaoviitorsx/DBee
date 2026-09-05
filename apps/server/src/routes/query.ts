@@ -3,7 +3,9 @@ import { Elysia, t } from "elysia";
 import { ErrorResponse, QueryLogEntry, QueryRequest, QueryResponse } from "@dbee/shared";
 
 import type { QueryService } from "../services/query.service";
+import type { UsersRepository } from "../db/users.repo";
 import { FAILURES } from "./failures";
+import { exigirAtor, sessionContext } from "./guard";
 
 /**
  * Execução de query (DBee.md §5, §6).
@@ -13,12 +15,15 @@ import { FAILURES } from "./failures";
  * resultado da execução, não falha da API, e a UI precisa dele inteiro para
  * destacar a posição no editor.
  */
-export const queryRoutes = (service: QueryService) =>
+export const queryRoutes = (service: QueryService, users: UsersRepository) =>
   new Elysia({ prefix: "/connections" })
+    // Para o **tipo** de `sessao` chegar aos handlers. O guard já derivou o
+    // valor globalmente e o Elysia deduplica por nome — sem segunda consulta.
+    .use(sessionContext(users))
     .post(
       "/:id/query",
-      async ({ params, body, status }) => {
-        const result = await service.run(params.id, body);
+      async ({ params, body, status, sessao }) => {
+        const result = await service.run(params.id, body, exigirAtor(sessao));
         if (result.ok) return result.value;
 
         const { status: code, body: payload } = FAILURES[result.failure];
@@ -33,6 +38,8 @@ export const queryRoutes = (service: QueryService) =>
         response: {
           200: QueryResponse,
           400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
           404: ErrorResponse,
           500: ErrorResponse,
           502: ErrorResponse,

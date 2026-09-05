@@ -3,6 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!--
+      Ícone da aba: a marca DBee (abelha-cilindro-de-banco), servida de public/
+      e não inline — o navegador a busca antes do bundle, então aparece já no
+      primeiro carregamento. PNG porque a marca é um render, não vetor.
+    -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- Cor da barra do navegador no mobile: a mesma placa da marca. -->
+    <meta name="theme-color" content="#191612" />
+
     <title>DBee</title>
   </head>
   <body>

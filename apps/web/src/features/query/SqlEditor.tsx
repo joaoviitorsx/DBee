@@ -1,11 +1,15 @@
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { PostgreSQL, sql as sqlLang } from "@codemirror/lang-sql";
 import { tags } from "@lezer/highlight";
-import { EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
+import { autocompletion, completionKeymap } from "@codemirror/autocomplete";
+import type { DatabaseSchema } from "@dbee/shared";
 import { splitStatements } from "@dbee/shared";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
+
+import { construirCompletion } from "./completion";
 
 /**
  * Editor SQL.
@@ -24,7 +28,7 @@ const tema = EditorView.theme(
     },
     ".cm-content": {
       fontFamily: "var(--font-mono)",
-      caretColor: "var(--color-amber)",
+      caretColor: "var(--color-accent)",
       padding: "12px 0",
     },
     ".cm-gutters": {
@@ -35,14 +39,14 @@ const tema = EditorView.theme(
     ".cm-activeLine": { backgroundColor: "color-mix(in oklab, var(--color-raised) 45%, transparent)" },
     ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--color-muted)" },
     "&.cm-focused": { outline: "none" },
-    ".cm-cursor": { borderLeftColor: "var(--color-amber)" },
+    ".cm-cursor": { borderLeftColor: "var(--color-accent)" },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
       backgroundColor: "color-mix(in oklab, var(--color-amber) 28%, transparent)",
     },
     // Marca o statement que o Cmd+Enter vai rodar.
     ".cm-dbee-ativo": {
       backgroundColor: "color-mix(in oklab, var(--color-amber) 7%, transparent)",
-      borderLeft: "2px solid color-mix(in oklab, var(--color-amber) 55%, transparent)",
+      borderLeft: "2px solid color-mix(in oklab, var(--color-accent) 55%, transparent)",
     },
   },
   { dark: true },
@@ -56,8 +60,8 @@ const tema = EditorView.theme(
  * palavra-chave — é o acento do produto, e ler SQL é achar o verbo.
  */
 const realce = HighlightStyle.define([
-  { tag: tags.keyword, color: "var(--color-amber)" },
-  { tag: tags.operatorKeyword, color: "var(--color-amber)" },
+  { tag: tags.keyword, color: "var(--color-accent)" },
+  { tag: tags.operatorKeyword, color: "var(--color-accent)" },
   { tag: tags.string, color: "var(--color-ok)" },
   { tag: tags.number, color: "var(--color-ok)" },
   { tag: tags.bool, color: "var(--color-ok)" },
@@ -78,6 +82,14 @@ export interface SqlEditorProps {
   readonly onRunStatement: (sql: string) => void;
   /** `Cmd+Shift+Enter` — o script inteiro. */
   readonly onRunAll: () => void;
+  /**
+   * A árvore do database aberto, para o autocomplete.
+   *
+   * Ausente enquanto o schema não chegou: o editor funciona sem ele, e ganha
+   * as tabelas e colunas assim que a introspecção volta — sem remontar, para
+   * não perder foco nem cursor no meio da digitação.
+   */
+  readonly schema?: DatabaseSchema;
 }
 
 /**
@@ -111,9 +123,33 @@ export function statementSobCursor(sql: string, cursor: number): { sql: string; 
     : { sql: primeiro.sql, de: primeiro.offset, ate: primeiro.offset + primeiro.sql.length };
 }
 
-export function SqlEditor({ value, onChange, onRunStatement, onRunAll }: SqlEditorProps) {
+export function SqlEditor({ value, onChange, onRunStatement, onRunAll, schema }: SqlEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
+  // A configuração da linguagem SQL vive num compartimento próprio para poder
+  // ser trocada quando o schema chega, sem reconstruir o editor inteiro.
+  const linguagem = useRef(new Compartment());
+
+  /**
+   * O `SQLNamespace` derivado do schema.
+   *
+   * `useMemo` porque a árvore de um banco grande vira um objeto grande, e
+   * refazê-lo a cada render do componente — que acontece a cada tecla, via o
+   * `onChange` que sobe — seria trabalho jogado fora.
+   */
+  const completion = useMemo(
+    () => (schema === undefined ? null : construirCompletion(schema)),
+    [schema],
+  );
+
+  const configSql = (): Extension =>
+    sqlLang({
+      dialect: PostgreSQL,
+      upperCaseKeywords: false,
+      ...(completion === null
+        ? {}
+        : { schema: completion.schema, defaultSchema: completion.defaultSchema }),
+    });
 
   /**
    * Ações guardadas em ref para o keymap não precisar ser recriado a cada
@@ -136,7 +172,10 @@ export function SqlEditor({ value, onChange, onRunStatement, onRunAll }: SqlEdit
     const extensoes: Extension[] = [
       lineNumbers(),
       history(),
-      sqlLang({ dialect: PostgreSQL, upperCaseKeywords: false }),
+      linguagem.current.of(configSql()),
+      // `activateOnTyping` desligado: sugestão que abre sozinha a cada tecla
+      // vira ruído numa ferramenta de quem já sabe SQL. Ctrl+Espaço quando quer.
+      autocompletion({ activateOnTyping: false, icons: true }),
       syntaxHighlighting(realce),
       tema,
       EditorView.lineWrapping,
@@ -160,6 +199,7 @@ export function SqlEditor({ value, onChange, onRunStatement, onRunAll }: SqlEdit
             return true;
           },
         },
+        ...completionKeymap,
         ...defaultKeymap,
         ...historyKeymap,
       ]),
@@ -177,6 +217,16 @@ export function SqlEditor({ value, onChange, onRunStatement, onRunAll }: SqlEdit
     // Monta uma vez: o conteúdo é sincronizado pelo efeito abaixo.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Schema chegou (ou mudou): troca só o compartimento da linguagem. O
+  // documento, o histórico e o cursor ficam intactos.
+  useEffect(() => {
+    const v = view.current;
+    if (v === null) return;
+    v.dispatch({ effects: linguagem.current.reconfigure(configSql()) });
+    // `configSql` fecha sobre `completion`, que é a dependência real.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [completion]);
 
   // Só reescreve o documento quando o valor de fora diverge — sem isto, digitar
   // dispararia uma reescrita que move o cursor para o fim a cada tecla.

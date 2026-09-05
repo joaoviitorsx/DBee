@@ -10,11 +10,24 @@ import { sslConfigFor } from "./ssl";
  * vários databases do cluster (`?database=X` na §5), e `pg` fixa o database na
  * criação do pool.
  *
- * `max: 5`, `idleTimeoutMillis: 30000`. Pool sem uso há mais de 10 min é
+ * `max: 3`, `idleTimeoutMillis: 30000`. Pool sem uso há mais de 10 min é
  * destruído — o app fica aberto o dia inteiro numa aba, e segurar conexão em
  * banco de produção à toa é problema de quem administra o banco.
+ *
+ * ## Por que 3 e não 5
+ *
+ * O teto é **por par (conexão, database)**, não por conexão, e isso multiplica:
+ * medido em `pg_stat_activity`, uma conexão do DBee navegando 2 databases abria
+ * **10 backends** no cluster do cliente; quatro conexões em três databases
+ * cada, 60. O número que importa do lado de lá não é o teto, é o produto.
+ *
+ * 3 cobre o uso real de uma pessoa: a árvore, a aba de dados e uma consulta
+ * acontecem ao mesmo tempo, e uma quarta requisição concorrente **enfileira**
+ * em vez de falhar. O que muda com o teto menor é a profundidade da fila, não
+ * a corretude — e fila comprida agora devolve 503 dizendo que a fila é nossa,
+ * em vez de 502 culpando o Postgres.
  */
-const MAX_CLIENTS = 5;
+const MAX_CLIENTS = 3;
 const IDLE_TIMEOUT_MS = 30_000;
 const POOL_TTL_MS = 10 * 60_000;
 const SWEEP_INTERVAL_MS = 60_000;
@@ -226,6 +239,65 @@ export class PoolManager {
           void entry.pool.end().catch(() => undefined);
         }
       }
+    }
+  }
+
+  /**
+   * Transação que sobrevive ao retorno da função.
+   *
+   * O export mantém um cursor aberto entre lotes, e cursor só existe dentro da
+   * transação — então o cliente **não** pode ser devolvido ao pool quando `fn`
+   * retorna. Quem chama recebe um `encerrar` e é responsável por chamá-lo
+   * quando o stream fechar ou for cancelado.
+   *
+   * O empréstimo é contado enquanto isso, então o `sweep` não derruba o pool
+   * embaixo de um export em andamento.
+   */
+  async withStreamingTransaction<T>(
+    connection: ResolvedConnection,
+    database: string,
+    fn: (client: PoolClient, encerrar: () => void) => Promise<T>,
+  ): Promise<T> {
+    const entry = this.#acquire(connection, database);
+    entry.leases++;
+
+    let client: PoolClient;
+    try {
+      client = await entry.pool.connect();
+    } catch (err: unknown) {
+      entry.leases--;
+      this.#discard(connection.id, database);
+      throw err;
+    }
+
+    let encerrado = false;
+    const encerrar = (): void => {
+      if (encerrado) return;
+      encerrado = true;
+      // Leitura: reverte. Nada foi escrito, e rollback é mais barato.
+      void client
+        .query("ROLLBACK")
+        .catch(() => undefined)
+        .finally(() => {
+          client.release();
+          entry.leases--;
+          entry.lastUsedAt = Date.now();
+          if (entry.doomed && entry.leases === 0) {
+            void entry.pool.end().catch(() => undefined);
+          }
+        });
+    };
+
+    try {
+      await client.query("BEGIN READ ONLY");
+      await client.query("SELECT set_config('statement_timeout', $1, true)", [
+        String(connection.statementTimeoutMs),
+      ]);
+      await client.query("SELECT set_config('TimeZone', $1, true)", [connection.timezone]);
+      return await fn(client, encerrar);
+    } catch (err: unknown) {
+      encerrar();
+      throw err;
     }
   }
 

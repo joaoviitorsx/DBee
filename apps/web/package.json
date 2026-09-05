@@ -10,11 +10,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.11.0",
     "@codemirror/lang-sql": "^6.10.0",
     "@codemirror/language": "^6.12.4",
     "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.11",
+    "@dagrejs/dagre": "^3.1.1",
     "@dbee/server": "workspace:*",
     "@dbee/shared": "workspace:*",
     "@elysiajs/eden": "^1.4.9",

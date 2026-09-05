@@ -18,15 +18,18 @@ const idParam = t.Object({ id: t.String() });
  * Adaptador HTTP do domínio de conexões (DBee.md §5).
  *
  * A rota não abre conexão no Postgres nem toca no SQLite: ela valida entrada,
- * chama o serviço e mapeia o resultado para status. Sem autenticação ainda.
+ * chama o serviço e mapeia o resultado para status. A sessão é exigida pelo
+ * guard global, antes de qualquer handler daqui rodar.
  */
 export const connectionsRoutes = (service: ConnectionsService) =>
   new Elysia({ prefix: "/connections" })
-    .get("/", () => service.list(), { response: t.Array(Connection) })
+    .get("/", () => service.list(), {
+      response: { 200: t.Array(Connection), 401: ErrorResponse, 403: ErrorResponse },
+    })
 
     .post("/", ({ body, status }) => status(201, service.create(body)), {
       body: CreateConnection,
-      response: { 201: Connection },
+      response: { 201: Connection, 401: ErrorResponse, 403: ErrorResponse },
     })
 
     .patch(
@@ -43,6 +46,8 @@ export const connectionsRoutes = (service: ConnectionsService) =>
         response: {
           200: Connection,
           400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
           404: ErrorResponse,
           500: ErrorResponse,
           502: ErrorResponse,
@@ -63,6 +68,8 @@ export const connectionsRoutes = (service: ConnectionsService) =>
         response: {
           204: t.Void(),
           400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
           404: ErrorResponse,
           500: ErrorResponse,
           502: ErrorResponse,
@@ -88,6 +95,8 @@ export const connectionsRoutes = (service: ConnectionsService) =>
         response: {
           200: TestConnectionResult,
           400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
           404: ErrorResponse,
           500: ErrorResponse,
           502: ErrorResponse,

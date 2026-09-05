@@ -1,11 +1,18 @@
-import type { QueryResponse, StatementResult } from "@dbee/shared";
+import { splitStatements, type QueryResponse, type StatementResult } from "@dbee/shared";
 import { useMutation } from "@tanstack/react-query";
-import { Play, TriangleAlert } from "lucide-react";
+import { Play, Table2, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 import { Badge, Button } from "../../components/ui";
 import { api } from "../../lib/api";
+import { DataTab } from "../tabs/DataTab";
+import { ExportButton } from "../export/ExportButton";
+import { Mascote } from "../mascote";
+import { Trabalhando } from "../motion/Trabalhando";
 import { ResultGrid } from "../grid/ResultGrid";
+import { cn } from "../../lib/cn";
+import { useT } from "../../i18n";
+import { useSchema } from "../tree/useTree";
 import type { QueryTab } from "../../app/workspace";
 import { SqlEditor } from "./SqlEditor";
 
@@ -25,8 +32,33 @@ export function QueryTabContent({
   readonly tab: QueryTab;
   readonly writeEnabled: boolean;
 }) {
+  const t = useT();
   const [sql, setSql] = useState(tab.initialSql);
   const [pedirEscrita, setPedirEscrita] = useState(false);
+
+  // A árvore do database, para o autocomplete do editor. Já costuma estar em
+  // cache (a navegação a buscou); aqui ela é reusada, não rebuscada.
+  const arvore = useSchema(tab.connectionId, tab.database, true);
+
+  /**
+   * O painel de baixo: o resultado da consulta, ou os dados da tabela de origem.
+   *
+   * Quando a aba nasceu de "Consultar" sobre uma tabela, ela começa mostrando
+   * **os dados da tabela** — é o ponto do pedido: ver a tabela enquanto se
+   * escreve o SQL, sem decorar nome de coluna. Ao executar, salta para o
+   * resultado; a aba "Tabela" continua ali para voltar a conferir.
+   */
+  const [painel, setPainel] = useState<"resultado" | "tabela">(
+    tab.source !== undefined ? "tabela" : "resultado",
+  );
+
+  // reltuples da tabela de origem, para o "exportar tudo" da aba Dados.
+  const relOrigem =
+    tab.source === undefined
+      ? null
+      : (arvore.data?.schemas
+          .find((e) => e.name === tab.source?.schema)
+          ?.relations.find((r) => r.name === tab.source?.relation) ?? null);
 
   const executar = useMutation({
     mutationFn: async (aExecutar: string): Promise<QueryResponse> => {
@@ -40,9 +72,18 @@ export function QueryTabContent({
       if (error !== null) throw new Error("o servidor não respondeu à consulta");
       return data;
     },
+    // Executou: o olho quer o resultado, não os dados da tabela.
+    onSuccess: () => { setPainel("resultado"); },
   });
 
   const resposta = executar.data;
+  /*
+   * O SQL que o resultado descreve é o que **foi executado**, não o que está no
+   * editor agora. Sem isto, editar o SQL depois de um erro recalculava o trecho
+   * e o `^` sobre o texto novo — o caret pulava de lugar e a linha do erro
+   * sumia ao apagar. `executar.variables` é o argumento que foi ao `mutate`.
+   */
+  const sqlExecutado = executar.variables ?? sql;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -50,6 +91,7 @@ export function QueryTabContent({
         <SqlEditor
           value={sql}
           onChange={setSql}
+          {...(arvore.data === undefined ? {} : { schema: arvore.data })}
           // Cmd+Enter roda só o statement sob o cursor; Cmd+Shift+Enter, tudo.
           onRunStatement={(trecho) => { if (trecho.trim() !== "") executar.mutate(trecho); }}
           onRunAll={() => { if (sql.trim() !== "") executar.mutate(sql); }}
@@ -63,14 +105,14 @@ export function QueryTabContent({
             size="sm"
             disabled={sql.trim() === ""}
             loading={executar.isPending}
-            loadingLabel="Executando…"
+            loadingLabel={t("query.executando")}
             onClick={() => { executar.mutate(sql); }}
           >
             <Play aria-hidden className="h-3.5 w-3.5" />
-            Executar tudo
+            {t("query.executarTudo")}
           </Button>
 
-          <span className="text-2xs text-subtle">Cmd+Enter roda o statement sob o cursor</span>
+          <span className="text-2xs text-subtle">{t("query.cmdEnter")}</span>
 
           {writeEnabled ? (
             <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-2xs text-muted">
@@ -81,54 +123,152 @@ export function QueryTabContent({
                 className="cursor-pointer accent-[var(--color-danger)]"
               />
               {/* Escrita é opt-in por execução, não por conexão. */}
-              Permitir escrita nesta execução
+              {t("query.permitirEscrita")}
             </label>
           ) : (
-            <span className="ml-auto text-2xs text-subtle">somente leitura</span>
+            <span className="ml-auto text-2xs text-subtle">{t("query.somenteLeitura")}</span>
           )}
         </div>
 
         {writeEnabled && pedirEscrita ? (
           <p className="flex items-center gap-1.5 border-t border-danger-line bg-danger-surface px-3 py-1.5 text-2xs text-danger-ink">
             <TriangleAlert aria-hidden className="h-3 w-3 shrink-0" />
-            A próxima execução roda em transação gravável e é commitada.
+            {t("query.avisoEscrita")}
           </p>
         ) : null}
       </div>
 
+      {/*
+        * Painel de baixo com duas faces. A barra de faces só existe quando há
+        * tabela de origem — sem ela, "Dados da tabela" não teria o que mostrar,
+        * e uma aba única seria um seletor de um item só.
+        */}
+      {tab.source !== undefined ? (
+        <div className="flex shrink-0 items-center gap-1 border-b border-line px-3 py-1">
+          <FacePainel
+            ativa={painel === "resultado"}
+            onClick={() => { setPainel("resultado"); }}
+          >
+            {t("query.resultado")}
+            {resposta !== undefined ? (
+              <span className="ml-1 text-2xs text-subtle">
+                {resposta.results.reduce((n, r) => n + r.rowCount, 0)}
+              </span>
+            ) : null}
+          </FacePainel>
+          <FacePainel ativa={painel === "tabela"} onClick={() => { setPainel("tabela"); }}>
+            <Table2 aria-hidden className="h-3 w-3" />
+            {tab.source.schema}.{tab.source.relation}
+          </FacePainel>
+        </div>
+      ) : null}
+
       <div className="min-h-0 flex-1 overflow-auto">
-        {executar.isError ? (
+        {tab.source !== undefined && painel === "tabela" ? (
+          // Os dados da própria tabela, embaixo do editor. Reusa a aba Dados
+          // inteira — mesma paginação por keyset, mesmo grid, mesmo export.
+          <DataTab
+            key={`${tab.source.schema}.${tab.source.relation}`}
+            target={tab.source}
+            estimatedRows={relOrigem?.estimatedRows ?? null}
+            // "Consultar" aqui recarrega o SELECT da tabela no editor de cima,
+            // em vez de abrir outra aba: já estamos na aba de consulta dela.
+            onConsultar={() => {
+              setSql(
+                `SELECT *\nFROM ${tab.source?.schema ?? ""}.${tab.source?.relation ?? ""}\nLIMIT 100;`,
+              );
+            }}
+          />
+        ) : executar.isPending ? (
+          // A espera mais longa do app: o `statement_timeout` padrão é 30 s.
+          // Sem o cronômetro, "rodando" e "travado" têm a mesma aparência.
+          <Trabalhando rotulo={t("query.executandoConsulta")} cronometro />
+        ) : executar.isError ? (
           <p className="px-4 py-6 text-xs text-danger">{executar.error.message}</p>
         ) : resposta === undefined ? (
           <p className="px-4 py-6 text-xs text-subtle">
-            Escreva uma consulta e execute. O resultado aparece aqui.
+            {t("query.vazio")}
           </p>
         ) : (
-          <Resultado resposta={resposta} sql={sql} />
+          <Resultado resposta={resposta} sql={sqlExecutado} tab={tab} />
         )}
       </div>
     </div>
   );
 }
 
+/** Uma face do painel de baixo — resultado ou dados da tabela. */
+function FacePainel({
+  ativa,
+  onClick,
+  children,
+}: {
+  readonly ativa: boolean;
+  readonly onClick: () => void;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={ativa}
+      className={cn(
+        "flex items-center gap-1.5 rounded-[4px] px-2.5 py-1 text-xs transition-colors duration-150",
+        ativa
+          ? "bg-raised font-medium text-ink"
+          : "cursor-pointer text-subtle hover:text-ink",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function Resultado({
   resposta,
   sql,
+  tab,
 }: {
   readonly resposta: QueryResponse;
   readonly sql: string;
+  readonly tab: QueryTab;
 }) {
+  const t = useT();
+  /*
+   * O SQL de cada statement, pelo MESMO separador que o servidor usou para
+   * executá-los. Reconstruir a fatia de outro jeito exportaria um texto e
+   * mostraria outro assim que o SQL tivesse `;` dentro de string.
+   */
+  const statements = splitStatements(sql);
+
   return (
     <>
       {resposta.error !== null ? <ErroPostgres erro={resposta.error} sql={sql} /> : null}
 
       {resposta.results.map((r) => (
-        <ResultadoStatement key={r.index} result={r} total={resposta.results.length} />
+        <ResultadoStatement
+          key={r.index}
+          result={r}
+          total={resposta.results.length}
+          tab={tab}
+          sql={statements[r.index]?.sql ?? sql}
+        />
       ))}
 
-      <p className="px-4 py-3 text-2xs text-subtle">
-        {resposta.totalDurationMs} ms · {resposta.readOnly ? "somente leitura" : "escrita"}
-      </p>
+      <div className="flex items-center gap-2 px-4 py-3 text-2xs text-subtle">
+        {/*
+          * O mascote comemora só quando deu certo — erro tem sua própria caixa
+          * com o `code` do Postgres, e uma abelha feliz ao lado de um erro seria
+          * a tela contradizendo a si mesma. `pop` uma vez, sem flutuar depois:
+          * é um aceno, não um enfeite permanente.
+          */}
+        {resposta.error === null ? (
+          <Mascote humor="joia" pop className="h-6 w-6 shrink-0" />
+        ) : null}
+        <span>
+          {resposta.totalDurationMs} ms · {resposta.readOnly ? t("query.somenteLeitura") : t("query.escrita")}
+        </span>
+      </div>
     </>
   );
 }
@@ -147,12 +287,13 @@ function ErroPostgres({
   readonly erro: NonNullable<QueryResponse["error"]>;
   readonly sql: string;
 }) {
+  const t = useT();
   const local = erro.position === null ? null : localizar(sql, erro.position);
 
   return (
     <div className="border-b border-danger/30 bg-danger/5 px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
-        <Badge tone="danger">{erro.code ?? "erro"}</Badge>
+        <Badge tone="danger">{erro.code ?? t("query.erroLabel")}</Badge>
         <span className="text-xs text-ink">{erro.message}</span>
         {resposta_indice(erro.index)}
       </div>
@@ -160,7 +301,7 @@ function ErroPostgres({
       {local !== null ? (
         <div className="mt-2 block w-full rounded-[4px] bg-sunken p-2 text-left font-mono text-xs">
           <span className="text-subtle">
-            linha {local.linha}, coluna {local.coluna}
+            {t("query.linhaColuna", { linha: local.linha, coluna: local.coluna })}
           </span>
           {/*
             * `whitespace-pre` é obrigatório aqui: o HTML colapsa sequências de
@@ -168,7 +309,7 @@ function ErroPostgres({
             * dizia "coluna 22" — a tela apontando um lugar e afirmando outro.
             */}
           <span className="mt-1 block whitespace-pre text-muted">{local.texto}</span>
-          <span className="block whitespace-pre text-amber">
+          <span className="block whitespace-pre text-accent">
             {`${" ".repeat(Math.max(0, local.coluna - 1))}^`}
           </span>
         </div>
@@ -197,10 +338,15 @@ function localizar(sql: string, position: number): { linha: number; coluna: numb
 function ResultadoStatement({
   result,
   total,
+  tab,
+  sql,
 }: {
   readonly result: StatementResult;
   readonly total: number;
+  readonly tab: QueryTab;
+  readonly sql: string;
 }) {
+  const t = useT();
   return (
     <section className="border-b border-line">
       <header className="flex flex-wrap items-center gap-2 px-4 py-2">
@@ -208,17 +354,34 @@ function ResultadoStatement({
           <span className="font-mono text-2xs text-subtle">#{result.index + 1}</span>
         ) : null}
         <span className="text-2xs text-muted">
-          {result.rowCount} {result.rowCount === 1 ? "linha" : "linhas"} · {result.durationMs} ms
+{t(result.rowCount === 1 ? "query.linhaSing" : "query.linhaPlur", { n: result.rowCount })} · {result.durationMs} ms
           {result.command === null ? "" : ` · ${result.command}`}
         </span>
         {result.truncated ? (
           // Truncamento é informação, não detalhe: a query devolveu mais.
-          <Badge tone="danger">truncado</Badge>
+          <Badge tone="danger">{t("dados.truncado")}</Badge>
+        ) : null}
+
+        {result.columns.length > 0 ? (
+          <div className="ml-auto">
+            {/*
+              * Truncado é exatamente onde a escolha existe: as linhas da tela
+              * já foram lidas, e o resultado inteiro exige rodar a consulta de
+              * novo — sem `maxRows`, e num cursor que não trunca.
+              */}
+            <ExportButton
+              connectionId={tab.connectionId}
+              database={tab.database}
+              source={{ kind: "query", sql }}
+              carregadas={result.rowCount}
+              temMais={result.truncated}
+            />
+          </div>
         ) : null}
       </header>
 
       {result.columns.length === 0 ? (
-        <p className="px-4 pb-3 text-2xs text-subtle">Sem linhas para mostrar.</p>
+        <p className="px-4 pb-3 text-2xs text-subtle">{t("dados.semLinhas")}</p>
       ) : (
         <div className="h-80 border-t border-line">
           <ResultGrid columns={result.columns} rows={result.rows} />

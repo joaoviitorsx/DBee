@@ -1,9 +1,12 @@
-import type { RowsResponse } from "@dbee/shared";
+import type { DatabaseSchema, RowsResponse } from "@dbee/shared";
+import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
 import { createApp } from "../app";
 import { openTestStore } from "../db/client";
+import { autenticar } from "../test/sessao";
 import { PoolManager } from "./pool";
+import { planRows } from "./rows";
 
 /**
  * Leitura paginada contra **Postgres real**.
@@ -23,6 +26,8 @@ const TOTAL = 250;
 const temDocker = Bun.spawnSync(["docker", "version"]).exitCode === 0;
 
 let app: ReturnType<typeof createApp>;
+// Toda rota exige sessão (§7): sem cookie estes testes mediriam o guard.
+let cookie = "";
 let pools: PoolManager | undefined;
 let conn = "";
 
@@ -32,7 +37,7 @@ const call = (path: string, body: unknown): Promise<Response> =>
   app.handle(
     new Request(`http://localhost${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", cookie },
       body: JSON.stringify(body),
     }),
   );
@@ -69,6 +74,9 @@ async function paginarTudo(
   throw new Error("paginação não terminou em 200 páginas");
 }
 
+// Subir um Postgres em container passa dos 5 s padrão do `bun test` quando
+// vários arquivos de integração disputam o Docker na mesma rodada. Isolado
+// passava; no conjunto, não — e um hook que estoura acusa como falha de teste.
 beforeAll(async () => {
   if (!temDocker) return;
 
@@ -119,13 +127,34 @@ beforeAll(async () => {
         -- Identificador com maiúscula, que exige aspas.
         CREATE TABLE "Maiuscula" (id int PRIMARY KEY, "Nome Composto" text);
         INSERT INTO "Maiuscula" VALUES (1, 'um'), (2, 'dois');
+
+        -- Grande e indexada: sem volume o planejador escolhe seq scan e o
+        -- teste de plano não teria o que observar.
+        CREATE TABLE grande (
+          id bigint PRIMARY KEY,
+          criado_em timestamptz NOT NULL,
+          entregue_em timestamptz,   -- 30% NULL: o regime dos dois ramos
+          nota text
+        );
+        INSERT INTO grande
+          SELECT g,
+                 timestamptz '2024-01-01' + (g || ' s')::interval,
+                 CASE WHEN g % 10 < 3 THEN NULL
+                      ELSE timestamptz '2024-02-01' + (g || ' s')::interval END,
+                 repeat('x', 30)
+          FROM generate_series(1, 200000) g;
+        CREATE INDEX ix_grande_criado ON grande (criado_em, id);
+        CREATE INDEX ix_grande_entregue ON grande (entregue_em, id);
+        ANALYZE grande;
       `),
     },
   );
   if (seed.exitCode !== 0) throw new Error(`seed falhou: ${seed.stderr.toString()}`);
 
   pools = new PoolManager(undefined);
-  app = createApp({ store: openTestStore(), caCert: undefined, pools });
+  const store = openTestStore();
+  app = createApp({ store, caCert: undefined, pools });
+  ({ cookie } = await autenticar(store));
 
   const res = await call("/api/connections", {
     name: "rows",
@@ -137,13 +166,13 @@ beforeAll(async () => {
     timezone: "UTC",
   });
   conn = ((await res.json()) as { id: string }).id;
-});
+}, 180_000);
 
 afterAll(async () => {
   if (!temDocker) return;
   await pools?.shutdown();
   sh("docker", "rm", "-f", CONTAINER);
-});
+}, 60_000);
 
 describe.if(temDocker)("leitura básica", () => {
   it("devolve colunas com o tipo real e células como string", async () => {
@@ -382,7 +411,9 @@ describe.if(temDocker)("query_log grava a leitura de linhas", () => {
     await ler("itens", { limit: 5 });
 
     const res = await app.handle(
-      new Request(`http://localhost/api/connections/${conn}/history?limit=1`),
+      new Request(`http://localhost/api/connections/${conn}/history?limit=1`, {
+        headers: { cookie },
+      }),
     );
     const historico = (await res.json()) as {
       sql: string;
@@ -396,4 +427,101 @@ describe.if(temDocker)("query_log grava a leitura de linhas", () => {
     expect(historico[0]?.readOnly).toBe(true);
     expect(historico[0]?.sql).toContain("itens");
   });
+});
+
+/**
+ * O keyset usa índice — verificado no **plano**, não no relógio.
+ *
+ * Correção e desempenho aqui são propriedades independentes, e essa é a razão
+ * de este bloco existir: a forma antiga (`c > $v OR (c = $v AND pk > $p)`)
+ * devolvia exatamente as mesmas linhas e levava 76 ms onde a comparação de
+ * linha leva 0,25 ms, porque virava `Filter` em vez de `Index Cond`. **Os 31
+ * testes de correção acima passavam nas duas formas.**
+ *
+ * Por isso o que se afirma aqui é a forma do plano. Cronômetro em teste é
+ * instável em máquina compartilhada; `Rows Removed by Filter` não é.
+ */
+describe.if(temDocker)("o keyset vira Index Cond, não Filter", () => {
+  /**
+   * Pagina de verdade até ficar fundo, e explica a consulta da página seguinte
+   * — a mesma que `planRows` emite para a rota.
+   */
+  async function planoDaPaginaProfunda(
+    corpo: { orderBy?: string; orderDirection?: "asc" | "desc" },
+    paginas = 40,
+    limite = 200,
+  ): Promise<string> {
+    // `/schema` é GET com query, não POST — o `call` acima é só para POST.
+    const arvore = await app.handle(
+      new Request(`http://localhost/api/connections/${conn}/schema?database=rows`, {
+        headers: { cookie },
+      }),
+    );
+    expect(arvore.status).toBe(200);
+    const tree = (await arvore.json()) as DatabaseSchema;
+    const relation = tree.schemas
+      .find((e) => e.name === "public")
+      ?.relations.find((r) => r.name === "grande");
+    if (relation === undefined) throw new Error("relação `grande` não veio do catálogo");
+
+    let cursor: RowsResponse["nextCursor"] = null;
+    for (let i = 0; i < paginas; i++) {
+      const pagina = await ler("grande", {
+        ...corpo,
+        limit: limite,
+        ...(cursor === null ? {} : { after: cursor }),
+      });
+      if (!pagina.hasMore || pagina.nextCursor === null) break;
+      cursor = pagina.nextCursor;
+    }
+    if (cursor === null) throw new Error("não chegou a uma página profunda");
+
+    const plano = planRows(relation, "public", { ...corpo, limit: limite, after: cursor });
+
+    const cliente = new Client({
+      host: "127.0.0.1", port: PORTA, database: "rows",
+      user: "postgres", password: SENHA,
+    });
+    await cliente.connect();
+    try {
+      const r = await cliente.query<{ "QUERY PLAN": string }>(
+        { text: `EXPLAIN (ANALYZE, BUFFERS) ${plano.sql}`, values: [...plano.valores] },
+      );
+      return r.rows.map((linha) => linha["QUERY PLAN"]).join("\n");
+    } finally {
+      await cliente.end();
+    }
+  }
+
+  it("coluna NOT NULL indexada: Index Cond, sem descarte no filtro", async () => {
+    const plano = await planoDaPaginaProfunda({ orderBy: "criado_em" });
+    expect(plano).toContain("Index Cond");
+    expect(plano).not.toMatch(/Rows Removed by Filter: [1-9]\d{3,}/);
+  }, 120_000);
+
+  it("coluna ANULÁVEL indexada: é aqui que o OR entrava", async () => {
+    const plano = await planoDaPaginaProfunda({ orderBy: "entregue_em" });
+    expect(plano).toContain("Index Cond");
+    // A forma antiga marcava aqui dezenas de milhares de linhas descartadas.
+    expect(plano).not.toMatch(/Rows Removed by Filter: [1-9]\d{3,}/);
+  }, 120_000);
+
+  it("descendente por coluna anulável mantém a propriedade", async () => {
+    const plano = await planoDaPaginaProfunda({ orderBy: "entregue_em", orderDirection: "desc" });
+    expect(plano).toContain("Index Cond");
+    expect(plano).not.toMatch(/Rows Removed by Filter: [1-9]\d{3,}/);
+  }, 120_000);
+
+  it("nenhum plano traz a disjunção que derruba o índice", async () => {
+    // Trava a FORMA, não só o efeito: se alguém reintroduzir `c > $v OR …`
+    // para "consertar" o NULL, isto falha antes de o número piorar em produção.
+    for (const corpo of [
+      { orderBy: "criado_em" },
+      { orderBy: "entregue_em" },
+      { orderBy: "entregue_em", orderDirection: "desc" as const },
+    ]) {
+      const plano = await planoDaPaginaProfunda(corpo);
+      expect(plano).not.toMatch(/Filter:[^\n]*\bOR\b/);
+    }
+  }, 180_000);
 });

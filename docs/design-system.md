@@ -303,6 +303,109 @@ alinhado à esquerda obriga a contar dígitos para comparar duas linhas. O tipo
 vem de `format_type`, então `numeric(12,2)` perde o parâmetro antes da
 comparação.
 
+### 5.4b-2 Seleção do grid e Ctrl+C
+
+Clique define a âncora, `Shift`+clique estende: a convenção de planilha, porque
+o grid é lido como planilha. `Ctrl+C` copia o retângulo como **TSV**, que cola
+direto numa célula do Excel.
+
+A faixa selecionada usa `bg-amber/12` — **tinta fraca, nunca o âmbar sólido**.
+Âmbar sólido com texto escuro é o selo de escrita, e seleção pintada igual a um
+selo faz a tela afirmar um estado de conexão que não existe (§ estado de
+perigo; foi exatamente o defeito do `::selection`). *Selo é informação, seleção
+é interação.*
+
+Um indicador no canto inferior direito diz `N × M selecionado · Ctrl+C copia
+como TSV` — é onde o atalho se ensina, no momento em que ele serve. Some
+sozinho depois de copiar: aviso de confirmação que fica é ruído.
+
+Sem cabeçalho no recorte: quem copia três células de dentro de uma tabela quer
+as três células. Cabeçalho é assunto do arquivo, e o arquivo tem seu próprio
+caminho.
+
+### 5.4b-3 Export: as duas escolhas, com os números
+
+O que está **na tela** e o que está **na tabela** são coisas diferentes, e o
+número de linhas de cada uma é a diferença. Um botão só teria de escolher em
+silêncio por quem clicou, e as duas leituras estão certas dependendo do que a
+pessoa vai fazer com o arquivo.
+
+```
+[ Exportar as 200 da tela ]        ← âmbar; o que já foi lido, sem consultar de novo
+[ Exportar tudo — ~1.284.331 ]     ← estimativa do planejador; lê até o fim
+```
+
+- **Colapsa para um botão** quando a tela já tem tudo: *"Exportar 100 linhas ·
+  o resultado inteiro está na tela"*. Perguntar sem ter o que perguntar é
+  atrito.
+- O total vem do `reltuples` do catálogo e aparece com `~` e a palavra
+  *estimativa*. `count(*)` antes de exportar dobraria a leitura da tabela;
+  número aproximado apresentado como exato é pior que número nenhum.
+- **Com filtro ativo o total some**, não vira zero: a estimativa da tabela não
+  sabe quantas linhas sobram depois do `WHERE`, e mostrá-la ali seria mentira.
+- Na aba de consulta o "tudo" também não tem número — o resultado de um SELECT
+  arbitrário não tem estimativa. Diz *"lê até o fim do resultado"* e para aí.
+
+**A ambiguidade do CSV é dita, não escondida.** NULL e texto vazio saem os dois
+como campo vazio; o formato não separa os dois sem inventar convenção, e
+qualquer convenção inventada o Excel lê errado. O painel diz isso e aponta o
+JSON para quem precisa da diferença. Escolher em silêncio seria dado corrompido
+sem aviso.
+
+Defaults do CSV são os que **funcionam no Excel em português** — `;` e BOM
+UTF-8 — não os do padrão. O destino provável do arquivo é planilha de fiscal.
+
+### 5.4b-4 Cabeçalho do grid: uma barra, ordenação e largura
+
+**A ordenação mora no cabeçalho**, não numa faixa separada. Clicar na coluna
+ordena; a seta e o `aria-sort` só aparecem na coluna ativa — ícone apagado em
+toda coluna transformaria o cabeçalho num campo de setas e a ordenada deixaria
+de saltar. Ausente quando não há ordenação de servidor (resultado de SQL
+arbitrário tem a ordem que o SQL pediu).
+
+**O cabeçalho acompanha o scroll horizontal do corpo.** Ele vive fora do
+scroller vertical — senão rolaria para fora da tela ao descer — e por isso não
+anda sozinho no eixo horizontal. Sem espelhar o `scrollLeft` por `transform`,
+rolar para o lado punha cada dado sob o nome de outra coluna: a tela afirmando a
+coisa errada, o pior tipo de defeito de grid. Espelhar mantém os dois juntos sem
+um segundo scroller.
+
+**Largura de coluna ajustável**, arrastando a borda direita do cabeçalho. A alça
+fica fora do botão de ordenação (um botão não contém outro controle) e o
+`stopPropagation` segura o clique para não ordenar ao redimensionar. Guardada
+por **nome** de coluna, não por índice: a largura sobrevive a reordenar e não
+vaza para a coluna errada quando o resultado muda de forma. Mínimo de 64px —
+abaixo disso o nome some.
+
+### 5.4b-5 Sub-abas da tabela: uma barra, dois níveis
+
+Dados · Estrutura · Índices · **Diagrama** ficam numa **barra única** com as
+ações da vista. Antes eram dois contêineres empilhados, cada um com sua borda
+inferior — dois filetes quase colados dividindo o que é um cabeçalho só. Agora:
+
+```
+[Dados  Estrutura  Índices  Diagrama] │ [Consultar] [⌕ filtro] ····· [N carregadas] [Exportar] [⧉]
+     navegação                        div.            ações da vista              estado + export
+```
+
+O **divisor vertical** é o que impede a sub-aba "Diagrama" e o botão "Consultar"
+de se lerem com o mesmo peso — são camadas diferentes (navegar vs. agir). O
+estado (linhas carregadas) e o export vão à direita, separados por `ml-auto`:
+descrevem o resultado, não o comandam. A sub-aba ativa leva o sublinhado âmbar,
+que marca a navegação.
+
+### 5.4b-6 Diagrama (ERD)
+
+Tabelas como caixas com colunas — **PK** (🔑, âmbar) e **FK** (⋈) marcadas, tipo
+à direita —, ligadas por linhas de FK. Layout em camadas por `dagre` (§3 do
+`DBee.md`): a tabela referenciada fica num posto à esquerda da que a referencia,
+a leitura "esta depende daquela" da esquerda para a direita.
+
+Pan arrastando o fundo, zoom na roda (em direção ao ponteiro), **clique no nome
+abre a tabela** — o diagrama é um índice navegável, não só um desenho. Enquadra
+sozinho ao abrir. Acessível de dois lugares: menu do database ("Ver diagrama",
+aba própria) e a sub-aba "Diagrama" de qualquer tabela.
+
 ### 5.4c Sem chave primária, a UI avisa
 
 A sub-aba Dados pagina por keyset sobre a PK. Sem PK isso é impossível, e a
@@ -312,6 +415,55 @@ A ordem entre páginas pode repetir ou pular linha."*
 Fingir que a navegação funciona é o que faz o usuário confiar numa lista
 incompleta — e numa ferramenta de conferência de dado, lista incompleta é a
 pior saída possível.
+
+### 4b. Marca, mascote e favo de mel
+
+**A marca** é a abelha cujo corpo é um cilindro de banco de dados (banco +
+abelha numa forma só), em `assets/`. Substituiu o SVG desenhado à mão: a
+identidade agora é o render da logo, no favicon, no cabeçalho, no carregamento e
+no estado vazio — uma marca só em todo lugar (`components/Marca`).
+
+**O mascote** — a abelha de óculos — aparece nos momentos em que a tela fala com
+a pessoa, num humor a cada estado (`features/mascote`):
+
+| humor | onde |
+|---|---|
+| laptop | login (acolhe) |
+| pensando | login com erro, troca de senha |
+| joia | troca de senha, sucesso de query |
+| carregando | qualquer espera (`Trabalhando`) |
+| dormindo | o servidor não respondeu |
+
+Os PNGs 3D de ~1 MB viraram WebP de ~30 KB no tamanho de exibição, baixados só
+quando aparecem. O mascote **flutua** (`animate-float`) onde é o assunto, e dá um
+`pop` de comemoração no sucesso — uma vez, sem eco. Nunca ao lado de um erro: uma
+abelha feliz sobre um erro seria a tela contradizendo a si mesma. Isto aposentou
+o `anime.js` — as cenas animadas viraram o mascote, e o pacote saiu.
+
+**O favo de mel** (`components/Honeycomb`) é o motivo da abelha assinando o
+fundo — hexágonos flat-top que **tesselam de verdade**: o tile é `3s × √3s` com
+dois hexágonos (um alinhado, um deslocado meia altura), então o padrão cobre o
+plano sem falha nem sobra. Traço, não preenchimento (favo é a parede entre as
+células), `currentColor` + opacidade baixa, o mesmo componente em dark e light.
+Aparece na **vitrine do login** (âmbar, presente), atrás do formulário, no
+**canto direito do cabeçalho** e no **pé da barra lateral**, sempre desvanecendo
+com `mask` para costurar sem competir com o conteúdo.
+
+### 4c. Visão de databases e processos (só-leitura)
+
+Duas abas no nível da conexão, do menu da conexão ("Ver databases", "Ver
+processos"), no espírito do "Selecionar Base de dados" do Adminer, mas
+**só-leitura** — leem `pg_database` e `pg_stat_activity`, não ferem o read-only.
+
+- **Databases:** tabela com tamanho (`pg_database_size`, estimativa barata),
+  encoding, collation, dono e conexões abertas; o database da conexão leva a
+  estrela; uma barra relativa mostra "qual pesa mais" antes do número.
+- **Processos:** `pg_stat_activity` sem os backends de sistema nem a própria
+  consulta, ativas primeiro e por duração; estado colorido (`active` verde,
+  `idle in transaction` vermelho); as sessões do próprio DBee marcadas. O
+  auto-refresh de 3 s é **opt-in** — lista que se reescreve sozinha o tempo todo
+  é difícil de ler.
+
 
 ### 5.5 Inspetor
 
@@ -403,34 +555,61 @@ O botão continua com spinner comum: a 14px o desenho da abelha não resolve, e
 inventar uma segunda animação de marca para caber ali seria o começo da
 proliferação que a §10 recusa.
 
-### São três estados de carregamento — e só três
+### Estados de espera: a cena precisa dizer alguma coisa
 
-> ⚠️ **Os três estão MORTOS desde a fatia do shell de três zonas
-> (2026-09-05).** `Mark flying` não tem chamador, `animate-probe` não é usado
-> por componente nenhum, `ConnectionsSkeleton` foi **apagado** junto com a
-> antiga página de conexões, e `animate-settle` ficou sem uso. `useIsFetching`
-> saiu junto com o `App.tsx` antigo.
+> ⚠️ **Esta seção substitui "São três estados de carregamento — e só três"
+> (2026-09-05).** A regra antiga contava estados; contar era a coisa errada a
+> fixar. Os três que ela nomeava estavam **mortos** desde a migração para o
+> shell de três zonas — `Mark flying` sem chamador, `animate-probe` sem
+> componente, `ConnectionsSkeleton` apagado junto com a antiga página — e o
+> documento descrevia uma implementação que não existia mais.
 >
-> Foram perdidos na migração e o documento não acompanhou — exatamente o que o
-> `CLAUDE.md` chama de "doc desatualizado é pior que doc ausente", cometido por
-> quem escreveu a regra. A seção abaixo descreve a **intenção**, que continua
-> válida; a implementação precisa voltar. Registrado em `ATRITO.md`.
+> A regra que sobrevive não é o número. É esta: **a cena de espera tem que
+> afirmar algo que a ausência dela não afirma.** Um loader que só diz "ocupado"
+> não ganha lugar; um que diz *o quê*, *desde quando* ou *quanto avançou*,
+> ganha.
 
-| Estado | Componente | Responde a |
+| Cena | Onde | O que afirma além de "ocupado" |
 |---|---|---|
-| marca em voo | `Mark flying` na barra lateral | há requisição em voo, em qualquer lugar |
-| tag pulsando | `animate-probe` na linha | **aquela** conexão está sendo testada |
-| esqueleto | `ConnectionsSkeleton` | a lista ainda não chegou |
+| `Trabalhando` + cronômetro | consulta executando, leitura de linhas, catálogo | **há quanto tempo** — e o `statement_timeout` padrão é 30 s |
+| `TrabalhandoInline` | barra da aba Dados, buscando a próxima página | que a rolagem continua, sem empurrar o grid |
+| `BeeSearching` | o servidor não respondeu | que ele está **procurando algo que não atende** — o desenho conta o erro |
+| `animate-probe` | tag de cor da linha | **qual** conexão está sendo testada |
+| `Skeleton` | primeira carga de lista | a forma do que vai aparecer ali |
+| spinner do `Button` | dentro do botão | a 14 px o desenho da abelha não resolve |
 
-Cada um responde a uma pergunta diferente: *o app está ocupado?*, *qual item
-está ocupado?*, *o que vai aparecer aqui?*. Juntos cobrem os casos.
+**O cronômetro é o que separa esta versão da anterior.** Numa consulta contra
+banco de cliente, "rodando" e "travado" têm exatamente a mesma aparência sem
+ele; com ele, quem conhece a tabela sabe se 8 segundos são normais. É dado, não
+enfeite — e é a justificativa de a cena existir.
 
-**Um quarto estado precisa justificar por que os três não servem.** Chegou a
-existir um `BeeLoader` de região — abelha voando no meio da tela — e foi
-apagado: a lista já usa esqueleto, a barra lateral já responde por "ocupado", e
-o botão já tem spinner inline. Ele não respondia a pergunta nenhuma que os
-outros não respondessem, e um loader a mais é um vocabulário a mais que o
-usuário precisa aprender sem ganhar nada.
+#### Por que o descompasso importa
+
+A asa bate em 240 ms e o voo percorre em 1,6 s. Os dois períodos não se
+dividem, então nunca se alinham — e é isso que faz o desenho parecer bicho em
+vez de objeto interpolado. Em `@keyframes` seriam duas animações independentes
+que entram em fase sozinhas de tempos em tempos; no instante em que entram, a
+ilusão morre. É a única razão de existir uma biblioteca de animação aqui, e ela
+paga o próprio custo: `animejs` entra por `import()` dinâmico, em chunk
+separado, e **não está no bundle inicial** (medido: +0,76 kB gzip no chunk
+principal, que é o wrapper).
+
+Movimento simples continua em CSS, onde é mais barato e não precisa de
+sincronia: as cinco `@utility` do `index.css` seguem valendo.
+
+#### `animate-refuse` — a quinta, e a única que não é espera
+
+Credencial recusada sacode o painel de login por 260 ms. Ganha lugar porque
+**responde a uma ação e chega antes da leitura**: quem errou a senha por memória
+muscular sabe que precisa redigitar antes de ler a mensagem. Curta e sem eco —
+é uma fechadura que não gira, não um alerta.
+
+#### O que continua valendo
+
+**Uma cena a mais precisa justificar por que as que existem não servem.** Chegou
+a existir um `BeeLoader` de região que foi apagado justamente por não responder
+nada que os outros não respondessem. O critério não mudou; o que mudou é que
+"quantas existem" deixou de ser o critério.
 
 ### Esqueleto, não spinner, na primeira carga
 

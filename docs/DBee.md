@@ -92,6 +92,32 @@ próxima sessão no que já foi decidido. Fora desta lista, ainda vale perguntar
 | `@radix-ui/react-*` | primitivos por trás dos componentes shadcn/ui em uso |
 | `@fontsource-variable/sora` | Sora bundlada, subset latin — sem CDN |
 | `codemirror`, `@codemirror/lang-sql` | editor SQL (v0.1) |
+| `@codemirror/autocomplete` | autocomplete de tabela/coluna no editor (Ctrl+Espaço) |
+| `@dagrejs/dagre` | layout do diagrama ERD — ver nota abaixo |
+
+**`animejs` saiu** (2026-09-05): as cenas animadas viraram o mascote 3D em WebP, e o pacote foi removido.
+| `animejs` | as cenas animadas — **fora do bundle inicial**, ver abaixo |
+
+**`animejs` tem uma condição.** Ele entra só por `import()` dinâmico, num chunk
+próprio de ~14 kB gzip que o `Trabalhando`/`AuthGate` carregam sob demanda e o
+`main.tsx` pré-carrega quando a aba fica ociosa. Medido: o chunk inicial foi de
+277,69 para 278,45 kB gzip ao ligar as animações em quatro telas — 0,76 kB, que
+é o wrapper, não a biblioteca. **Se algum dia ele aparecer no chunk principal, é
+regressão**, e a causa vai ser um `import` estático em algum lugar.
+
+Ele existe porque as cenas têm três ritmos independentes com um ponto de
+sincronia — asa em 240 ms, voo em 1,6 s, e a trilha se desenhando junto do voo.
+Em `@keyframes` isso vira animações que entram em fase sozinhas de tempos em
+tempos, e no instante em que entram o bicho volta a parecer objeto interpolado.
+Movimento simples continua em CSS: as cinco animações do `index.css` não saíram.
+
+**`@dagrejs/dagre` faz o layout do diagrama ERD** (`features/diagram/layout.ts`).
+Layout de grafo em camadas (Sugiyama) é problema difícil e a alternativa era um
+force-directed próprio que espalhava as tabelas soltas; dagre posiciona por
+posto ao longo das FKs e dá a leitura "quem referencia quem". É pura JS, entra
+no bundle normal (não é grande), e a fronteira foi desenhada de propósito: o
+`calcularLayout` troca de miolo sem que o `DiagramView` saiba — se um dia
+precisar de outro layout, troca-se um arquivo.
 
 **Ferramenta** (dev, nada disso entra no binário) — `typescript` (pinado, ADR
 002), `eslint`, `@eslint/js`, `typescript-eslint`, `eslint-plugin-react-hooks`,
@@ -200,9 +226,16 @@ modo em vigor na conexão.
 Prefixo `/api`. Tudo JSON. Autenticação por cookie de sessão `httpOnly` + `SameSite=Strict`.
 
 ### Auth
-- `POST /auth/login` — `{ password }` → seta cookie. Rate limit: 5 tentativas / 15 min por IP.
-- `POST /auth/logout`
-- `GET /auth/me`
+- `POST /auth/login` — `{ username, password }` → cookie de sessão `httpOnly` + `SameSite=Strict` + `Secure`
+- `POST /auth/logout` — apaga a sessão **no servidor**, não só o cookie
+- `GET /auth/me` — o usuário da sessão; **401 é resposta, não erro**
+- `POST /auth/password` — troca a senha e derruba todas as sessões do usuário
+- `PATCH /auth/locale` — `{ locale: "pt" | "en" }` grava o idioma da UI no registro do usuário; devolve o usuário atualizado. Preferência, não segredo — não mexe em cookie nem em sessão
+
+**Todas as outras rotas exigem sessão.** As únicas abertas são `GET /api/health`
+(o healthcheck do container não tem cookie) e `POST /api/auth/login`. A lista
+vive em `routes/guard.ts` e `guard.test.ts` **varre `app.routes`** — rota nova
+sem cobertura faz o teste falhar sozinha.
 
 ### Conexões
 - `GET /connections` — lista (**sem** `password_enc`)
@@ -222,11 +255,23 @@ Prefixo `/api`. Tudo JSON. Autenticação por cookie de sessão `httpOnly` + `Sa
 - `GET /connections/:id/tables/:schema/:table/rows` — paginação por keyset, filtros e ordenação
 
 ### Export
-- `POST /connections/:id/export` — mesma entrada da query, resposta em stream CSV ou NDJSON
+- `GET /connections/:id/databases/overview` — databases do cluster com tamanho (`pg_database_size`), encoding, collation, dono e conexões abertas. Só-leitura.
+- `GET /connections/:id/activity` — `pg_stat_activity` sem os backends de sistema nem a própria sessão; marca as sessões do DBee. Só-leitura, instantâneo.
+- `POST /connections/:id/export` — resposta em **stream**, `Response` cru sem `content-length`
+
+  Origem: `{ kind: "query", sql }` ou `{ kind: "table", schema, table, orderBy, orderDirection, filters }`
+  — a origem tabela reusa o **mesmo `RowFilter`** da aba Dados, para o arquivo ser o que está na tela.
+
+  Formatos: `csv` | `json` | `ndjson`. Opções de CSV com os defaults do **Excel pt-BR**:
+  `;` e BOM UTF-8 (§11.29). `maxRows` ausente significa **tudo** — é o ponto da rota.
+
+  Medido contra Postgres real (`exporter.integration.test.ts`): 150 mil linhas / 39,5 MB de corpo,
+  primeiro byte em **5 ms** de 1,7 s, pico de heap **+14 MB** contra +0 MB para 5 mil linhas.
+  A memória não acompanha o tamanho do resultado — é o que a rota existe para garantir.
 
 ### Meta
 - `GET /meta/version` — `{ current, latest, updateAvailable, releaseUrl }`
-- `POST /meta/update` — dispara o webhook de deploy do Dokploy (só se `DOKPLOY_DEPLOY_WEBHOOK` estiver setado)
+- `POST /meta/update` — **planejado** (não implementado): dispararia o webhook de deploy do Dokploy. Ver §8.
 - `GET /history?connectionId=&limit=&q=`
 
 ---
@@ -237,7 +282,17 @@ Esta seção é a parte que mais quebra se for implementada por instinto.
 
 **Conexão:** sempre no Postgres direto (5432). **Nunca** no PgBouncer em transaction mode — quebra `SET`, prepared statements, cursores e transações interativas.
 
-**Pool:** um pool por `connection_id`, `max: 5`, `idleTimeoutMillis: 30000`. Pools ociosos há mais de 10 min são destruídos.
+**Pool:** um pool por **par `(connection_id, database)`**, `max: 3`, `idleTimeoutMillis: 30000`. Pools ociosos há mais de 10 min são destruídos.
+
+> **Corrigido em 2026-09-05.** Esta linha dizia "um pool por `connection_id`" e
+> estava errada: `pg` fixa o database na criação do pool, então cada database
+> exige o seu. A implementação sempre foi por par — o doc é que descrevia outra
+> coisa.
+>
+> O teto caiu de 5 para 3 porque **ele multiplica**: medido em
+> `pg_stat_activity`, uma conexão navegando 2 databases abria 10 backends no
+> cluster do cliente. Com 3, a mesma navegação abre 6, e uma quarta requisição
+> concorrente enfileira em vez de falhar.
 
 **Sessão read-only — `BEGIN READ ONLY`, e só isso.** Escrita retorna erro do próprio Postgres (SQLSTATE `25006`), que é a proteção correta. **Não tentar detectar `UPDATE`/`DELETE` com regex ou parser:** falsos negativos são inevitáveis (CTE com `INSERT`, função com efeito colateral, `SELECT` que chama procedure) e falsos positivos irritam (`SELECT * FROM update_log`).
 
@@ -309,9 +364,30 @@ Isso evita a classe inteira de bug "o número apareceu diferente na tela".
   `actor = id do usuário` no `query_log`. **Sem papéis, sem permissão por
   conexão, sem convite por e-mail** — isso é v0.2.
 
-  `ADMIN_PASSWORD` continua sendo a senha do **primeiro** usuário, criado no
-  primeiro boot; se a env não estiver setada, o app gera uma aleatória e a
-  imprime no log uma única vez.
+  **Entregue em 2026-09-05.** O primeiro boot cria `admin` com senha aleatória
+  de 24 caracteres (alfabeto sem `0/O`, `1/l/I`, `5/S` — ela vai ser lida de um
+  log e digitada à mão) e a imprime **uma vez**, com troca obrigatória: senha
+  impressa em log é senha conhecida por quem leu o log, e enquanto ela não muda
+  a API recusa tudo que não seja trocá-la.
+
+  > **`ADMIN_PASSWORD` saiu.** As versões anteriores desta seção diziam que a
+  > env seria a senha do primeiro usuário. Não foi implementada: senha em
+  > variável de ambiente fica no compose, no histórico do shell e na tela de
+  > configuração do Dokploy, e a senha aleatória com troca obrigatória cobre o
+  > mesmo caso sem nenhum desses lugares. Se a env aparecer em algum doc, é
+  > resíduo.
+
+  Sessão de 12 horas, expiração absoluta. O que está guardado em `sessions` é o
+  **SHA-256 do token**, nunca o token: se o arquivo SQLite vazar por um backup
+  ou um volume montado errado, o que está lá não serve como cookie. SHA-256
+  basta porque o token tem 256 bits de aleatoriedade — argon2id ali custaria
+  ~180 ms **por requisição autenticada** para proteger contra um ataque de
+  dicionário que não existe.
+
+  Três coisas com teste próprio, porque são por onde auth costuma vazar:
+  logout apaga a sessão **no servidor**; falha de login não distingue "usuário
+  não existe" de "senha errada" nem na mensagem nem no tempo (§11.36); e trocar
+  a senha derruba **todas** as sessões, inclusive a que fez a troca.
 
   Enquanto a autenticação não existir, `actor` é a string `"unauthenticated"` —
   **nunca `"admin"`**, que daria ao registro aparência de identidade sem ter
@@ -335,11 +411,9 @@ services:
     image: ghcr.io/<seu-usuario>/dbee:latest
     restart: unless-stopped
     environment:
-      APP_SECRET: ${APP_SECRET}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      DOKPLOY_DEPLOY_WEBHOOK: ${DOKPLOY_DEPLOY_WEBHOOK:-}
+      APP_SECRET: ${APP_SECRET}   # único obrigatório; ver README e §7
     volumes:
-      - dbee-data:/data
+      - dbee-data:/data           # SQLite + salt de cifra: persistir sempre
     networks:
       - dokploy-network
 
@@ -356,33 +430,68 @@ Como o repo é pessoal e privado, o GitHub App do Dokploy precisa receber acesso
 
 **Healthcheck:** `GET /api/health` → 200 se SQLite responde.
 
-**Atualização:** GitHub Actions publica `:latest` e `:vX.Y.Z` a cada tag. O app consulta a Releases API 1x/dia, compara com a versão do build e mostra badge. Botão "Atualizar" chama o webhook do Dokploy. Container não se auto-atualiza por dentro — nada de montar socket do Docker.
+**Atualização.** O que existe hoje: GitHub Actions publica `:latest` e `:vX.Y.Z` a cada tag; atualizar é publicar a tag e re-deployar no Dokploy (o `restart: unless-stopped` + trigger On Push cobrem parte). Container não se auto-atualiza por dentro — nada de montar socket do Docker.
+
+> **Planejado, não implementado (2026-09-05).** A consulta à Releases API 1x/dia, o badge de "há versão nova" e o botão "Atualizar" que chama um webhook do Dokploy estão descritos aqui como intenção — **não estão no código** (`grep` por `releases`/`DOKPLOY_DEPLOY_WEBHOOK` vem vazio). `/meta/update` na §5 é do mesmo pacote futuro. Documentado como planejado para não afirmar recurso que o binário não tem.
 
 ---
 
 ## 9. Roadmap
 
 ### v0.1 — Uso interno, read-only
-- [ ] Scaffold do monorepo (Bun workspaces), Dockerfile, CI
+- [x] Scaffold do monorepo (Bun workspaces), Dockerfile, CI
 - [x] ~~**Spike do dia 1:** validar `pg` + `DECLARE CURSOR` no Bun contra uma tabela real grande~~ — concluído. `pg@8.23` sob Bun 1.3.14: sem incompatibilidade, sobrevive ao `bun build --compile`, pool e SCRAM ok, `statement_timeout` efetivo, todos os tipos como string sem perda de precisão. Revelou o bug do read-only corrigido na §6.
-- [ ] **Login com usuários individuais + sessão** — e não senha única, ver §7. `actor` no `query_log` passa a ser o id do usuário. Último item da v0.1, mas **antes da instalação em produção**: não instalar sem ele.
-- [ ] CRUD de conexões com senha cifrada + teste de conexão
-- [ ] Listagem de databases do cluster
-- [ ] Árvore de schema (tabelas, views, colunas, tipos, PK/FK)
-- [ ] **Busca na árvore** — trazida da v0.3. Com dois ou três schemas de cliente a árvore passa de cem nós, e sem filtro vira rolagem. Escopo: filtrar por nome de tabela/schema e abrir a aba ao selecionar.
-- [ ] Editor SQL com `Cmd+Enter`, execução read-only forçada
-- [ ] Grid virtualizado com tipos preservados como string
-- [ ] `query_log` gravando tudo
-- [ ] Export CSV em stream
+- [x] **Login com usuários individuais + sessão** — e não senha única, ver §7. `actor` no `query_log` passa a ser o id do usuário. Último item da v0.1, mas **antes da instalação em produção**: não instalar sem ele.
+- [x] CRUD de conexões com senha cifrada + teste de conexão
+- [x] Listagem de databases do cluster
+- [x] Árvore de schema (tabelas, views, colunas, tipos, PK/FK)
+- [x] **Busca na árvore** — trazida da v0.3. Com dois ou três schemas de cliente a árvore passa de cem nós, e sem filtro vira rolagem. Escopo: filtrar por nome de tabela/schema e abrir a aba ao selecionar.
+- [x] Editor SQL com `Cmd+Enter`, execução read-only forçada
+- [x] Grid virtualizado com tipos preservados como string
+- [x] `query_log` gravando tudo
+- [x] Export CSV em stream — com seleção retangular e `Ctrl+C` como TSV
+- [x] Autocomplete no editor (Ctrl+Espaço), alimentado pelo schema
+- [x] Ordenação e largura ajustável no cabeçalho do grid; cabeçalho acompanha o scroll horizontal
+- [x] Painel dividido editor + dados da tabela de origem
+- [x] Diagrama ERD (dagre) — aba própria e sub-aba da tabela
+- [x] Tema claro/escuro
+- [x] **Idioma PT/EN** — dicionário próprio (`i18n/`), escolha no registro do usuário, mensagens do servidor traduzidas por código, erro do Postgres intacto
 - [ ] Deploy no Dokploy pela tailnet
+
+> **Nota (2026-09-05).** Vários itens acima (autocomplete, diagrama, split-view,
+> tema, resize/scroll do grid) não estavam no escopo original da v0.1 — entraram
+> a pedido do autor durante o desenvolvimento. Estão listados aqui para o
+> inventário ficar honesto; a **ordem de fechamento** abaixo não mudou, e o
+> idioma PT/EN continua sendo o único item que separa o estado atual da tag.
 
 **Ordem de fechamento da v0.1** (decidida em 2026-09-05, sem exceção — nenhuma
 feature nova entra antes):
 
-1. Editor SQL + grid virtualizado
-2. Export CSV em stream
-3. Autenticação com identidade real
-4. Tag `v0.1.0` e instalação no Dokploy
+1. ~~Editor SQL + grid virtualizado~~ — concluído
+2. ~~Export CSV em stream~~ — concluído
+3. ~~Autenticação com identidade real~~ — concluído
+4. **Idioma PT/EN**
+5. Tag `v0.1.0` e instalação no Dokploy
+
+O idioma entra **depois da auth e antes da tag**, decidido em 2026-09-05. A
+razão é ordem, não preferência: a auth traz um conjunto novo de textos (login,
+sessão expirada, permissão negada) e traz **onde guardar a escolha** — o
+registro do usuário. Fazer i18n antes seria escrever os textos da auth duas
+vezes e guardar a preferência em `localStorage` para migrar depois.
+
+**Alcance da tradução**, decidido junto:
+
+- Sem dependência nova. Dicionário próprio e um `t()`; `react-i18next` são
+  ~40 KB para dois idiomas sem pluralização complexa.
+- **A UI inteira**, incluindo formatação de número e data por `Intl`.
+- **Mensagens do servidor traduzidas pelo código**, não pela prosa: a rota já
+  devolve `not_found`, `bad_request` e afins, e o front cai na `message` do
+  servidor quando não tem tradução para aquele código. Pega o caso comum sem
+  tocar em cada `fail()`; detalhe que carrega nome de tabela vira parâmetro
+  quando aparecer.
+- **Erro do Postgres não é traduzido.** Ele vai inteiro para a tela, no idioma
+  do `lc_messages` do cluster (CLAUDE.md). Traduzir seria reescrever o que o
+  banco disse — e é justamente o texto que a pessoa vai colar numa busca.
 
 **Pronto quando:** uma semana de trabalho real sem abrir o DBeaver.
 
@@ -455,4 +564,71 @@ Registradas aqui para não serem redescobertas pela terceira vez:
 23. **`ca: ""` desliga o CA store do sistema.** String vazia não é "sem CA": é uma lista de CAs vazia, que substitui a do sistema e faz todo `verify-full` falhar. E `${VAR:-}` no compose entrega exatamente string vazia. Variável de ambiente em branco tem que virar `undefined` na leitura.
 24. **Um arquivo fonte pode sair do alcance de grep e de diff sem que nada acuse.** Uma edição trocou o espaço separador de uma chave de mapa em `pg/pool.ts` por um byte NUL — invisível no terminal e no editor. Efeito: `grep` e `rg` pulavam o arquivo **em silêncio**, `git grep` respondia "Binary file matches" sem a linha, e `git diff` dizia "Binary files differ" sem diff nenhum. O único arquivo que abre a transação read-only ficou fora de toda busca e de toda revisão — anulando o controle que o ADR 001 institui ("revisão de PR que veja essa string deve barrar"). `bun run check:bytes` falha se qualquer fonte tiver byte de controle fora de tab e newline; roda junto do lint e no CI.
 25. **Sob Bun, um `kill` que erra o alvo deixa servidor velho servindo.** O `Bun.serve` aceita `SO_REUSEPORT`, então **vários processos escutam a mesma porta ao mesmo tempo** e as requisições fazem round-robin entre eles. O sintoma é o pior possível: o **mesmo** endpoint responde 200 e 404 alternadamente, e testar duas vezes dá resultados diferentes. Custou tempo uma vez — `/databases` dava 404 pelo proxy do Vite e 200 direto na API, com três servidores no ar. O boot agora aborta se a porta já responder; e `ss -ltn | grep :3001` deve mostrar **uma** linha.
-26. **Migration fora de ordem no array corrompe a versão.** Comparar sempre com a versão lida no início do laço faz a 002 rodar depois da 003 e regravar `schema_version = 2`; no boot seguinte a 003 reaplica e estoura em `already exists`, deixando o container em loop de restart. Ordene por versão e releia a versão a cada passo.
+26. **NULL quebra a comparação de linha do keyset, e a linha _some_.** Paginação por keyset usa `(coluna, pk) > ($1, $2)`, que é canônico e usa índice. Mas se `coluna` for NULL a comparação devolve **NULL**, não `false` — e a linha é descartada. Numa coluna anulável isso perde, **em silêncio**, todas as linhas com NULL a partir da segunda página: a primeira página mostra tudo, e o que falta nunca aparece. Ninguém deduz isso lendo o SQL.
+
+    Com `ORDER BY c ASC NULLS LAST` existem **dois regimes**, e o cursor precisa carregar em qual deles está:
+
+    ```sql
+    -- ainda na região não-nula (cursor.orderValueIsNull = false)
+    (c > $v OR (c = $v AND (pk) > ($p)) OR c IS NULL)
+
+    -- já entre os nulos (cursor.orderValueIsNull = true)
+    (c IS NULL AND (pk) > ($p))
+    ```
+
+    Vale para **qualquer** paginação futura, não só a de linhas. E o teste que pega isso não é contar linhas de uma página: é percorrer todas as páginas e conferir que o conjunto é exatamente a tabela, sem repetição e sem buraco.
+
+26b. **A correção acima, escrita como `OR` numa cláusula só, transforma o keyset em `OFFSET`.** As duas metades desta armadilha precisam ser lidas juntas: a de cima diz *o que a condição tem que selecionar*, e esta diz *que forma ela pode ter*. Consertar uma reintroduzindo a outra é o erro que já aconteceu aqui.
+
+    `(c, pk) > ($v, $p)` e `c > $v OR (c = $v AND pk > $p)` selecionam **exatamente as mesmas linhas** e têm planos completamente diferentes. Medido contra Postgres real, 500 mil linhas, coluna indexada, página 300.000:
+
+    | forma | plano | tempo |
+    |---|---|---|
+    | disjunção com `OR` | `Filter`, 300.000 linhas descartadas, 300.101 heap fetches | **76,4 ms** |
+    | comparação de linha | `Index Cond`, 101 heap fetches | **0,25 ms** |
+
+    **Qualquer `OR` derruba o `Index Cond`** — inclusive `(c, pk) > ($v, $p) OR c IS NULL`, que parece manter a forma canônica e não mantém (medido: 19,3 ms, `Filter`). Então os dois regimes de NULL **não cabem numa cláusula `WHERE` só** sem perder o índice.
+
+    Cabem numa **consulta** só, com `UNION ALL` de dois ramos — 0,50 ms contra 21,0 ms na mesma página, com `Merge Append` preservando a ordem:
+
+    ```sql
+    SELECT * FROM (
+      (SELECT * FROM t WHERE c IS NOT NULL AND (c, pk) > ($v, $p)
+        ORDER BY c ASC, pk ASC LIMIT n+1)
+      UNION ALL
+      (SELECT * FROM t WHERE c IS NULL
+        ORDER BY c ASC, pk ASC LIMIT n+1)
+    ) u
+    ORDER BY c ASC NULLS LAST, pk ASC LIMIT n+1
+    ```
+
+    Dois detalhes que parecem enfeite e não são:
+
+    - **`c IS NOT NULL` explícito no primeiro ramo.** A comparação de linha já exclui NULL sozinha, mas escrevê-lo faz o planejador dobrá-lo **dentro** do `Index Cond` (`Index Cond: ((c IS NOT NULL) AND (ROW(c, pk) > ROW(...)))`).
+    - **`ORDER BY c, pk` no ramo dos NULL**, não `ORDER BY pk`. Dentro do ramo `c` é sempre NULL, então as duas ordens são idênticas — mas só a primeira deixa o índice composto servir o ramo: **0,23 ms contra 2,6 ms** numa coluna com NULL raro, onde a segunda forma vira `Sort` sobre todos os nulos.
+
+    **Correção e desempenho aqui são independentes, e é isso que torna a armadilha perigosa:** os 31 testes de correção passavam nas duas formas. O que trava isto é um teste que roda `EXPLAIN` sobre o SQL que o planejador de linhas emite e afirma `Index Cond`, ausência de `Rows Removed by Filter` na casa dos milhares, e ausência de `Filter: ... OR`. Conferido também pelo controle: reintroduzindo a forma antiga de propósito, três dos quatro testes de plano falham.
+27. **Ordenação de keyset por coluna não única precisa desempatar pela chave primária.** `ORDER BY c` sozinho não é determinístico quando `c` repete: entre uma página e a seguinte o Postgres pode devolver as linhas empatadas em ordem diferente, e aí linhas repetem ou somem. A ordenação é sempre `(coluna escolhida, ...PK)`, com a PK herdando a mesma direção.
+28. **Migration fora de ordem no array corrompe a versão.** Comparar sempre com a versão lida no início do laço faz a 002 rodar depois da 003 e regravar `schema_version = 2`; no boot seguinte a 003 reaplica e estoura em `already exists`, deixando o container em loop de restart. Ordene por versão e releia a versão a cada passo.
+29. **`Response.text()` come o BOM, e o teste do BOM passa a testar nada.** O decode UTF-8 do padrão remove a marca de ordem de bytes em silêncio, então `csv.startsWith("\uFEFF")` dá `false` sobre uma resposta que **tem** o BOM no fio. Custou um falso negativo aqui. Conferir BOM exige ler `arrayBuffer()` e decodificar com `new TextDecoder("utf-8", { ignoreBOM: true })`. O BOM importa porque sem ele o Excel assume a codificação da região e `Produção` vira `ProduÃ§Ã£o` — junto com o `;`, é o que faz o arquivo abrir certo em planilha brasileira.
+30. **`cancel` do `ReadableStream` que não devolve o cliente esgota o pool, e o sintoma aparece muito depois.** Quem fecha a aba no meio de um download dispara `cancel` no stream do produtor — não `close`. Se só o caminho de `close` encerrar a transação, cada download abandonado deixa um cliente emprestado **para sempre**; com `max: 3` por (conexão, database), o terceiro abandono trava toda a conexão sem erro nenhum, muito depois do clique que causou. O mesmo vale para exceção dentro do `pull`, que também não passa por `cancel`. Um ponto de saída único, chamado exatamente uma vez em qualquer desfecho — fim normal, erro, desistência — é a única forma que não depende de lembrar de cada caminho. O teste que pega isso abandona 8 downloads e exige que o nono complete.
+31. **Um `enqueue` por linha custa 13× o tempo de um por lote.** Exportar 150 mil linhas emitindo célula formatada linha a linha levou **14,8 s**; juntando o lote inteiro num `enqueue` só, **1,16 s** — mesmo teto de memória, porque o que vive de cada vez continua sendo um lote. O custo não é o `TextEncoder`: é a fila do `ReadableStream` e o `Uint8Array` por linha. Vale para qualquer produtor de stream, não só o export.
+32. **O Elysia valida o corpo ANTES do `onBeforeHandle`, então guard de sessão ali não protege nada de verdade.** A ordem, medida no 1.4.30: `onRequest → onParse → onTransform → derive → validação → onBeforeHandle`. Com o guard em `onBeforeHandle`, uma requisição **sem sessão** e com corpo inválido recebia 422, não 401 — e o status é o menor dos problemas: o corpo do atacante foi lido, parseado e validado por TypeBox antes de qualquer autenticação. O `sql` do export aceita 1 MB, então era `JSON.parse` + validação de 1 MB aberto a quem alcançasse a porta. O guard tem que ser `onRequest`, que roda antes do parse — e ali o cookie precisa ser lido do cabeçalho cru, porque o Elysia ainda não parseou cookies. Achado por um teste que varre `app.routes` e exige 401 em todas; um teste caso a caso teria passado.
+
+33. **`onRequest` não aceita `{ as: "global" }` — e é o único hook assim.** Ele roda antes do roteamento, então já vale para o app inteiro. Passar o objeto de escopo dá `TypeError: undefined is not an object (evaluating 'fn.constructor')` lá dentro do `compose.mjs`, longe da causa. Os outros hooks continuam **locais por padrão** e precisam do `as` (§11.19).
+
+34. **`derive` do Elysia recusa `interface` e aceita `type` com a mesma forma.** `Index signature for type 'string' is missing in type 'X'` — o `derive` exige um tipo provadamente compatível com assinatura de índice, e `interface` é aberta a extensão por declaração, então o TypeScript não consegue provar. É regra do TypeScript, não do Elysia. O `@typescript-eslint/consistent-type-definitions` pede o contrário, e aí a exceção precisa de `eslint-disable` com o motivo escrito.
+
+35. **Valor derivado só entra na tipagem de um hook quando chega por `.use()`.** Na mesma instância (`.derive().onBeforeHandle()`) o valor existe em runtime e **não** no tipo, e a saída fácil é um cast — que passa a mentir na primeira vez que o derive mudar. Dois plugins, um derivando e outro consumindo por `.use()`, resolve sem cast.
+
+36. **Login que sai cedo quando o usuário não existe vaza a lista de quem tem conta.** "Usuário inexistente" responde em ~0 ms e "senha errada" em ~180 ms (o custo do argon2id), e a diferença é medível de fora com três amostras. O caminho do usuário inexistente precisa verificar contra um **hash fixo de comparação**, gastando o mesmo argon2id. E o hash tem que estar no fonte, não calculado no boot: calculado no boot, a **primeira** tentativa seria mais rápida que as seguintes — o mesmo vazamento com outra forma.
+37. **`BEGIN READ ONLY` não contém um papel privilegiado: `COPY … TO PROGRAM` fura.** Achado e **reproduzido** na revisão adversarial de 2026-09-05, ponta a ponta, por uma conexão marcada `writeEnabled:false`: `COPY (SELECT 1) TO PROGRAM 'echo … > /tmp/rce'` cria o arquivo no host do Postgres, e a resposta ainda diz `"readOnly":true`. O modo read-only barra DML e DDL (INSERT, UPDATE, DDL, `nextval`, `CREATE TEMP`, `SELECT … INTO`, `DO` com escrita — todos medidos com `25006`), mas `COPY … TO PROGRAM` não modifica linhas do ponto de vista da transação, então não é barrado. Num papel superusuário ou com `pg_execute_server_program`, é **execução de comando no host do banco** — e o público-alvo (contador que conecta como `postgres` no banco do cliente) cai exatamente nesse caso.
+
+    **Não há conserto pelo lado do cliente.** A regra 8 proíbe parser, e um parser erraria de qualquer forma (`copy(select 1)to program`, comentários, casing); pior, um superusuário desfaz qualquer `SET` que tentássemos aplicar na sessão. A defesa é honesta e parcial: `testConnection` detecta o papel privilegiado (`rolsuper OR pg_has_role(current_user,'pg_execute_server_program','USAGE')`) e **avisa em vermelho na árvore** que o modo leitura não é uma barreira ali, recomendando um papel sem esses privilégios. O aviso é `warnings` no `TestConnectionResult`; a fronteira está travada por `readonly-copy.integration.test.ts`, que reproduz o COPY passando e confere que o aviso aparece para o superusuário e some para o papel restrito.
+
+    **Isto corrige um overclaim.** As versões anteriores da §11.4b e do ADR 001 diziam que READ ONLY é *a* proteção de escrita, sem ressalva. Ele é a proteção contra escrita de **linhas**, que é o acidente comum; não é uma caixa de contenção contra um papel que já pode executar programas no servidor. Quem quer contenção de verdade usa um papel restrito — e agora o app diz isso na cara.
+38. **Estado de UI de um grid reconciliado no lugar vaza entre resultados.** O `ResultGrid` de um statement não é remontado quando a query roda de novo — o React o reconcilia na mesma posição. A seleção de células (âncora/foco) e as larguras ajustadas **sobreviviam** à troca de resultado: `Ctrl+C` copiava índices do resultado antigo sobre as linhas do novo, em silêncio — a tela afirmando um dado que não é o que está nela. Conserto: resetar seleção e larguras quando a **referência** de `columns` muda, feito **durante o render** guardando a referência anterior (padrão do React para "ajustar estado quando a prop muda"), não num efeito — `setState` síncrono em efeito dispara cascata e o React Compiler recusa. `columns` é estável ao paginar, então a seleção sobrevive à rolagem e só cai a cada nova query.
+
+39. **Objeto literal com chave vinda do banco quebra em `__proto__`/`constructor`.** Largura de coluna guardada em `Record<string, number>` por nome: uma coluna chamada `__proto__` devolve o protótipo em vez de `undefined`, e a largura sai um objeto no `style`; `constructor` devolve a função `Object`. No namespace do autocomplete (`completion.ts`), a atribuição por colchete a `"__proto__"` invoca o setter de protótipo e a tabela some da lista. Não há poluição **global** (confirmado), mas o local quebra. Conserto: `Map` para as larguras e `Object.create(null)` + `Object.hasOwn` no namespace. `Object.fromEntries` (export JSON) já é seguro — cria propriedade própria. Vale para qualquer objeto cujas chaves venham do catálogo do cliente.
+
+40. **`${a}.${b}` como id colide quando o identificador aceita o separador.** O id de nó do diagrama era `${schema}.${relation}`; identificador Postgres citado aceita ponto, então schema `"a.b"`+tabela `c` e schema `a`+tabela `"b.c"` davam o mesmo `a.b.c`, e um nó sobrescrevia o outro. `JSON.stringify([schema, relation])` é inambíguo e sem byte de controle — NUL como separador seria pior (o projeto barra NUL em fonte, §11.24, e assustaria em runtime). Vale para qualquer chave composta a partir de dois nomes livres.

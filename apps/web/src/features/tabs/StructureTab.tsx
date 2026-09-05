@@ -1,6 +1,7 @@
 import type { Relation } from "@dbee/shared";
 import { KeyRound, Link2 } from "lucide-react";
 
+import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
 
 /**
@@ -18,6 +19,7 @@ export function StructureTab({
   readonly selectedColumn: string | null;
   readonly onSelectColumn: (name: string) => void;
 }) {
+  const t = useT();
   const fkPorColuna = new Map<string, string>();
   for (const fk of relation.foreignKeys) {
     for (const coluna of fk.columns) {
@@ -34,11 +36,11 @@ export function StructureTab({
         <thead>
           <tr className="border-b border-line text-left text-2xs text-subtle">
             <th className="w-8 py-2 pl-4 font-medium" />
-            <th className="py-2 pr-4 font-medium">Coluna</th>
-            <th className="py-2 pr-4 font-medium">Tipo</th>
-            <th className="w-20 py-2 pr-4 font-medium">Nulo</th>
-            <th className="py-2 pr-4 font-medium">Default</th>
-            <th className="py-2 pr-4 font-medium">Referência</th>
+            <th className="py-2 pr-4 font-medium">{t("estrutura.coluna")}</th>
+            <th className="py-2 pr-4 font-medium">{t("estrutura.tipo")}</th>
+            <th className="w-20 py-2 pr-4 font-medium">{t("estrutura.nulo")}</th>
+            <th className="py-2 pr-4 font-medium">{t("estrutura.default")}</th>
+            <th className="py-2 pr-4 font-medium">{t("estrutura.referencia")}</th>
           </tr>
         </thead>
         <tbody>
@@ -57,14 +59,14 @@ export function StructureTab({
               >
                 <td className="py-1.5 pl-4">
                   {column.isPrimaryKey ? (
-                    <KeyRound aria-label="chave primária" className="h-3 w-3 text-amber" />
+                    <KeyRound aria-label={t("estrutura.pkAria")} className="h-3 w-3 text-accent" />
                   ) : referencia !== undefined ? (
-                    <Link2 aria-label="chave estrangeira" className="h-3 w-3 text-subtle" />
+                    <Link2 aria-label={t("estrutura.fkAria")} className="h-3 w-3 text-subtle" />
                   ) : null}
                 </td>
                 <td className="py-1.5 pr-4 font-medium text-ink">{column.name}</td>
                 <td className="py-1.5 pr-4 font-mono text-muted">{column.dataType}</td>
-                <td className="py-1.5 pr-4 text-muted">{column.nullable ? "sim" : "não"}</td>
+                <td className="py-1.5 pr-4 text-muted">{column.nullable ? t("comum.sim") : t("comum.nao")}</td>
                 <td className="max-w-[16rem] truncate py-1.5 pr-4 font-mono text-subtle">
                   {column.defaultValue ?? "—"}
                 </td>
@@ -76,7 +78,7 @@ export function StructureTab({
       </table>
 
       {relation.columns.length === 0 ? (
-        <p className="px-4 py-8 text-center text-xs text-subtle">Sem colunas.</p>
+        <p className="px-4 py-8 text-center text-xs text-subtle">{t("estrutura.semColunas")}</p>
       ) : null}
     </div>
   );

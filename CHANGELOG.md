@@ -122,7 +122,43 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   descartado.
 - Desligamento limpo em `SIGTERM`/`SIGINT`.
 
+### Adicionado
+- **Idioma PT/EN** (fechamento da v0.1). Dicionário próprio em `apps/web/src/i18n/`
+  (sem dependência), `t()` com interpolação e `Intl` para número/data; o `en.ts` é
+  `Record<keyof pt, string>`, então tradução faltando é erro de compilação. A UI
+  inteira passa por `t()`, incluindo login, troca de senha, árvore, abas, grade,
+  inspetor, diagrama, export, formulário de conexão e menus. Mensagens do servidor
+  traduzidas **pelo código** (`ErroApi` preserva o `code`; fallback na `message`); o
+  erro do Postgres vai intacto para a tela. A escolha vive no **registro do usuário**
+  (migração 003, `PATCH /auth/locale`, `user.locale` no login/`/me`), com
+  `localStorage` cobrindo a tela de login antes de haver sessão. Alternador PT/EN na
+  barra superior e na tela de entrada.
+
 ### Alterado
+- Detalhe de favo de mel hexagonal (`HoneycombCluster`) nos dois cantos superiores
+  do cabeçalho, casando com a marca "DBee", e no pé da barra lateral de conexões —
+  substituindo a tesselação difusa por um cacho finito de hexágonos flat-top.
+- Marca "DBee" no cabeçalho com "Bee" em âmbar (`text-accent`), igual ao login.
+- Paleta clara re-rampada: elevação agora sobe para o **branco** em vez do creme
+  escuro (o `raised` era mais escuro que o `surface`, invertendo a hierarquia).
+  Creme vai para o fundo (`sunken`), o que se eleva embranquece — aba ativa,
+  card e menu saltam contra o fundo quente.
+- Âmbar mais presente nos **dois** temas: novos tokens `accent-soft` (leito
+  âmbar) e `accent-line` (borda âmbar), travados em `contrast.test.ts`. Aba
+  ativa ganha topo âmbar + leito `accent-soft`; sub-abas idem; hover de botão
+  fantasma/secundário vira âmbar. Perigo (conexão gravável) continua vencendo o
+  âmbar — vermelho é o sinal mais forte e não é diluído pela cor de marca.
+- Vitrine do login reformulada como hero comercial: selo "Cliente PostgreSQL ·
+  self-hosted", mascote com halo âmbar, marca "DBee" (D e Bee no mesmo corpo,
+  distinção só de cor — Bee em âmbar), slogan da marca ("Organize. Query. **Build
+  What's Next.**") e três provas com marcador de favo, tudo com entrada encenada
+  (`animate-enter`) em sequência. Correção: o texto da vitrine passou de
+  `text-ink` (que invertia para escuro no tema claro, sumindo sobre o fundo
+  grafite fixo) para `text-bone`, sempre claro.
+- Login: o favo de mel de fundo saiu do lado do formulário (competia com os
+  campos) e virou **cacho de canto** no rodapé direito — novo componente
+  `HoneycombCluster` (hexágonos flat-top finitos, parte cheios, parte contorno).
+  Rótulos dos campos acendem em âmbar no foco (`group-focus-within`).
 - `CLAUDE.md` movido de `docs/` para a raiz do repo, onde ferramentas de agente o carregam
   por convenção.
 - ESLint passa a rodar `eslint-plugin-react-hooks` sobre `apps/web`.

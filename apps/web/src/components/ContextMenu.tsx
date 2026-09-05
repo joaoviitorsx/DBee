@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
+import { useT } from "../i18n";
 import { cn } from "../lib/cn";
 
 /**
@@ -38,6 +39,7 @@ interface ContextMenuProps {
 }
 
 export function ContextMenu({ anchor, title, sections, footer, onClose }: ContextMenuProps) {
+  const t = useT();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<MenuAnchor>(anchor);
   const [focado, setFocado] = useState(0);
@@ -89,7 +91,7 @@ export function ContextMenu({ anchor, title, sections, footer, onClose }: Contex
     <div
       ref={ref}
       role="menu"
-      aria-label={title ?? "Ações"}
+      aria-label={title ?? t("menu.acoes")}
       style={{ top: pos.y, left: pos.x }}
       className="fixed z-50 min-w-52 overflow-hidden rounded-[6px] border border-line bg-overlay py-1 shadow-[0_8px_24px_rgba(0,0,0,.5)]"
     >

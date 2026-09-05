@@ -7,7 +7,6 @@ import { RowsError, fetchRows, planRows } from "../pg/rows";
 import type { SchemaService } from "./schema.service";
 import { type ServiceResult, fail, ok } from "./result";
 
-const ACTOR = "unauthenticated";
 
 export interface RowsServiceDeps {
   readonly repository: ConnectionsRepository;
@@ -45,6 +44,15 @@ export class RowsService {
     schemaName: string,
     tableName: string,
     request: RowsRequest,
+    /**
+     * Quem executou, para o `query_log` (DBee.md §2.4, §7).
+     *
+     * Chega como parâmetro vindo da sessão, e **não** tem valor padrão: um padrão
+     * aqui seria o caminho por onde uma rota nova grava auditoria anônima sem
+     * ninguém notar. Sem sessão a requisição nem chega ao serviço — o guard barra
+     * antes.
+     */
+    actor: string,
   ): Promise<ServiceResult<RowsResponse>> {
     let connection;
     try {
@@ -88,7 +96,7 @@ export class RowsService {
         rowCount: parcial.rows.length,
         durationMs,
         readOnly: true,
-        actor: ACTOR,
+        actor,
       });
 
       return ok({ ...parcial, durationMs });
@@ -104,7 +112,7 @@ export class RowsService {
         rowCount: null,
         durationMs: Math.round(performance.now() - inicio),
         readOnly: true,
-        actor: ACTOR,
+        actor,
       });
 
       // Coluna inexistente ou cursor inválido é erro de entrada, não do banco.
