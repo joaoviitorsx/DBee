@@ -90,6 +90,9 @@ export function AppShell({
   const largo = useLayoutLargo();
   const tree = useTreeExpansion();
   const t = useT();
+  // A área da árvore+centro. O Resizer escreve a largura numa CSS var neste nó
+  // durante o arrasto (por ref, sem re-render), e só chama `setState` ao soltar.
+  const areaRef = useRef<HTMLDivElement>(null);
 
   /**
    * Aba de conexão excluída some por **derivação**, não por efeito.
@@ -179,7 +182,11 @@ export function AppShell({
         onToggleTree={largo ? null : () => { setArvoreAberta((a) => !a); }}
       />
 
-      <div className="relative flex min-h-0 flex-1">
+      <div
+        ref={areaRef}
+        className="relative flex min-h-0 flex-1"
+        style={{ ["--w-arvore" as string]: `${String(larguraArvore)}px` }}
+      >
         {/*
           * Abaixo de 1024px a árvore vira sobreposição.
           *
@@ -197,7 +204,7 @@ export function AppShell({
         ) : null}
 
         <aside
-          style={largo ? { width: `${String(larguraArvore)}px` } : undefined}
+          style={largo ? { width: "var(--w-arvore)" } : undefined}
           className={cn(
             "border-r border-line bg-surface",
             largo
@@ -221,7 +228,13 @@ export function AppShell({
           />
         </aside>
 
-        {largo ? <Resizer largura={larguraArvore} onChange={setLarguraArvore} /> : null}
+        {largo ? (
+          <Resizer
+            largura={larguraArvore}
+            onArrasto={(px) => { areaRef.current?.style.setProperty("--w-arvore", `${String(px)}px`); }}
+            onFim={setLarguraArvore}
+          />
+        ) : null}
 
         <main className="flex min-w-0 flex-1 flex-col bg-sunken">
           <TabStrip
@@ -484,23 +497,40 @@ function TopBar({
   );
 }
 
-/** Divisor arrastável entre a árvore e o centro. */
+/**
+ * Divisor arrastável entre a árvore e o centro.
+ *
+ * O arrasto escreve a largura numa **CSS var por ref** (`onArrasto`), sem tocar
+ * no estado do React: arrastar a 60 fps não re-renderiza o grid. O `setState`
+ * (`onFim`) acontece **uma vez, ao soltar**, para a largura persistir. Antes,
+ * um `setState` por `mousemove` re-renderizava a árvore inteira a cada quadro —
+ * 67 ms por evento, 15 fps, medido com 800 linhas no DOM (ATRITO).
+ */
 function Resizer({
   largura,
-  onChange,
+  onArrasto,
+  onFim,
 }: {
   readonly largura: number;
-  readonly onChange: (largura: number) => void;
+  readonly onArrasto: (largura: number) => void;
+  readonly onFim: (largura: number) => void;
 }) {
   const t = useT();
   const arrastando = useRef(false);
+  const atual = useRef(largura);
 
   useEffect(() => {
+    const clamp = (x: number): number => Math.min(LARGURA_MAX, Math.max(LARGURA_MIN, x));
     const mover = (e: MouseEvent): void => {
       if (!arrastando.current) return;
-      onChange(Math.min(LARGURA_MAX, Math.max(LARGURA_MIN, e.clientX)));
+      atual.current = clamp(e.clientX);
+      onArrasto(atual.current);
     };
-    const soltar = (): void => { arrastando.current = false; };
+    const soltar = (): void => {
+      if (!arrastando.current) return;
+      arrastando.current = false;
+      onFim(atual.current);
+    };
 
     window.addEventListener("mousemove", mover);
     window.addEventListener("mouseup", soltar);
@@ -508,7 +538,7 @@ function Resizer({
       window.removeEventListener("mousemove", mover);
       window.removeEventListener("mouseup", soltar);
     };
-  }, [onChange]);
+  }, [onArrasto, onFim]);
 
   return (
     <div
@@ -519,11 +549,12 @@ function Resizer({
       aria-valuemin={LARGURA_MIN}
       aria-valuemax={LARGURA_MAX}
       tabIndex={0}
-      onMouseDown={() => { arrastando.current = true; }}
-      // Teclado também redimensiona: a ferramenta é operada por teclado.
+      onMouseDown={() => { arrastando.current = true; atual.current = largura; }}
+      // Teclado também redimensiona: a ferramenta é operada por teclado. Passo
+      // discreto, então commita direto — não há arrasto a suavizar.
       onKeyDown={(e) => {
-        if (e.key === "ArrowLeft") onChange(Math.max(LARGURA_MIN, largura - 16));
-        if (e.key === "ArrowRight") onChange(Math.min(LARGURA_MAX, largura + 16));
+        if (e.key === "ArrowLeft") onFim(Math.max(LARGURA_MIN, largura - 16));
+        if (e.key === "ArrowRight") onFim(Math.min(LARGURA_MAX, largura + 16));
       }}
       className="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors duration-150 hover:bg-amber/40"
     />

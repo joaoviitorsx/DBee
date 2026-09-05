@@ -43,6 +43,9 @@ const RELATION_LABEL: Readonly<Record<RelationKind, string>> = {
   materialized_view: "view materializada",
 };
 
+/** Teto de relações casadas para a busca auto-expandir os schemas (ATRITO). */
+const MAX_AUTO_EXPAND = 200;
+
 /** Estado do último teste, por conexão. */
 export type ConnectionHealth = "untested" | "ok" | "error";
 
@@ -480,6 +483,19 @@ function DatabaseBranch({
     [arvore, query],
   );
 
+  /*
+   * Teto de auto-expansão (ATRITO, auditoria de perf).
+   *
+   * Buscar expande os schemas casados de uma vez — mas num catálogo de 800
+   * relações a primeira tecla injetava 6.420 nós no DOM num commit síncrono
+   * (192 ms; 1,65 s com 10.000). Acima do teto, os schemas ficam recolhidos e a
+   * pessoa abre o que interessa: o nome do schema já aparece filtrado, e abrir
+   * um schema é barato. O filtro em si é rápido (0,155 ms), então o custo é só
+   * de renderização, e é ele que o teto contém.
+   */
+  const totalCasadas = useMemo(() => countRelations(filtrado), [filtrado]);
+  const autoExpandir = query !== "" && totalCasadas > 0 && totalCasadas <= MAX_AUTO_EXPAND;
+
   return (
     <li>
       <Row
@@ -515,7 +531,7 @@ function DatabaseBranch({
                 relations={entry.relations}
                 // Busca ativa expande tudo: esconder o resultado atrás de um
                 // clique anula o motivo de ter buscado.
-                forceOpen={query !== "" && countRelations(filtrado) > 0}
+                forceOpen={autoExpandir}
                 tree={tree}
                 onOpenRelation={onOpenRelation}
                 onContextMenu={onContextMenu}

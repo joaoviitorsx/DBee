@@ -5,7 +5,7 @@ import type {
   DatabasesOverview,
 } from "@dbee/shared";
 
-import type { ConnectionsRepository } from "../db/connections.repo";
+import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import { introspect, listActivity, listDatabases, overviewDatabases } from "../pg/introspect";
 import type { PoolManager } from "../pg/pool";
 import { type ServiceResult, fail, ok } from "./result";
@@ -72,55 +72,79 @@ export class SchemaService {
     // Sem `?database`, usa o database da própria conexão.
     const target = database ?? connection.database;
 
-    if (!refresh) {
-      const hit = this.#cache.get(connectionId)?.get(target);
-      if (hit !== undefined && hit.expiresAt > now) {
+    const emVooKey = `${connectionId}\u001f${target}`;
+    const hit = this.#cache.get(connectionId)?.get(target);
+
+    if (!refresh && hit !== undefined) {
+      if (hit.expiresAt > now) {
+        // Fresco: serve do cache, sem tocar no banco.
         return ok(Object.freeze({ ...hit.value, cached: true }));
       }
+      /*
+       * Stale-while-revalidate (ATRITO, auditoria de perf).
+       *
+       * A entrada venceu, mas em vez de **bloquear** a introspeccao (498 ms
+       * local / 872 ms com RTT de 20 ms, num momento imprevisivel o dia
+       * inteiro), serve o valor vencido na hora e revalida em background. A
+       * proxima requisicao pega o fresco. Erro na revalidacao nao derruba esta
+       * resposta -- o vencido ainda serve, e o erro reaparece no proximo get
+       * que precisar buscar de fato. O botao "Recarregar catalogo" (refresh)
+       * continua sendo a garantia de valor fresco para quem quer certeza.
+       */
+      void this.#revalidar(connectionId, connection, target, emVooKey).catch(() => undefined);
+      return ok(Object.freeze({ ...hit.value, cached: true }));
     }
 
-    // Banco fora do ar, credencial errada, timeout: é falha do upstream, não
-    // 500 do DBee. A mensagem do Postgres vai junto (CLAUDE.md) e nunca inclui
-    // a senha, que o driver não repete no erro.
-    const emVooKey = `${connectionId}\u001f${target}`;
+    // Nada em cache, ou refresh explicito: aqui nao ha velho a servir, entao
+    // espera o fresco. Falha do upstream (banco fora, credencial errada,
+    // timeout) e do upstream, nao 500 do DBee; a mensagem do Postgres vai junto
+    // (CLAUDE.md) e nunca inclui a senha, que o driver nao repete no erro.
     let fresh: DatabaseSchema;
     try {
-      // Quem chegar enquanto a introspecção roda espera a mesma promessa.
-      let voo = this.#emVoo.get(emVooKey);
-      if (voo === undefined) {
-        voo = this.#pools
-          // repeatable-read: as quatro consultas de catálogo precisam ver o
-          // mesmo instante, senão um DDL no meio produz relação sem coluna.
-          .withReadOnly(
-            connection,
-            target,
-            (client) => introspect(client, target),
-            "repeatable-read",
-          )
-          .finally(() => {
-            this.#emVoo.delete(emVooKey);
-          });
-        this.#emVoo.set(emVooKey, voo);
-      }
-      fresh = await voo;
+      fresh = await this.#revalidar(connectionId, connection, target, emVooKey);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "erro desconhecido";
       return fail("upstream_error", message);
     }
-
-    let byDatabase = this.#cache.get(connectionId);
-    if (byDatabase === undefined) {
-      byDatabase = new Map();
-      this.#cache.set(connectionId, byDatabase);
-    }
-    // TTL contado a partir de AGORA, não do início da requisição: uma
-    // introspecção longa nasceria com a entrada já expirada, e o cache pararia
-    // de funcionar justamente no banco em que ele mais importa.
-    byDatabase.set(target, { value: fresh, expiresAt: Date.now() + TTL_MS });
-
-    // Congelado: a mesma referência é servida a toda requisição seguinte, e um
+    // Congelado: a mesma referencia e servida a toda requisicao seguinte, e um
     // consumidor que a mutasse envenenaria o cache.
     return ok(Object.freeze({ ...fresh }));
+  }
+
+  /**
+   * Introspecta com dedup por (conexao, database) e escreve no cache no
+   * sucesso. Serve os dois caminhos: o sincrono (miss/refresh, aguardado) e o
+   * de background do stale-while-revalidate (disparado sem await).
+   */
+  #revalidar(
+    connectionId: string,
+    connection: ResolvedConnection,
+    target: string,
+    emVooKey: string,
+  ): Promise<DatabaseSchema> {
+    let voo = this.#emVoo.get(emVooKey);
+    if (voo === undefined) {
+      voo = this.#pools
+        // repeatable-read: as quatro consultas de catalogo precisam ver o mesmo
+        // instante, senao um DDL no meio produz relacao sem coluna.
+        .withReadOnly(connection, target, (client) => introspect(client, target), "repeatable-read")
+        .then((fresh) => {
+          let byDatabase = this.#cache.get(connectionId);
+          if (byDatabase === undefined) {
+            byDatabase = new Map();
+            this.#cache.set(connectionId, byDatabase);
+          }
+          // TTL a partir de AGORA, nao do inicio: introspeccao longa nasceria
+          // com a entrada ja vencida.
+          byDatabase.set(target, { value: fresh, expiresAt: Date.now() + TTL_MS });
+          return fresh;
+        })
+        .finally(() => {
+          this.#emVoo.delete(emVooKey);
+        });
+      this.#emVoo.set(emVooKey, voo);
+    }
+    return voo;
   }
 
   /**

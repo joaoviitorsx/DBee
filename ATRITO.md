@@ -1,5 +1,16 @@
 # ATRITO
 
+### Resolvido — Fase pós-v0.1 (dívida de perf medida)
+
+2026-09-05 · Fechados da auditoria de perf:
+- **Resizer da árvore** re-renderizava o grid a cada `mousemove` (67 ms, 15 fps): agora escreve a largura numa CSS var por ref durante o arrasto e só `setState` no `mouseup`. `AppShell.tsx`.
+- **Auto-expansão da árvore** injetava 6.420 nós num commit síncrono: teto de 200 relações casadas para a busca auto-expandir (`MAX_AUTO_EXPAND`, `ConnectionTree.tsx`). Acima disso os schemas ficam recolhidos.
+- **Cache de schema bloqueava na entrada vencida** (498 ms local / 872 ms com RTT): stale-while-revalidate em `schema.service.ts` (`#revalidar`), servindo o vencido e revalidando em background pelo `#emVoo`.
+- **Pool cheio devolvia 502** culpando o Postgres: já resolvido (503 honesto em `pool.ts`).
+
+Restam da auditoria: split do payload `/schema` (2,66 MB), virtualização de colunas do grid.
+
+
 Registro de fricção do uso real (DBee.md §10).
 
 Toda vez que a ferramenta atrapalhar, uma linha aqui **no momento em que doeu**.

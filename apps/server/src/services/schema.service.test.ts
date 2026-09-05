@@ -71,21 +71,38 @@ describe("SchemaService — cache", () => {
     expect(pools.calls()).toBe(2);
   });
 
-  it("expira em 5 minutos", async () => {
+  it("dentro do TTL de 5 minutos, serve do cache sem tocar no banco", async () => {
     const pools = fakePools();
     const service = new SchemaService({ repository, pools: pools.manager });
     const t0 = Date.now();
 
     await service.get(connectionId, undefined, false, t0);
 
-    // Um segundo antes do TTL: ainda em cache.
+    // Um segundo antes do TTL: ainda fresco, em cache.
     const before = await service.get(connectionId, undefined, false, t0 + 5 * 60_000 - 1_000);
     expect(before.ok && before.value.cached).toBe(true);
     expect(pools.calls()).toBe(1);
+  });
 
-    // Um segundo depois: volta ao banco.
-    const after = await service.get(connectionId, undefined, false, t0 + 5 * 60_000 + 1_000);
-    expect(after.ok && after.value.cached).toBe(false);
+  it("vencido: serve o velho na hora e revalida em background (SWR)", async () => {
+    const pools = fakePools();
+    const service = new SchemaService({ repository, pools: pools.manager });
+    const t0 = Date.now();
+
+    await service.get(connectionId, undefined, false, t0);
+
+    // Entrada vencida: serve o valor velho (cached) SEM bloquear a resposta.
+    const stale = await service.get(connectionId, undefined, false, t0 + 5 * 60_000 + 1_000);
+    expect(stale.ok && stale.value.cached).toBe(true);
+
+    // ...e a revalidação em background já foi disparada — sem esperar por ela.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pools.calls()).toBe(2);
+
+    // O cache foi renovado (TTL a partir de agora): o próximo acesso serve do
+    // cache fresco, sem voltar ao banco.
+    const next = await service.get(connectionId, undefined, false);
+    expect(next.ok && next.value.cached).toBe(true);
     expect(pools.calls()).toBe(2);
   });
 
