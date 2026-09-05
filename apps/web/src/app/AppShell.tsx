@@ -18,6 +18,7 @@ import { DiagramView } from "../features/diagram/DiagramView";
 import { QueryTabContent } from "../features/query/QueryTabContent";
 import { UserChip } from "../features/auth/UserChip";
 import { Trabalhando } from "../features/motion/Trabalhando";
+import { Mascote } from "../features/mascote";
 import { IdiomaToggle } from "../features/idioma/IdiomaToggle";
 import { useT } from "../i18n";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
@@ -715,34 +716,59 @@ function TelaVazia({
   readonly temConexoes: boolean;
   readonly onNovaConsulta: (() => void) | null;
 }) {
+  const t = useT();
   return (
-    <div className="mx-auto mt-28 max-w-sm px-6 text-center">
-      <Marca className="mx-auto h-12 w-12" apagada />
-      <h2 className="mt-4 text-base text-ink">
-        {temConexoes ? "Escolha uma tabela na árvore" : "Comece cadastrando uma conexão"}
-      </h2>
-      <p className="mt-1.5 text-sm text-muted">
-        {temConexoes
-          ? "Expanda uma conexão para ver os databases, e um database para ver os schemas. A árvore só consulta o banco quando você abre o nó."
-          : "A senha é cifrada antes de ir para o disco, e a conexão nasce em modo leitura."}
-      </p>
+    <div className="relative flex h-full min-h-0 items-center justify-center overflow-hidden">
+      {/* Cachos hexagonais nos cantos superior-esquerdo e inferior-direito — o
+          mesmo motivo cheio do cabeçalho e da barra lateral, sangrando para
+          fora, âmbar de leve. Assina a tela sem competir com o centro. */}
+      <HoneycombCluster
+        aria-hidden
+        className="pointer-events-none absolute -left-8 -top-8 h-44 w-44 text-accent opacity-[0.11]"
+        size={17}
+      />
+      <HoneycombCluster
+        aria-hidden
+        className="pointer-events-none absolute -bottom-8 -right-8 h-44 w-44 -scale-x-100 text-accent opacity-[0.11]"
+        size={17}
+      />
 
-      {/* Estado vazio como convite: as ações possíveis daqui, não só um aviso. */}
-      {temConexoes ? (
-        <div className="mt-5 flex flex-col items-center gap-2">
-          {onNovaConsulta !== null ? (
-            <Button variant="primary" size="sm" onClick={onNovaConsulta}>
-              <Code2 aria-hidden className="h-3.5 w-3.5" />
-              Nova consulta
-            </Button>
-          ) : null}
-          <p className="text-2xs text-subtle">
-            {onNovaConsulta === null
-              ? "Abra uma tabela na árvore, ou use o botão + na barra de abas."
-              : "Cmd+T abre outra consulta · Cmd+Enter executa o statement sob o cursor"}
-          </p>
+      <div className="relative z-10 mx-auto max-w-sm px-6 text-center">
+        {/* Halo âmbar difuso atrás do mascote, como no login. */}
+        <div className="relative mx-auto h-24 w-24">
+          <div
+            aria-hidden
+            className="absolute inset-0 -z-10 scale-150 rounded-full opacity-50 blur-2xl"
+            style={{
+              background:
+                "radial-gradient(circle, color-mix(in oklab, var(--color-amber) 30%, transparent), transparent 70%)",
+            }}
+          />
+          <Mascote humor={temConexoes ? "feliz" : "laptop"} float className="h-24 w-24" />
         </div>
-      ) : null}
+
+        <h2 className="mt-4 text-base font-medium text-ink">
+          {temConexoes ? t("vazio.titulo") : t("vazio.semConexao")}
+        </h2>
+        <p className="mt-1.5 text-sm leading-relaxed text-muted">
+          {temConexoes ? t("vazio.dica") : t("vazio.dicaSemConexao")}
+        </p>
+
+        {/* Estado vazio como convite: as ações possíveis daqui, não só um aviso. */}
+        {temConexoes ? (
+          <div className="mt-5 flex flex-col items-center gap-2">
+            {onNovaConsulta !== null ? (
+              <Button variant="primary" size="sm" onClick={onNovaConsulta}>
+                <Code2 aria-hidden className="h-3.5 w-3.5" />
+                {t("aba.novaConsulta")}
+              </Button>
+            ) : null}
+            <p className="text-2xs text-subtle">
+              {onNovaConsulta === null ? t("vazio.abrirTabela") : t("vazio.atalhos")}
+            </p>
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 }
