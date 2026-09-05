@@ -1,6 +1,13 @@
 /**
  * Separa o SQL do usuário em statements pelo `;` (DBee.md §6).
  *
+ * **Vive em `packages/shared` porque o editor e o servidor precisam da MESMA
+ * função.** "Executar o statement sob o cursor" decide, no front, qual trecho
+ * mandar; o servidor decide, de novo, onde cada statement começa e termina. Se
+ * as duas decisões viessem de implementações diferentes, o editor destacaria um
+ * trecho e o servidor executaria outro — divergência garantida, e do tipo que
+ * só aparece no SQL estranho (dollar quoting, `;` dentro de string).
+ *
  * **Isto não é validação de SQL.** A regra 8 do `CLAUDE.md` proíbe usar regex ou
  * parser para decidir se uma query escreve — essa proteção é `BEGIN READ ONLY`,
  * e continua sendo. O que este arquivo faz é achar onde um statement termina,

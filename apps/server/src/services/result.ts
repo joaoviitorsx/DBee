@@ -2,7 +2,12 @@
  * Falhas de domínio. Serviço não conhece HTTP: quem traduz para status é a
  * rota. Assim a mesma regra serve a uma CLI ou job sem arrastar Elysia junto.
  */
-export type ServiceFailure = "not_found" | "decryption_failed" | "upstream_error";
+export type ServiceFailure =
+  | "not_found"
+  | "decryption_failed"
+  | "upstream_error"
+  /** Entrada que o schema não pega — coluna inexistente, cursor incompatível. */
+  | "bad_request";
 
 export type ServiceResult<T> =
   | { readonly ok: true; readonly value: T }

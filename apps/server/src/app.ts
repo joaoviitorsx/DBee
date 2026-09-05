@@ -9,9 +9,11 @@ import { PoolManager } from "./pg/pool";
 import { connectionsRoutes } from "./routes/connections";
 import { errorHandler } from "./routes/errors";
 import { queryRoutes } from "./routes/query";
+import { rowsRoutes } from "./routes/rows";
 import { schemaRoutes } from "./routes/schema";
 import { ConnectionsService } from "./services/connections.service";
 import { QueryService } from "./services/query.service";
+import { RowsService } from "./services/rows.service";
 import { SchemaService } from "./services/schema.service";
 
 export interface AppDeps {
@@ -31,7 +33,9 @@ export interface AppDeps {
 export function createApp({ store, caCert, pools = new PoolManager(caCert) }: AppDeps) {
   const repository = new ConnectionsRepository(store.db, store.key);
   const schema = new SchemaService({ repository, pools });
-  const query = new QueryService({ repository, pools, log: new QueryLogRepository(store.db) });
+  const log = new QueryLogRepository(store.db);
+  const query = new QueryService({ repository, pools, log });
+  const rows = new RowsService({ repository, pools, schema, log });
 
   const connections = new ConnectionsService({
     repository,
@@ -54,7 +58,8 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert) }: Ap
     .get("/health", () => ({ status: "ok" }) as const, { response: { 200: HealthResponse } })
     .use(connectionsRoutes(connections))
     .use(schemaRoutes(schema))
-    .use(queryRoutes(query));
+    .use(queryRoutes(query))
+    .use(rowsRoutes(rows));
 }
 
 /** Tipo consumido pelo Eden Treaty no front (DBee.md §3). */

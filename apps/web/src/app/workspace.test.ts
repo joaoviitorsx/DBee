@@ -217,6 +217,7 @@ describe("aba de query é atrelada à conexão e ao database", () => {
     connectionId: "c1",
     database: "app",
     title: "Consulta 1",
+    initialSql: "",
   });
 
   it("os campos de destino são readonly no tipo", () => {

@@ -56,6 +56,17 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 - Aba de query com textarea e tabela HTML — andaime deliberado até o CodeMirror e o
   TanStack Table.
 
+- **Editor SQL** com CodeMirror e `lang-sql`, realce nos tokens da marca, `Cmd+Enter`
+  rodando o statement sob o cursor e `Cmd+Shift+Enter` o script inteiro.
+- **Grid virtualizado**, com `NULL`, string vazia e a string `"NULL"` distinguíveis, e
+  alinhamento pelo tipo real da coluna.
+- **Sub-aba Dados funcional** por `POST /connections/:id/tables/:schema/:table/rows`, com
+  paginação keyset, filtro e ordenação. Sem chave primária a UI avisa em vez de fingir.
+- Quatro portas de entrada de consulta: `+` na barra de abas, `Cmd+T`, "Nova consulta
+  aqui" no menu do database, e "Consultar" na aba Dados abrindo já preenchida.
+- `splitStatements` movido para `packages/shared`: o editor e o servidor separam
+  statements com a **mesma** função.
+
 ### Segurança
 - **A senha do banco voltava em claro na resposta 422 de validação.** O formato de erro
   padrão do Elysia inclui um campo `found` com o corpo submetido inteiro, então qualquer

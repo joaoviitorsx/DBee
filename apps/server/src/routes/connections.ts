@@ -40,7 +40,13 @@ export const connectionsRoutes = (service: ConnectionsService) =>
       {
         params: idParam,
         body: UpdateConnection,
-        response: { 200: Connection, 404: ErrorResponse, 500: ErrorResponse, 502: ErrorResponse },
+        response: {
+          200: Connection,
+          400: ErrorResponse,
+          404: ErrorResponse,
+          500: ErrorResponse,
+          502: ErrorResponse,
+        },
       },
     )
 
@@ -54,7 +60,13 @@ export const connectionsRoutes = (service: ConnectionsService) =>
       },
       {
         params: idParam,
-        response: { 204: t.Void(), 404: ErrorResponse, 500: ErrorResponse, 502: ErrorResponse },
+        response: {
+          204: t.Void(),
+          400: ErrorResponse,
+          404: ErrorResponse,
+          500: ErrorResponse,
+          502: ErrorResponse,
+        },
       },
     )
 
@@ -73,6 +85,12 @@ export const connectionsRoutes = (service: ConnectionsService) =>
         // acioná-la por CSRF. Exigir corpo vazio em JSON fecha isso já, antes
         // de existir cookie de sessão.
         body: t.Optional(t.Object({})),
-        response: { 200: TestConnectionResult, 404: ErrorResponse, 500: ErrorResponse, 502: ErrorResponse },
+        response: {
+          200: TestConnectionResult,
+          400: ErrorResponse,
+          404: ErrorResponse,
+          500: ErrorResponse,
+          502: ErrorResponse,
+        },
       },
     );

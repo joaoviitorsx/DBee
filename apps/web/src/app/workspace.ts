@@ -31,8 +31,11 @@ export interface TableTab {
 }
 
 /**
- * Aba de query. Ainda não é criada por nenhum caminho — o tipo existe para o
- * executor nascer dentro deste shell em vez de virar uma tela a refazer.
+ * Aba de query.
+ *
+ * O alvo — conexão e database — é fixado na criação e **imutável**: não há
+ * seletor dentro da aba. Trocar de banco no meio de uma consulta é a forma mais
+ * fácil de rodar a query certa no lugar errado.
  */
 export interface QueryTab {
   readonly kind: "query";
@@ -40,6 +43,8 @@ export interface QueryTab {
   readonly connectionId: string;
   readonly database: string;
   readonly title: string;
+  /** Preenchido pelas portas que abrem a aba já com SQL (botão Consultar). */
+  readonly initialSql: string;
 }
 
 export type Tab = TableTab | QueryTab;
@@ -90,6 +95,33 @@ export function openTable(ws: Workspace, target: TableTarget): Workspace {
 
   const tab: TableTab = { kind: "table", id, target, view: "structure", selectedColumn: null };
   return { ...ws, tabs: [...ws.tabs, tab], activeTabId: id };
+}
+
+let sequencia = 0;
+
+/**
+ * Abre uma aba de query nova.
+ *
+ * Diferente de `openTable`, **sempre cria**: duas consultas contra o mesmo
+ * database são duas abas, porque o conteúdo é o trabalho do usuário e não uma
+ * view de algo que já existe.
+ */
+export function openQuery(
+  ws: Workspace,
+  connectionId: string,
+  database: string,
+  initialSql = "",
+): Workspace {
+  sequencia++;
+  const tab: QueryTab = {
+    kind: "query",
+    id: `query:${String(sequencia)}`,
+    connectionId,
+    database,
+    title: `Consulta ${String(sequencia)}`,
+    initialSql,
+  };
+  return { ...ws, tabs: [...ws.tabs, tab], activeTabId: tab.id };
 }
 
 export function focusTab(ws: Workspace, id: string): Workspace {

@@ -276,6 +276,43 @@ ordem e teclado.
 
 O nome **qualificado** vem antes do simples: é o que se cola numa query.
 
+### 5.4b Editor e grid
+
+**Editor** — CodeMirror com `lang-sql` no dialeto Postgres. Tema e realce
+escritos à mão: um tema pronto traria uma segunda paleta competindo com a da
+marca dentro do mesmo painel. O âmbar marca a palavra-chave — ler SQL é achar o
+verbo.
+
+- `Cmd+Enter` roda **o statement sob o cursor**; `Cmd+Shift+Enter`, o script.
+- A escolha do statement usa `splitStatements` de `packages/shared`, **a mesma
+  função do servidor**. Duas implementações divergiriam no SQL estranho
+  (dollar quoting, `;` dentro de string) e o editor destacaria um trecho
+  enquanto o banco executaria outro.
+
+**Grid** — virtualizado (`CLAUDE.md` regra 11), nunca `.map()` direto sobre as
+linhas. Três coisas precisam ser distinguíveis a olho:
+
+| valor | tratamento |
+|---|---|
+| SQL `NULL` | `NULL` em itálico, `--text-subtle` |
+| string vazia | a palavra `vazio`, itálico, mais apagada |
+| a string `"NULL"` | texto normal — ela aparece de verdade dentro de `{a,NULL,b}` (§11.14) |
+
+**Alinhamento pelo tipo real.** Numérico à direita; o resto à esquerda. Número
+alinhado à esquerda obriga a contar dígitos para comparar duas linhas. O tipo
+vem de `format_type`, então `numeric(12,2)` perde o parâmetro antes da
+comparação.
+
+### 5.4c Sem chave primária, a UI avisa
+
+A sub-aba Dados pagina por keyset sobre a PK. Sem PK isso é impossível, e a
+faixa de alerta diz exatamente isso: *"Sem chave primária: navegação limitada.
+A ordem entre páginas pode repetir ou pular linha."*
+
+Fingir que a navegação funciona é o que faz o usuário confiar numa lista
+incompleta — e numa ferramenta de conferência de dado, lista incompleta é a
+pior saída possível.
+
 ### 5.5 Inspetor
 
 Zona direita, **começa fechada** e abre quando há o que inspecionar —

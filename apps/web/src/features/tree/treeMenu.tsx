@@ -1,4 +1,4 @@
-import { Copy, Pencil, Plug, RefreshCw, Table2, Trash2 } from "lucide-react";
+import { Code2, Copy, Pencil, Plug, RefreshCw, Table2, Trash2 } from "lucide-react";
 
 import type { MenuSection } from "../../components/ContextMenu";
 import type { TableTarget } from "../../app/workspace";
@@ -17,6 +17,7 @@ export interface TreeMenuActions {
   readonly onTestConnection: () => void;
   readonly onDeleteConnection: () => void;
   readonly onRefreshSchema: (connectionId: string, database: string) => void;
+  readonly onNewQuery: (connectionId: string, database: string, sql?: string) => void;
   readonly testing: boolean;
 }
 
@@ -66,6 +67,16 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
         {
           items: [
             {
+              id: "new-query",
+              label: "Nova consulta aqui",
+              icon: <Code2 aria-hidden className={icone} />,
+              onSelect: () => { actions.onNewQuery(target.connection.id, target.database); },
+            },
+          ],
+        },
+        {
+          items: [
+            {
               id: "refresh",
               label: "Recarregar catálogo",
               icon: <RefreshCw aria-hidden className={icone} />,
@@ -111,6 +122,22 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions): 
                   relation: target.relation.name,
                   kind: target.relation.kind,
                 });
+              },
+            },
+          ],
+        },
+        {
+          items: [
+            {
+              id: "query-here",
+              label: "Consultar esta tabela",
+              icon: <Code2 aria-hidden className={icone} />,
+              onSelect: () => {
+                actions.onNewQuery(
+                  target.connection.id,
+                  target.database,
+                  `SELECT *\nFROM ${target.schema}.${target.relation.name}\nLIMIT 100;`,
+                );
               },
             },
           ],

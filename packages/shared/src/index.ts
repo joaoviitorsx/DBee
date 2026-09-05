@@ -3,4 +3,6 @@
 export * from "./connections";
 export * from "./meta";
 export * from "./query";
+export * from "./rows";
 export * from "./schema";
+export * from "./split";

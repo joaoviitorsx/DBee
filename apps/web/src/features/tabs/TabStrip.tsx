@@ -1,5 +1,5 @@
 import type { Connection } from "@dbee/shared";
-import { Code2, Eye, Layers, Table2, X } from "lucide-react";
+import { Code2, Eye, Layers, Plus, Table2, X } from "lucide-react";
 
 import { cn } from "../../lib/cn";
 import { isDangerous, tabTitle, type Tab } from "../../app/workspace";
@@ -28,6 +28,7 @@ export function TabStrip({
   onFocus,
   onClose,
   onContextMenu,
+  onNew,
 }: {
   readonly tabs: readonly Tab[];
   readonly activeTabId: string | null;
@@ -35,6 +36,8 @@ export function TabStrip({
   readonly onFocus: (id: string) => void;
   readonly onClose: (id: string) => void;
   readonly onContextMenu: (id: string, anchor: { x: number; y: number }) => void;
+  /** `undefined` quando não há alvo — sem conexão ativa não há onde consultar. */
+  readonly onNew?: (() => void) | undefined;
 }) {
   if (tabs.length === 0) return null;
 
@@ -91,6 +94,18 @@ export function TabStrip({
           </div>
         );
       })}
+
+      {onNew === undefined ? null : (
+        <button
+          type="button"
+          onClick={onNew}
+          aria-label="Nova consulta"
+          title="Nova consulta (Cmd+T)"
+          className="flex shrink-0 cursor-pointer items-center px-3 text-subtle transition-colors duration-150 hover:text-ink"
+        >
+          <Plus aria-hidden className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   );
 }

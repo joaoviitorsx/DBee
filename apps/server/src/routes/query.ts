@@ -32,6 +32,7 @@ export const queryRoutes = (service: QueryService) =>
         body: QueryRequest,
         response: {
           200: QueryResponse,
+          400: ErrorResponse,
           404: ErrorResponse,
           500: ErrorResponse,
           502: ErrorResponse,

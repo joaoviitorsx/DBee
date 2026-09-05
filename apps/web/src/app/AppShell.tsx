@@ -1,5 +1,5 @@
 import type { Connection } from "@dbee/shared";
-import { PanelLeft, PanelRight, TriangleAlert } from "lucide-react";
+import { Code2, PanelLeft, PanelRight, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ContextMenu, type MenuAnchor, type MenuSection } from "../components/ContextMenu";
@@ -21,6 +21,7 @@ import {
   closeTab,
   emptyWorkspace,
   focusTab,
+  openQuery,
   openTable,
   selectColumn,
   setView,
@@ -40,7 +41,9 @@ export interface AppShellProps {
   readonly health: Readonly<Record<string, ConnectionHealth>>;
   readonly onNewConnection: () => void;
   /** Ações que o menu da árvore dispara sobre uma conexão. */
-  readonly connectionActions: (connection: Connection) => Omit<TreeMenuActions, "onOpenRelation" | "onRefreshSchema">;
+  readonly connectionActions: (
+    connection: Connection,
+  ) => Omit<TreeMenuActions, "onOpenRelation" | "onRefreshSchema" | "onNewQuery">;
   readonly onRefreshSchema: (connectionId: string, database: string) => void;
 }
 
@@ -83,11 +86,44 @@ export function AppShell({
     setWs((atual) => openTable(atual, target));
   }, []);
 
+  const novaConsulta = useCallback((connectionId: string, database: string, sql?: string) => {
+    setWs((atual) => openQuery(atual, connectionId, database, sql));
+  }, []);
+
+  /**
+   * `Ctrl+T` / `Cmd+T` abre consulta no alvo da aba ativa.
+   *
+   * Sem aba ativa não há alvo, e abrir uma consulta "sem banco" seria uma aba
+   * que não pode executar nada — então o atalho não faz nada nesse caso.
+   */
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "t") return;
+      const atual = activeTab(ws);
+      if (atual === null) return;
+      e.preventDefault();
+      const alvo =
+        atual.kind === "table"
+          ? { c: atual.target.connectionId, d: atual.target.database }
+          : { c: atual.connectionId, d: atual.database };
+      novaConsulta(alvo.c, alvo.d);
+    };
+    window.addEventListener("keydown", tecla);
+    return () => { window.removeEventListener("keydown", tecla); };
+  }, [ws, novaConsulta]);
+
   const aba = activeTab(visivel);
   const abaTabela: TableTab | null = aba?.kind === "table" ? aba : null;
   const abaQuery: QueryTab | null = aba?.kind === "query" ? aba : null;
 
-  const idConexaoAtiva = abaTabela?.target.connectionId ?? abaQuery?.connectionId;
+  const alvoAtivo =
+    abaTabela !== null
+      ? { connectionId: abaTabela.target.connectionId, database: abaTabela.target.database }
+      : abaQuery !== null
+        ? { connectionId: abaQuery.connectionId, database: abaQuery.database }
+        : null;
+
+  const idConexaoAtiva = alvoAtivo?.connectionId;
   const conexaoAtiva = connections.find((c) => c.id === idConexaoAtiva) ?? null;
   const perigo = conexaoAtiva?.writeEnabled === true;
 
@@ -150,6 +186,11 @@ export function AppShell({
             onFocus={(id) => { setWs((a) => focusTab(a, id)); }}
             onClose={(id) => { setWs((a) => closeTab(a, id)); }}
             onContextMenu={(id, anchor) => { setMenuAba({ id, anchor }); }}
+            onNew={
+              conexaoAtiva === null || alvoAtivo === null
+                ? undefined
+                : () => { novaConsulta(alvoAtivo.connectionId, alvoAtivo.database); }
+            }
           />
 
           {abaQuery !== null ? (
@@ -159,12 +200,26 @@ export function AppShell({
               writeEnabled={conexaoAtiva?.writeEnabled === true}
             />
           ) : abaTabela === null ? (
-            <TelaVazia temConexoes={connections.length > 0} />
+            <TelaVazia
+              temConexoes={connections.length > 0}
+              onNovaConsulta={
+                alvoAtivo === null
+                  ? null
+                  : () => { novaConsulta(alvoAtivo.connectionId, alvoAtivo.database); }
+              }
+            />
           ) : (
             <TableTabContent
               key={abaTabela.id}
               tab={abaTabela}
               danger={perigo}
+              onConsultar={() => {
+                novaConsulta(
+                  abaTabela.target.connectionId,
+                  abaTabela.target.database,
+                  `SELECT *\nFROM ${abaTabela.target.schema}.${abaTabela.target.relation}\nLIMIT 100;`,
+                );
+              }}
               onView={(view) => { setWs((a) => setView(a, abaTabela.id, view)); }}
               onSelectColumn={(nome) => { setWs((a) => selectColumn(a, abaTabela.id, nome)); }}
               inspectorOpen={visivel.inspectorOpen}
@@ -193,6 +248,7 @@ export function AppShell({
             ...connectionActions(menu.target.connection),
             onOpenRelation: abrir,
             onRefreshSchema,
+            onNewQuery: novaConsulta,
           })}
           onClose={() => { setMenu(null); }}
         />
@@ -354,6 +410,7 @@ function Resizer({
 function TableTabContent({
   tab,
   danger,
+  onConsultar,
   onView,
   onSelectColumn,
   inspectorOpen,
@@ -361,6 +418,7 @@ function TableTabContent({
 }: {
   readonly tab: TableTab;
   readonly danger: boolean;
+  readonly onConsultar: () => void;
   readonly onView: (view: "data" | "structure" | "indexes") => void;
   readonly onSelectColumn: (name: string) => void;
   readonly inspectorOpen: boolean;
@@ -411,7 +469,7 @@ function TableTabContent({
         ) : tab.view === "indexes" ? (
           <IndexesTab relation={rel} />
         ) : (
-          <DataTab />
+          <DataTab target={tab.target} onConsultar={onConsultar} />
         )}
       </div>
     </div>
@@ -443,7 +501,13 @@ function InspectorZone({
   return <Inspector relation={rel} column={column} onClose={onClose} />;
 }
 
-function TelaVazia({ temConexoes }: { readonly temConexoes: boolean }) {
+function TelaVazia({
+  temConexoes,
+  onNovaConsulta,
+}: {
+  readonly temConexoes: boolean;
+  readonly onNovaConsulta: (() => void) | null;
+}) {
   return (
     <div className="mx-auto mt-28 max-w-sm px-6 text-center">
       <Mark className="mx-auto h-9 w-9 text-line-strong" />
@@ -455,6 +519,23 @@ function TelaVazia({ temConexoes }: { readonly temConexoes: boolean }) {
           ? "Expanda uma conexão para ver os databases, e um database para ver os schemas. A árvore só consulta o banco quando você abre o nó."
           : "A senha é cifrada antes de ir para o disco, e a conexão nasce em modo leitura."}
       </p>
+
+      {/* Estado vazio como convite: as ações possíveis daqui, não só um aviso. */}
+      {temConexoes ? (
+        <div className="mt-5 flex flex-col items-center gap-2">
+          {onNovaConsulta !== null ? (
+            <Button variant="primary" size="sm" onClick={onNovaConsulta}>
+              <Code2 aria-hidden className="h-3.5 w-3.5" />
+              Nova consulta
+            </Button>
+          ) : null}
+          <p className="text-2xs text-subtle">
+            {onNovaConsulta === null
+              ? "Abra uma tabela na árvore, ou use o botão + na barra de abas."
+              : "Cmd+T abre outra consulta · Cmd+Enter executa o statement sob o cursor"}
+          </p>
+        </div>
+      ) : null}
     </div>
   );
 }

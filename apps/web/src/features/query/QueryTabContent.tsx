@@ -1,12 +1,13 @@
 import type { QueryResponse, StatementResult } from "@dbee/shared";
 import { useMutation } from "@tanstack/react-query";
 import { Play, TriangleAlert } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { Badge, Button } from "../../components/ui";
 import { api } from "../../lib/api";
-import { cn } from "../../lib/cn";
+import { ResultGrid } from "../grid/ResultGrid";
 import type { QueryTab } from "../../app/workspace";
+import { SqlEditor } from "./SqlEditor";
 
 /**
  * Aba de query — **andaime deliberado**.
@@ -24,14 +25,13 @@ export function QueryTabContent({
   readonly tab: QueryTab;
   readonly writeEnabled: boolean;
 }) {
-  const [sql, setSql] = useState("");
+  const [sql, setSql] = useState(tab.initialSql);
   const [pedirEscrita, setPedirEscrita] = useState(false);
-  const textarea = useRef<HTMLTextAreaElement>(null);
 
   const executar = useMutation({
-    mutationFn: async (): Promise<QueryResponse> => {
+    mutationFn: async (aExecutar: string): Promise<QueryResponse> => {
       const { data, error } = await api.api.connections({ id: tab.connectionId }).query.post({
-        sql,
+        sql: aExecutar,
         database: tab.database,
         // Só manda quando o usuário pediu: campo ausente significa leitura, e
         // o servidor trata assim de propósito.
@@ -46,38 +46,31 @@ export function QueryTabContent({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b border-line">
-        <textarea
-          ref={textarea}
+      <div className="h-52 shrink-0 border-b border-line">
+        <SqlEditor
           value={sql}
-          onChange={(e) => { setSql(e.target.value); }}
-          onKeyDown={(e) => {
-            // Cmd/Ctrl+Enter executa — é o gesto da §9 e o único atalho aqui.
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-              e.preventDefault();
-              if (sql.trim() !== "") executar.mutate();
-            }
-          }}
-          spellCheck={false}
-          placeholder="SELECT 1"
-          aria-label="SQL"
-          className="h-40 w-full resize-y bg-sunken px-4 py-3 font-mono text-sm text-ink placeholder:text-subtle"
+          onChange={setSql}
+          // Cmd+Enter roda só o statement sob o cursor; Cmd+Shift+Enter, tudo.
+          onRunStatement={(trecho) => { if (trecho.trim() !== "") executar.mutate(trecho); }}
+          onRunAll={() => { if (sql.trim() !== "") executar.mutate(sql); }}
         />
+      </div>
 
-        <div className="flex items-center gap-3 border-t border-line px-3 py-2">
+      <div className="shrink-0 border-b border-line">
+        <div className="flex items-center gap-3 px-3 py-2">
           <Button
             variant="primary"
             size="sm"
             disabled={sql.trim() === ""}
             loading={executar.isPending}
             loadingLabel="Executando…"
-            onClick={() => { executar.mutate(); }}
+            onClick={() => { executar.mutate(sql); }}
           >
             <Play aria-hidden className="h-3.5 w-3.5" />
-            Executar
+            Executar tudo
           </Button>
 
-          <span className="text-2xs text-subtle">Cmd+Enter</span>
+          <span className="text-2xs text-subtle">Cmd+Enter roda o statement sob o cursor</span>
 
           {writeEnabled ? (
             <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-2xs text-muted">
@@ -111,12 +104,7 @@ export function QueryTabContent({
             Escreva uma consulta e execute. O resultado aparece aqui.
           </p>
         ) : (
-          <Resultado resposta={resposta} sql={sql} onFocarErro={(pos) => {
-            const el = textarea.current;
-            if (el === null) return;
-            el.focus();
-            el.setSelectionRange(pos - 1, pos - 1);
-          }} />
+          <Resultado resposta={resposta} sql={sql} />
         )}
       </div>
     </div>
@@ -126,17 +114,13 @@ export function QueryTabContent({
 function Resultado({
   resposta,
   sql,
-  onFocarErro,
 }: {
   readonly resposta: QueryResponse;
   readonly sql: string;
-  readonly onFocarErro: (position: number) => void;
 }) {
   return (
     <>
-      {resposta.error !== null ? (
-        <ErroPostgres erro={resposta.error} sql={sql} onFocar={onFocarErro} />
-      ) : null}
+      {resposta.error !== null ? <ErroPostgres erro={resposta.error} sql={sql} /> : null}
 
       {resposta.results.map((r) => (
         <ResultadoStatement key={r.index} result={r} total={resposta.results.length} />
@@ -159,11 +143,9 @@ function Resultado({
 function ErroPostgres({
   erro,
   sql,
-  onFocar,
 }: {
   readonly erro: NonNullable<QueryResponse["error"]>;
   readonly sql: string;
-  readonly onFocar: (position: number) => void;
 }) {
   const local = erro.position === null ? null : localizar(sql, erro.position);
 
@@ -176,11 +158,7 @@ function ErroPostgres({
       </div>
 
       {local !== null ? (
-        <button
-          type="button"
-          onClick={() => { onFocar(erro.position ?? 1); }}
-          className="mt-2 block w-full cursor-pointer rounded-[4px] bg-sunken p-2 text-left font-mono text-xs"
-        >
+        <div className="mt-2 block w-full rounded-[4px] bg-sunken p-2 text-left font-mono text-xs">
           <span className="text-subtle">
             linha {local.linha}, coluna {local.coluna}
           </span>
@@ -193,7 +171,7 @@ function ErroPostgres({
           <span className="block whitespace-pre text-amber">
             {`${" ".repeat(Math.max(0, local.coluna - 1))}^`}
           </span>
-        </button>
+        </div>
       ) : null}
 
       {erro.detail !== null ? (
@@ -242,41 +220,8 @@ function ResultadoStatement({
       {result.columns.length === 0 ? (
         <p className="px-4 pb-3 text-2xs text-subtle">Sem linhas para mostrar.</p>
       ) : (
-        // Tabela HTML crua, sem virtualização: andaime até o TanStack Table.
-        <div className="overflow-x-auto pb-2">
-          <table className="w-full border-collapse text-xs">
-            <thead>
-              <tr className="border-y border-line text-left">
-                {result.columns.map((c) => (
-                  <th key={c.name} className="px-3 py-1.5 font-medium text-muted">
-                    {c.name}
-                    <span className="ml-1.5 font-mono text-2xs font-normal text-subtle">
-                      {c.dataTypeName}
-                    </span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {result.rows.map((linha, i) => (
-                <tr key={i} className="border-b border-line/50">
-                  {linha.map((celula, j) => (
-                    <td
-                      key={j}
-                      className={cn(
-                        "max-w-[24rem] truncate px-3 py-1 font-mono",
-                        // NULL precisa se distinguir da string "NULL" (§11.14).
-                        celula === null ? "italic text-subtle" : "text-ink",
-                      )}
-                      title={celula ?? "NULL"}
-                    >
-                      {celula ?? "NULL"}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="h-80 border-t border-line">
+          <ResultGrid columns={result.columns} rows={result.rows} />
         </div>
       )}
     </section>

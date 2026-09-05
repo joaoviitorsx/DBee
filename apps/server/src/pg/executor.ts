@@ -1,9 +1,9 @@
 import { randomBytes } from "node:crypto";
 import type { PoolClient } from "pg";
 
-import type { QueryError, ResultColumn, StatementResult } from "@dbee/shared";
+import { splitStatements, type QueryError, type StatementResult } from "@dbee/shared";
 
-import { splitStatements } from "./split";
+import { resolveColumns } from "./columns";
 
 /**
  * Execução de query do usuário (DBee.md §6).
@@ -73,34 +73,6 @@ export function toQueryError(err: unknown, prefixo: number, offset: number): Que
     detail: texto(e.detail),
     hint: texto(e.hint),
   };
-}
-
-interface PgField {
-  readonly name: string;
-  readonly dataTypeID: number;
-}
-
-/** O `pg` só dá o OID; o nome canônico sai do catálogo. */
-async function resolveColumns(
-  client: PoolClient,
-  fields: readonly PgField[],
-): Promise<ResultColumn[]> {
-  const oids = [...new Set(fields.map((f) => f.dataTypeID))];
-  if (oids.length === 0) return [];
-
-  const res = await client.query<{ oid: string; nome: string }>({
-    text: `SELECT oid::bigint AS oid, format_type(oid, NULL) AS nome
-             FROM pg_type WHERE oid = ANY($1::oid[])`,
-    values: [oids],
-    types: TUDO_TEXTO,
-  });
-
-  const nomes = new Map(res.rows.map((r) => [Number(r.oid), r.nome]));
-  return fields.map((f) => ({
-    name: f.name,
-    dataTypeId: f.dataTypeID,
-    dataTypeName: nomes.get(f.dataTypeID) ?? `oid:${String(f.dataTypeID)}`,
-  }));
 }
 
 /**

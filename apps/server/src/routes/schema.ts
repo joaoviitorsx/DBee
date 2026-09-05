@@ -32,6 +32,7 @@ export const schemaRoutes = (service: SchemaService) =>
         params: idParam,
         response: {
           200: t.Array(DatabaseInfo),
+          400: ErrorResponse,
           404: ErrorResponse,
           500: ErrorResponse,
           502: ErrorResponse,
@@ -59,6 +60,7 @@ export const schemaRoutes = (service: SchemaService) =>
         }),
         response: {
           200: DatabaseSchema,
+          400: ErrorResponse,
           404: ErrorResponse,
           500: ErrorResponse,
           502: ErrorResponse,
