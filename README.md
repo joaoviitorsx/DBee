@@ -6,11 +6,13 @@ React, um único container.
 Especificação completa em [`docs/DBee.md`](docs/DBee.md). Instruções para agentes
 em [`CLAUDE.md`](CLAUDE.md).
 
-O que faz hoje: autenticação com sessão, CRUD de conexões com senha cifrada,
-árvore de schema navegável, editor SQL com autocomplete e execução read-only,
-grid virtualizado com paginação por keyset, export CSV/JSON/NDJSON em stream,
-diagrama ERD, histórico de queries. Read-only por padrão — escrita é opt-in por
-execução.
+O que faz hoje: autenticação com sessão e usuários individuais, CRUD de conexões
+com senha cifrada, árvore de schema navegável, editor SQL com autocomplete e
+execução read-only, grid virtualizado com paginação por keyset, export
+CSV/JSON/NDJSON em stream, diagrama ERD, histórico e auditoria pesquisável,
+interface em PT/EN. Read-only por padrão — escrita é opt-in por conexão: edição
+de célula, INSERT e DELETE de linha com diff antes de aplicar e concorrência
+otimista, além do cancelamento de query em execução.
 
 ## Instalar e rodar
 
@@ -73,6 +75,48 @@ acesso explícito ao repo (é privado). Defina `APP_SECRET` nos secrets do servi
 A senha do primeiro acesso aparece no log do serviço, no painel do Dokploy. Ver
 `DBee.md` §8.
 
+A imagem é **amd64** (`bun build --target bun-linux-x64`) — o host do Dokploy
+precisa ser amd64. Numa VM arm64 o container não sobe.
+
+### Checklist antes de apertar o deploy
+
+Prepare tudo isto **antes** do primeiro deploy — cada item que faltar aparece
+como uma falha diferente e obscura:
+
+**Segredos a gerar**
+- [ ] `APP_SECRET` — `openssl rand -hex 32`, guardado nos secrets do serviço no
+  Dokploy (não em `.env` versionado). É o que cifra as senhas das conexões;
+  perdê-lo é irreversível.
+
+**Acessos a conceder**
+- [ ] GitHub App do Dokploy com acesso **explícito** a `joaoviitorsx/Dbee` (repo
+  privado — o acesso à organização não basta).
+- [ ] Credencial de registry no Dokploy para puxar do GHCR: o pacote nasce
+  **privado**. Ou um PAT com `read:packages` configurado como registry credential
+  no Dokploy, **ou** tornar o pacote público em `github.com/users/joaoviitorsx/
+  packages` depois do primeiro publish. Sem isso o pull falha com "denied" — e o
+  erro não diz que é permissão de pacote.
+
+**Valores a preencher no painel**
+- [ ] `APP_SECRET` no serviço (secret).
+- [ ] Domínio/rota do serviço apontando a **porta interna 3001** (ou as labels de
+  Traefik do compose — não as duas).
+- [ ] Volume nomeado `dbee-data` persistido (já no compose; confirmar que o
+  Dokploy não recria sem ele — perder `/data` = perder as conexões).
+
+**Rede**
+- [ ] `dokploy-network` externa existe (padrão do Dokploy).
+- [ ] Restrição de porta pela tailnet, se publicar porta em vez de usar o Traefik
+  (ver Segurança, padrão `DOCKER-USER`).
+
+**Primeira vez que a tag roda o CI**
+- [ ] A imagem só é publicada ao empurrar uma tag `vX.Y.Z` (o workflow dispara em
+  `v*`). O nome publicado é `ghcr.io/joaoviitorsx/dbee` (o
+  `docker/metadata-action` normaliza `github.repository` para minúsculas) — é
+  exatamente o que o compose consome.
+- [ ] Depois do primeiro publish, conferir que o pacote existe em GHCR e aplicar
+  a credencial/visibilidade do item acima antes de mandar o Dokploy puxar.
+
 ## Variáveis de ambiente
 
 | Variável | Obrigatória | Para quê |
@@ -124,10 +168,38 @@ docker logs <container> | grep -A6 "PRIMEIRO ACESSO"   # senha do admin
 
 ## Segurança
 
-O app **não é exposto à internet**. Sem porta publicada no compose: o acesso é
-via Traefik do Dokploy com a regra da tailnet, ou porta bindada no IP `100.x` do
-Tailscale. Roda como usuário não-root, sem socket do Docker montado. Ver
-`DBee.md` §7.
+O app **não é exposto à internet**. Roda como usuário não-root (uid 10001), sem
+socket do Docker montado. Duas formas de acesso, nunca uma porta pública:
+
+**1. Via Traefik do Dokploy (preferido).** Sem porta publicada; o Traefik alcança
+o container pela `dokploy-network` e o domínio é configurado na UI do serviço
+apontando a porta interna `3001`. É o que o `deploy/docker-compose.yml` assume.
+
+**2. Porta bindada no IP da tailnet + `DOCKER-USER`.** Se publicar a porta em vez
+de usar o Traefik, **bind no IP `100.x` do Tailscale**, nunca em `0.0.0.0`:
+
+```yaml
+    ports:
+      - "100.x.y.z:3001:3001"   # só o IP da tailnet, nunca 0.0.0.0
+```
+
+O bind por si só não basta: o Docker escreve regras de NAT que **furam o UFW**, e
+uma publicação em `0.0.0.0` por engano ficaria aberta. O cinto e suspensório é o
+mesmo padrão `DOCKER-USER` já aplicado na 3000 e na 15672 — só a interface da
+tailnet alcança a 3001, o resto é dropado **antes** do NAT do Docker:
+
+```bash
+# Ordem importa: -I insere no topo, então o ACCEPT (inserido por último) fica
+# ACIMA do DROP. Tráfego que entra pela tailscale0 é aceito; todo o resto cai.
+iptables -I DOCKER-USER -p tcp --dport 3001 -j DROP
+iptables -I DOCKER-USER -i tailscale0 -p tcp --dport 3001 -j ACCEPT
+```
+
+Persista as regras como já faz para as outras portas (o mesmo `iptables-restore`
+/ unit que mantém as regras da 3000 e da 15672). Confirmar depois: de fora da
+tailnet, a 3001 não responde; de dentro, sim.
+
+Ver `DBee.md` §7.
 
 ## Processo
 
