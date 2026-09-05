@@ -61,8 +61,31 @@ distingue "compila" de "funciona".
    alteração. Doc desatualizado é pior que doc ausente.
 4. **Teste de integração contra serviço real.** Fatia que toca Postgres roda
    contra um Postgres de verdade — container descartável serve — e o resultado
-   é conferido, não presumido. Fatia de UI precisa de screenshot nos quatro
-   breakpoints, não só de build verde.
+   é conferido, não presumido.
+4b. **Fatia de UI não fecha sem screenshot.** Nos quatro breakpoints (375 · 768
+   · 1024 · 1440), com a tela em estado real, não vazia. Build verde não conta.
+
+   **Teste verifica comportamento; pixel verifica significado.** Os cinco
+   defeitos da fatia de layout passaram por 466 asserções: cor de tag
+   competindo com cor de estado, selo de PK herdando o âmbar que significa
+   escrita, selo truncando o nome da conexão gravável. Nenhum é acabamento —
+   os três são a tela afirmando a coisa errada, e nenhum teste de
+   comportamento tem como notar.
+
+   **Caminho padrão — Chrome headless por CDP**, não contorno da extensão:
+
+   ```bash
+   flatpak run --filesystem=home com.google.Chrome \
+     --headless=new --disable-gpu --no-sandbox --hide-scrollbars \
+     --remote-debugging-port=9222 --user-data-dir="$HOME/.dbee-chrome" \
+     "http://localhost:5173/"
+   ```
+
+   Depois, por WebSocket em `http://127.0.0.1:9222/json`:
+   `Emulation.setDeviceMetricsOverride` redimensiona, `Runtime.evaluate` clica,
+   `Page.captureScreenshot` captura. Isso permite navegar até um estado real —
+   árvore expandida, aba aberta, menu de contexto — em vez de fotografar a
+   tela inicial.
 5. **Uma passada de revisão focada em segurança**, adversarial, antes de fechar.
    Perguntas mínimas: credencial vaza por algum caminho, inclusive de erro? SQL
    é montado por concatenação em algum lugar? Existe caminho que abre transação

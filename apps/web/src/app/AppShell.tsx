@@ -8,6 +8,7 @@ import { Button } from "../components/ui";
 import { cn } from "../lib/cn";
 import { useLayoutLargo } from "../lib/useMediaQuery";
 import { Inspector } from "../features/inspector/Inspector";
+import { QueryTabContent } from "../features/query/QueryTabContent";
 import { DataTab } from "../features/tabs/DataTab";
 import { IndexesTab } from "../features/tabs/IndexesTab";
 import { StructureTab } from "../features/tabs/StructureTab";
@@ -25,6 +26,7 @@ import {
   setView,
   tabsOfLiveConnections,
   toggleInspector,
+  type QueryTab,
   type TableTab,
   type TableTarget,
   type Workspace,
@@ -83,13 +85,17 @@ export function AppShell({
 
   const aba = activeTab(visivel);
   const abaTabela: TableTab | null = aba?.kind === "table" ? aba : null;
-  const conexaoAtiva = connections.find((c) => c.id === abaTabela?.target.connectionId) ?? null;
+  const abaQuery: QueryTab | null = aba?.kind === "query" ? aba : null;
+
+  const idConexaoAtiva = abaTabela?.target.connectionId ?? abaQuery?.connectionId;
+  const conexaoAtiva = connections.find((c) => c.id === idConexaoAtiva) ?? null;
   const perigo = conexaoAtiva?.writeEnabled === true;
 
   return (
     <div className="flex h-dvh flex-col">
       <TopBar
         target={abaTabela?.target ?? null}
+        database={abaTabela?.target.database ?? abaQuery?.database ?? null}
         connection={conexaoAtiva}
         onToggleTree={largo ? null : () => { setArvoreAberta((a) => !a); }}
       />
@@ -146,7 +152,13 @@ export function AppShell({
             onContextMenu={(id, anchor) => { setMenuAba({ id, anchor }); }}
           />
 
-          {abaTabela === null ? (
+          {abaQuery !== null ? (
+            <QueryTabContent
+              key={abaQuery.id}
+              tab={abaQuery}
+              writeEnabled={conexaoAtiva?.writeEnabled === true}
+            />
+          ) : abaTabela === null ? (
             <TelaVazia temConexoes={connections.length > 0} />
           ) : (
             <TableTabContent
@@ -234,10 +246,13 @@ function tabMenuSections(
  */
 function TopBar({
   target,
+  database,
   connection,
   onToggleTree,
 }: {
   readonly target: TableTarget | null;
+  /** O database ativo, venha ele de uma aba de tabela ou de query. */
+  readonly database: string | null;
   readonly connection: Connection | null;
   /** Só existe no layout estreito, onde a árvore é sobreposição. */
   readonly onToggleTree: (() => void) | null;
@@ -262,7 +277,7 @@ function TopBar({
         <span className="text-sm font-semibold tracking-[-0.025em] text-ink">DBee</span>
       </div>
 
-      {connection !== null && target !== null ? (
+      {connection !== null && database !== null ? (
         <div className="flex min-w-0 items-center gap-2">
           <span aria-hidden className="text-subtle">/</span>
           {connection.color !== null ? (
@@ -274,7 +289,7 @@ function TopBar({
           ) : null}
           <span className="truncate text-xs text-ink">{connection.name}</span>
           <span className="truncate font-mono text-xs text-muted">
-            {target.database}.{target.schema}.{target.relation}
+            {target === null ? database : `${database}.${target.schema}.${target.relation}`}
           </span>
         </div>
       ) : null}

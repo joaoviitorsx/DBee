@@ -14,6 +14,7 @@ import {
   tabTitle,
   tableTabId,
   toggleInspector,
+  type QueryTab,
   type Tab,
   type TableTab,
   type TableTarget,
@@ -206,5 +207,41 @@ describe("estado de perigo é da conexão, não da aba", () => {
   it("conexão desconhecida não é tratada como perigosa", () => {
     const ws = openTable(emptyWorkspace, alvo({ connectionId: "sumiu" }));
     expect(isDangerous(primeira(ws), conexoes)).toBe(false);
+  });
+});
+
+describe("aba de query é atrelada à conexão e ao database", () => {
+  const queryTab = (): QueryTab => ({
+    kind: "query",
+    id: "q1",
+    connectionId: "c1",
+    database: "app",
+    title: "Consulta 1",
+  });
+
+  it("os campos de destino são readonly no tipo", () => {
+    // Trava de tipo, não de runtime: o compilador recusa a reatribuição.
+    const tab = queryTab();
+    // @ts-expect-error connectionId é readonly — a aba não troca de conexão
+    tab.connectionId = "c2";
+    // @ts-expect-error database é readonly — a aba não troca de database
+    tab.database = "outro";
+    expect(tab.kind).toBe("query");
+  });
+
+  it("setView e selectColumn não tocam numa aba de query", () => {
+    // Só existem para TableTab; se um dia aceitarem QueryTab, isto quebra.
+    const ws: Workspace = { tabs: [queryTab()], activeTabId: "q1", inspectorOpen: false };
+    expect(setView(ws, "q1", "data")).toEqual(ws);
+    expect(selectColumn(ws, "q1", "x")).toMatchObject({ tabs: ws.tabs });
+  });
+
+  it("o título da aba de query vem do próprio título, não do alvo", () => {
+    expect(tabTitle(queryTab())).toBe("Consulta 1");
+  });
+
+  it("a conexão da aba de query é a que decide a tarja de perigo", () => {
+    const conexoes = [{ id: "c1", writeEnabled: true }] as unknown as Connection[];
+    expect(isDangerous(queryTab(), conexoes)).toBe(true);
   });
 });

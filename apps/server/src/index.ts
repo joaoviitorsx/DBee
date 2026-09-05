@@ -34,7 +34,38 @@ const store = openStore(config);
 const pools = new PoolManager(config.caCert);
 pools.start();
 
-createApp({ store, caCert: config.caCert, pools }).listen(config.port);
+/**
+ * Aborta se a porta já responde.
+ *
+ * `Bun.serve` aceita SO_REUSEPORT, então vários processos escutam a mesma porta
+ * e as requisições fazem round-robin entre eles. O sintoma é o pior possível: o
+ * mesmo endpoint responde 200 e 404 alternadamente conforme qual processo
+ * atendeu, e testar duas vezes dá resultados diferentes (DBee.md §11.25).
+ */
+async function portaOcupada(porta: number): Promise<boolean> {
+  try {
+    await fetch(`http://127.0.0.1:${porta}/api/health`, { signal: AbortSignal.timeout(500) });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+if (await portaOcupada(config.port)) {
+  console.error(
+    `[dbee] a porta ${config.port} já está sendo servida por outro processo. ` +
+      `Sob Bun os dois escutariam ao mesmo tempo e as respostas alternariam ` +
+      `entre eles (ver DBee.md §11.25). Encerre o outro antes.`,
+  );
+  process.exit(1);
+}
+
+createApp({ store, caCert: config.caCert, pools }).listen({
+  port: config.port,
+  // Cinto e suspensório: mesmo com a checagem acima, uma corrida entre dois
+  // boots simultâneos ainda passaria. Sem reusePort, o segundo falha alto.
+  reusePort: false,
+});
 
 // Sem isto o `docker stop` mata as conexões Postgres por reset de TCP em vez
 // de fechá-las, e o servidor fica `idle` do lado do banco até o timeout dele.

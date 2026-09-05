@@ -3,12 +3,15 @@ import { Elysia } from "elysia";
 import { HealthResponse } from "@dbee/shared";
 
 import { ConnectionsRepository } from "./db/connections.repo";
+import { QueryLogRepository } from "./db/queryLog.repo";
 import type { Store } from "./db/client";
 import { PoolManager } from "./pg/pool";
 import { connectionsRoutes } from "./routes/connections";
 import { errorHandler } from "./routes/errors";
+import { queryRoutes } from "./routes/query";
 import { schemaRoutes } from "./routes/schema";
 import { ConnectionsService } from "./services/connections.service";
+import { QueryService } from "./services/query.service";
 import { SchemaService } from "./services/schema.service";
 
 export interface AppDeps {
@@ -28,6 +31,7 @@ export interface AppDeps {
 export function createApp({ store, caCert, pools = new PoolManager(caCert) }: AppDeps) {
   const repository = new ConnectionsRepository(store.db, store.key);
   const schema = new SchemaService({ repository, pools });
+  const query = new QueryService({ repository, pools, log: new QueryLogRepository(store.db) });
 
   const connections = new ConnectionsService({
     repository,
@@ -49,7 +53,8 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert) }: Ap
     // (DBee.md §11.17) — bug que nenhum teste cobria e que teria chegado à UI.
     .get("/health", () => ({ status: "ok" }) as const, { response: { 200: HealthResponse } })
     .use(connectionsRoutes(connections))
-    .use(schemaRoutes(schema));
+    .use(schemaRoutes(schema))
+    .use(queryRoutes(query));
 }
 
 /** Tipo consumido pelo Eden Treaty no front (DBee.md §3). */

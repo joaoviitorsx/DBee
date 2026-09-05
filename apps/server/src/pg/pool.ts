@@ -138,6 +138,24 @@ export class PoolManager {
      */
     isolation: "read-committed" | "repeatable-read" = "read-committed",
   ): Promise<T> {
+    return this.withTransaction(connection, database, true, fn, isolation);
+  }
+
+  /**
+   * Igual, com o modo explícito.
+   *
+   * `readOnly` decide entre `BEGIN READ ONLY` e `BEGIN READ WRITE` — nunca
+   * `BEGIN` pelado, para o modo estar sempre visível no código e no log
+   * (ADR 001). No modo escrita a transação é **commitada**; no de leitura,
+   * revertida.
+   */
+  async withTransaction<T>(
+    connection: ResolvedConnection,
+    database: string,
+    readOnly: boolean,
+    fn: (client: PoolClient) => Promise<T>,
+    isolation: "read-committed" | "repeatable-read" = "read-committed",
+  ): Promise<T> {
     // A Entry é capturada ANTES do await: o empréstimo tem que ser contado no
     // pool que de fato vai emprestar o cliente.
     const entry = this.#acquire(connection, database);
@@ -161,10 +179,11 @@ export class PoolManager {
     let sujo = false;
 
     try {
+      const modo = readOnly ? "READ ONLY" : "READ WRITE";
       await client.query(
         isolation === "repeatable-read"
-          ? "BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ"
-          : "BEGIN READ ONLY",
+          ? `BEGIN ${modo} ISOLATION LEVEL REPEATABLE READ`
+          : `BEGIN ${modo}`,
       );
       // `SET` é comando utilitário e NÃO aceita placeholder — `SET x = $1` dá
       // erro de sintaxe. `set_config(nome, valor, is_local)` é a forma
@@ -176,7 +195,9 @@ export class PoolManager {
       // diferente conforme o servidor (DBee.md §6).
       await client.query("SELECT set_config('TimeZone', $1, true)", [connection.timezone]);
       const result = await fn(client);
-      await client.query("ROLLBACK");
+      // Escrita commita; leitura reverte, que é mais barato numa transação sem
+      // escrita e deixa explícito que nada foi gravado.
+      await client.query(readOnly ? "ROLLBACK" : "COMMIT");
       return result;
     } catch (err: unknown) {
       // Se o ROLLBACK também falhar, o cliente pode voltar ao pool ainda dentro

@@ -47,6 +47,15 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 - Abaixo de 1024px, árvore e inspetor viram sobreposição — como colunas fixas, em 375px
   o centro da tela desaparecia.
 
+- **Executor de query** (`POST /connections/:id/query`), conforme §6: `BEGIN READ ONLY`
+  ou `READ WRITE`, `set_config` para `TimeZone` e `statement_timeout`, `DECLARE` /
+  `FETCH maxRows+1` / `CLOSE`, truncamento marcado, valores como string com o tipo real,
+  múltiplos statements em sequência e `position` corrigida pelo prefixo calculado.
+- `query_log` gravando toda execução, inclusive as que falharam, e
+  `GET /connections/:id/history`.
+- Aba de query com textarea e tabela HTML — andaime deliberado até o CodeMirror e o
+  TanStack Table.
+
 ### Segurança
 - **A senha do banco voltava em claro na resposta 422 de validação.** O formato de erro
   padrão do Elysia inclui um campo `found` com o corpo submetido inteiro, então qualquer
@@ -63,6 +72,11 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   `require`, que não autentica ninguém.
 - `::selection` usava a mesma cor sólida do selo de escrita, fazendo texto selecionado
   parecer um selo de estado.
+- `BEGIN READ WRITE` passa a exigir `readOnly: false` **explícito** na requisição, além do
+  `write_enabled` na conexão. Omitir o campo significa leitura: campo ausente tem que
+  significar o estado seguro.
+- O boot aborta se a porta já estiver sendo servida — sob Bun os dois processos escutariam
+  ao mesmo tempo e as respostas alternariam entre eles (§11.25).
 
 ### Corrigido
 - **`PATCH /connections/:id` corrompia campos não enviados.** O `default` dos schemas

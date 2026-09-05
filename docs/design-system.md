@@ -248,7 +248,8 @@ ordem e teclado.
   quando a árvore está cheia.
 - Navegação por seta e `Enter`, `Esc` fecha.
 - **Cada nível oferece só o que faz sentido nele.** Menu com item inútil treina
-  o usuário a não ler o menu.
+  o usuário a não ler o menu — e um menu que ninguém lê é pior que menu nenhum,
+  porque ocupa o gesto sem entregar a ação.
 - Ação destrutiva vai por último, em seção própria, com tratamento de perigo.
 
 | Nó | Ações |
