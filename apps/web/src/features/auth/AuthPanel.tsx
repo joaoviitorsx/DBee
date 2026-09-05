@@ -194,23 +194,24 @@ export function AuthPanel({
         <section
           key={gesto}
           className={cn(
-            // Cartão de vidro: material do app a 82% com desfoque de fundo, um
-            // fio de luz no topo e sombra funda. O favo atrás desfoca de leve —
-            // profundidade de login moderno, sem deixar o formulário menos nítido.
-            "relative w-full max-w-[24rem] overflow-hidden rounded-xl p-6 sm:p-8",
-            "border border-line/70 bg-surface/82 shadow-[0_28px_70px_-12px_rgba(0,0,0,.4)] backdrop-blur-xl",
+            // Cartão do formulário: material do app com um leve desfoque de fundo
+            // (o favo atrás ganha profundidade) e uma sombra contida e quente —
+            // não a sombra cinza difusa de card genérico. A régua âmbar à
+            // esquerda é a única moldura de marca; sem fio de luz no topo nem
+            // brilho decorativo, para não ter cara de template.
+            "relative w-full max-w-[25rem] rounded-2xl p-7 sm:p-9",
+            "border border-line/70 bg-surface/88 shadow-[0_24px_60px_-24px_rgba(20,12,2,0.75)] backdrop-blur-md",
             "animate-settle border-l-[3px] border-l-accent",
-            "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-accent/40 before:to-transparent",
             recusado && "animate-refuse",
           )}
         >
           <h1 className="text-xl font-semibold tracking-[-0.02em] text-ink">{titulo}</h1>
-          <p className="mt-1.5 text-xs leading-relaxed text-muted">{descricao}</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-muted">{descricao}</p>
 
-          <div className="mt-6">{children}</div>
+          <div className="mt-7">{children}</div>
 
           {rodape === undefined ? null : (
-            <p className="mt-5 border-t border-line pt-4 text-2xs leading-relaxed text-subtle">
+            <p className="mt-6 border-t border-line/70 pt-4 text-2xs leading-relaxed text-subtle">
               {rodape}
             </p>
           )}
@@ -242,6 +243,7 @@ export function CampoCredencial({
   dica,
   aviso,
   acao,
+  icone,
   invalido = false,
 }: {
   readonly id: string;
@@ -254,11 +256,13 @@ export function CampoCredencial({
   readonly dica?: string;
   readonly aviso?: string | null;
   readonly acao?: React.ReactNode;
+  /** Ícone à esquerda do campo — acende em âmbar junto com o rótulo no foco. */
+  readonly icone?: React.ReactNode;
   readonly invalido?: boolean;
 }) {
   return (
     <div className="group">
-      <div className="mb-2 flex items-baseline justify-between gap-3">
+      <div className="mb-1.5 flex items-baseline justify-between gap-3">
         {/* O rótulo acende em âmbar quando o campo recebe foco: diz "é aqui
             que você está" sem depender só do anel do input. */}
         <label
@@ -271,6 +275,13 @@ export function CampoCredencial({
       </div>
 
       <div className="relative">
+        {icone === undefined ? null : (
+          // O ícone guia o campo (usuário, cadeado) e acende no foco junto do
+          // rótulo — detalhe de login moderno, não enfeite: diz o que digitar.
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-10 items-center justify-center text-subtle transition-colors group-focus-within:text-accent">
+            {icone}
+          </div>
+        )}
         <input
           id={id}
           type={tipo}
@@ -283,13 +294,16 @@ export function CampoCredencial({
           spellCheck={false}
           autoCapitalize="none"
           className={cn(
-            // 44px de altura: alvo de toque mínimo, e a mão pesada de quem
-            // digita senha errado duas vezes agradece.
-            "h-11 w-full rounded-[4px] border bg-sunken px-3 font-mono text-sm text-ink",
-            "transition-colors duration-150 placeholder:text-subtle",
-            "focus:outline-none focus:ring-2 focus:ring-accent/40",
+            // 48px de altura: campo generoso de login moderno, e a mão pesada
+            // de quem digita senha errado duas vezes agradece o alvo grande.
+            "h-12 w-full rounded-lg border bg-sunken/60 px-3.5 font-mono text-sm text-ink",
+            "transition-[color,border-color,box-shadow] duration-150 placeholder:text-subtle",
+            "focus:outline-none focus:ring-4 focus:ring-accent/15",
+            icone === undefined ? "" : "pl-10",
             acao === undefined ? "" : "pr-11",
-            invalido ? "border-danger/60 focus:border-danger" : "border-line hover:border-line-strong focus:border-accent/60",
+            invalido
+              ? "border-danger/60 focus:border-danger"
+              : "border-line/80 hover:border-line-strong focus:border-accent",
           )}
         />
         {acao === undefined ? null : (

@@ -1,4 +1,4 @@
-import { Eye, EyeOff, LogIn } from "lucide-react";
+import { Eye, EyeOff, Lock, LogIn, User } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "../../components/ui";
@@ -74,6 +74,7 @@ export function LoginScreen() {
           onChange={setUsername}
           autoComplete="username"
           autoFocus
+          icone={<User aria-hidden className="h-4 w-4" />}
           invalido={login.isError}
         />
 
@@ -91,6 +92,7 @@ export function LoginScreen() {
             valor={password}
             onChange={setPassword}
             autoComplete="current-password"
+            icone={<Lock aria-hidden className="h-4 w-4" />}
             invalido={login.isError}
             aviso={capsLock ? t("login.capsLock") : null}
             acao={
