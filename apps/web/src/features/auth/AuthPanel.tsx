@@ -65,6 +65,29 @@ export function AuthPanel({
               "radial-gradient(120% 120% at 20% 0%, color-mix(in oklab, var(--color-amber) 22%, var(--color-graphite)) 0%, var(--color-graphite) 60%)",
           }}
         />
+        {/*
+         * Aurora — dois glows âmbar que derivam devagar atrás do favo e do
+         * mascote. É o "vivo" da tela; fica no fundo, desfocado, então nunca
+         * disputa leitura com a marca. Congelado sob prefers-reduced-motion.
+         */}
+        <div
+          aria-hidden
+          className="animate-aurora absolute -left-1/4 -top-1/4 h-[80%] w-[80%] rounded-full blur-[80px]"
+          style={{
+            background:
+              "radial-gradient(circle, color-mix(in oklab, var(--color-amber) 52%, transparent), transparent 70%)",
+          }}
+        />
+        <div
+          aria-hidden
+          className="animate-aurora absolute -bottom-1/4 -right-1/4 h-[70%] w-[70%] rounded-full blur-[90px]"
+          style={{
+            background:
+              "radial-gradient(circle, color-mix(in oklab, var(--color-amber) 34%, transparent), transparent 70%)",
+            animationDelay: "-9s",
+            animationDuration: "26s",
+          }}
+        />
         <Honeycomb className="absolute inset-0 text-amber" size={26} opacity={0.12} />
 
         <div className="relative flex h-full flex-col items-center justify-center gap-5 px-6 py-8 lg:gap-7 lg:px-10 lg:py-12">
@@ -171,12 +194,17 @@ export function AuthPanel({
         <section
           key={gesto}
           className={cn(
-            "relative w-full max-w-[24rem] rounded-lg border border-line bg-surface p-6 shadow-[0_16px_48px_rgba(0,0,0,.28)] sm:p-8",
+            // Cartão de vidro: material do app a 82% com desfoque de fundo, um
+            // fio de luz no topo e sombra funda. O favo atrás desfoca de leve —
+            // profundidade de login moderno, sem deixar o formulário menos nítido.
+            "relative w-full max-w-[24rem] overflow-hidden rounded-xl p-6 sm:p-8",
+            "border border-line/70 bg-surface/82 shadow-[0_28px_70px_-12px_rgba(0,0,0,.4)] backdrop-blur-xl",
             "animate-settle border-l-[3px] border-l-accent",
+            "before:pointer-events-none before:absolute before:inset-x-0 before:top-0 before:h-px before:bg-gradient-to-r before:from-transparent before:via-accent/40 before:to-transparent",
             recusado && "animate-refuse",
           )}
         >
-          <h1 className="text-lg font-semibold tracking-[-0.02em] text-ink">{titulo}</h1>
+          <h1 className="text-xl font-semibold tracking-[-0.02em] text-ink">{titulo}</h1>
           <p className="mt-1.5 text-xs leading-relaxed text-muted">{descricao}</p>
 
           <div className="mt-6">{children}</div>

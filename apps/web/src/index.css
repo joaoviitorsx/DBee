@@ -392,3 +392,22 @@
 @utility animate-enter {
   animation: dbee-enter 560ms var(--ease-enter) both;
 }
+
+/*
+ * Aurora da vitrine do login.
+ *
+ * Um glow âmbar que deriva devagar atrás do mascote — o "vivo" das telas de
+ * login modernas, sem spinner nem biblioteca. Só `transform`/`opacity`, então
+ * roda na GPU e não recalcula layout; o ciclo é longo (18–24 s) para respirar,
+ * não piscar. O bloco global de `prefers-reduced-motion` o congela.
+ */
+@keyframes dbee-aurora {
+  0%   { transform: translate3d(-5%, -3%, 0) scale(1);    opacity: 0.5; }
+  50%  { transform: translate3d(5%, 4%, 0) scale(1.18);   opacity: 0.85; }
+  100% { transform: translate3d(-5%, -3%, 0) scale(1);    opacity: 0.5; }
+}
+
+@utility animate-aurora {
+  animation: dbee-aurora 20s ease-in-out infinite;
+  will-change: transform, opacity;
+}
