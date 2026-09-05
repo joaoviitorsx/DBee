@@ -60,10 +60,17 @@ beforeAll(async () => {
   );
   if (!up.ok) throw new Error(`docker run falhou: ${up.out}`);
 
-  for (let i = 0; i < 60; i++) {
-    if (sh("docker", "exec", CONTAINER, "pg_isready", "-U", "postgres", "-q").ok) break;
+  // `pg_isready` responde durante o initdb, ANTES de o database existir — a
+  // sonda tem que ser uma consulta ao database alvo, não à instância.
+  let pronto = false;
+  for (let i = 0; i < 80; i++) {
+    if (sh("docker", "exec", CONTAINER, "psql", "-U", "postgres", "-d", "it", "-tAc", "SELECT 1").ok) {
+      pronto = true;
+      break;
+    }
     await Bun.sleep(500);
   }
+  if (!pronto) throw new Error("o Postgres do teste não ficou pronto em 40 s");
 
   const seed = Bun.spawnSync(
     ["docker", "exec", "-i", CONTAINER, "psql", "-U", "postgres", "-d", "it", "-q", "-v", "ON_ERROR_STOP=1"],
@@ -376,5 +383,69 @@ describe.if(temDocker)("query_log grava tudo (DBee.md §2.4)", () => {
     await run(idLeitura, "SELECT 1");
     const bruto = await (await call(`/api/connections/${idLeitura}/history?limit=50`)).text();
     expect(bruto).not.toContain(SENHA);
+  });
+});
+
+describe.if(temDocker)("EXPLAIN ANALYZE executa a query de verdade", () => {
+  /**
+   * `EXPLAIN` é planejamento; `EXPLAIN ANALYZE` **roda o comando**. Num
+   * `EXPLAIN ANALYZE UPDATE`, o UPDATE é aplicado.
+   *
+   * O risco não é teórico nem futuro: o executor já roda os dois hoje, pelo
+   * caminho direto — o `DECLARE` recusa, o `SAVEPOINT` desfaz e o
+   * `executeDirect` executa. A proteção que sobra é o modo da transação, e é
+   * ela que estes testes travam.
+   */
+  it("EXPLAIN simples não escreve, mesmo com UPDATE dentro", async () => {
+    const r = await run(idLeitura, "EXPLAIN UPDATE alvo SET v = 'planejado' WHERE id = 1");
+    // Planejar não é executar: passa até em transação read-only.
+    expect(r.error).toBeNull();
+    expect(r.results[0]?.viaCursor).toBe(false);
+  });
+
+  it("EXPLAIN ANALYZE UPDATE falha com 25006 na conexão de leitura", async () => {
+    const r = await run(idLeitura, "EXPLAIN ANALYZE UPDATE alvo SET v = 'x' WHERE id = 1");
+    expect(r.error?.code).toBe("25006");
+  });
+
+  it("EXPLAIN ANALYZE UPDATE com readOnly OMITIDO roda em leitura e falha com 25006", async () => {
+    // O caso que importa: conexão COM escrita habilitada, requisição que não
+    // pediu escrita. O default seguro tem que valer para EXPLAIN ANALYZE
+    // exatamente como vale para o UPDATE cru.
+    const r = await run(idEscrita, "EXPLAIN ANALYZE UPDATE alvo SET v = 'vazou' WHERE id = 1");
+    expect(r.readOnly).toBe(true);
+    expect(r.error?.code).toBe("25006");
+  });
+
+  it("e o dado não mudou", async () => {
+    const r = await run(idLeitura, "SELECT v FROM alvo WHERE id = 1");
+    expect(r.results[0]?.rows[0]).not.toEqual(["vazou"]);
+  });
+
+  it("EXPLAIN ANALYZE DELETE também é barrado com readOnly omitido", async () => {
+    const r = await run(idEscrita, "EXPLAIN ANALYZE DELETE FROM alvo WHERE id = 1");
+    expect(r.readOnly).toBe(true);
+    expect(r.error?.code).toBe("25006");
+  });
+
+  it("com readOnly: false explícito, EXPLAIN ANALYZE realmente escreve", async () => {
+    // Documenta o comportamento perigoso em vez de fingir que não existe: em
+    // modo escrita pedido, EXPLAIN ANALYZE aplica a alteração.
+    //
+    // Tabela própria: os testes de "permitido na conexão de escrita" incluem um
+    // TRUNCATE, e depender do estado deixado por outro teste é acoplamento de
+    // ordem — some sozinho no dia em que alguém reordenar.
+    await run(idEscrita, "CREATE TABLE ea_probe (id int PRIMARY KEY, v text)", { readOnly: false });
+    await run(idEscrita, "INSERT INTO ea_probe VALUES (1, 'antes')", { readOnly: false });
+
+    const r = await run(idEscrita, "EXPLAIN ANALYZE UPDATE ea_probe SET v = 'depois' WHERE id = 1", {
+      readOnly: false,
+    });
+    expect(r.error).toBeNull();
+
+    const check = await run(idLeitura, "SELECT v FROM ea_probe WHERE id = 1");
+    expect(check.results[0]?.rows[0]).toEqual(["depois"]);
+
+    await run(idEscrita, "DROP TABLE ea_probe", { readOnly: false });
   });
 });

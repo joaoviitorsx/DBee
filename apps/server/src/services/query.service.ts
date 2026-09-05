@@ -9,8 +9,17 @@ import { type ServiceResult, fail, ok } from "./result";
 /** Default de `maxRows` (DBee.md §6). */
 const MAX_ROWS_PADRAO = 1000;
 
-/** v0.1 só tem um usuário (DBee.md §4). */
-const ACTOR = "admin";
+/**
+ * Ator do `query_log` enquanto não há autenticação.
+ *
+ * **Não é "admin".** Chamar de `admin` daria ao registro a aparência de
+ * identidade sem ter identidade nenhuma — e um log de auditoria que não
+ * distingue pessoas, em contexto fiscal, é pior que não ter log: dá aparência
+ * de controle. `unauthenticated` diz a verdade sobre o que se sabe.
+ *
+ * Vira o id do usuário quando a fatia de autenticação entrar (DBee.md §7).
+ */
+const ACTOR = "unauthenticated";
 
 export interface QueryServiceDeps {
   readonly repository: ConnectionsRepository;

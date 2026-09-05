@@ -15,7 +15,21 @@ Hoje o acesso aos bancos dos projetos da empresa passa por túnel SSH + DBeaver 
 
 O DBee substitui esse fluxo por uma URL na tailnet. Abre o navegador, escolhe a conexão, roda a query.
 
-**O que ele não é:** não é substituto do pgAdmin para administração de servidor (backup, replicação, gestão de extensões). É ferramenta de trabalho diário com dados — consultar, inspecionar, exportar, corrigir uma linha.
+**A fronteira** (ADR [006](adr/006-fronteira-dados-schema-instancia.md)):
+
+> **DBee age sobre dados e schema, dentro de uma transação, com a permissão do
+> papel Postgres da conexão. DBee não age sobre a instância.**
+
+Quatro testes decidem qualquer feature nova, sem precisar perguntar:
+
+1. É comando SQL que roda na transação da §6 e cai inteiro no `query_log`? Se não, está fora.
+2. Exige processo, arquivo no disco do servidor ou binário externo (`pg_dump`)? Se sim, está fora.
+3. Afeta outras sessões ou a disponibilidade, mesmo sendo SQL (`pg_terminate_backend`, `ALTER SYSTEM`, `VACUUM FULL`, `CREATE EXTENSION`)? Se sim, está fora.
+4. A ação é reversível pelo próprio usuário, com o que ele vê na tela? Se não, ela **gera SQL** em vez de executar.
+
+**Corolário:** o DBee gera SQL para o usuário ler e rodar; não executa DDL por botão. Gerar `ALTER TABLE … ADD COLUMN` no editor, sim. Item de menu "Excluir tabela" que executa, não — divergência deliberada do DBeaver, cujo botão existe porque ele roda no desktop de uma pessoa, não numa URL compartilhada contra banco de cliente.
+
+Isso não é substituto do pgAdmin para administração de servidor: backup, replicação e gestão de extensões ficam fora pelos testes 2 e 3. É ferramenta de trabalho diário com dados — consultar, inspecionar, exportar, corrigir uma linha.
 
 **Critério de sucesso da v0.1:** uma semana inteira de trabalho sem abrir o DBeaver.
 
@@ -278,7 +292,30 @@ Isso evita a classe inteira de bug "o número apareceu diferente na tela".
 ## 7. Segurança
 
 - **Senhas de conexão:** AES-256-GCM. Chave derivada de `APP_SECRET` via `scrypt` com salt fixo por instalação (guardado em `app_meta`). IV aleatório por registro. Se `APP_SECRET` mudar, as conexões ficam ilegíveis — documentar isso no README de forma bem visível.
-- **Senha de acesso:** `Bun.password.hash` (argon2id) sobre `ADMIN_PASSWORD`. Se a env não estiver setada, o app gera uma senha aleatória no primeiro boot e imprime no log uma única vez.
+- **Usuários individuais desde a v0.1.** Cada pessoa tem usuário e senha própria, com `Bun.password.hash` (argon2id). Sessão por cookie `httpOnly` + `SameSite=Strict`.
+
+  > **Correção de rumo (2026-09-05).** As versões anteriores desta seção previam
+  > **senha única compartilhada** (`ADMIN_PASSWORD`) na v0.1, com usuários só na
+  > v0.2. Estava errado, e o erro era de premissa, não de cronograma: o §2.4 diz
+  > "auditável desde o dia 1 — contexto contábil/fiscal exige isso", e um
+  > `query_log` cujo `actor` é a mesma string para todo mundo **não distingue
+  > pessoas**. Um log de auditoria que não distingue pessoas dá aparência de
+  > controle sem controle, o que em contexto fiscal é pior que não ter log.
+  >
+  > Login com senha compartilhada não resolveria o "quem" — só adiaria a
+  > descoberta. Por isso a autenticação nasce com identidade real.
+
+  Escopo mínimo da v0.1: usuário com senha própria, sessão por cookie, e
+  `actor = id do usuário` no `query_log`. **Sem papéis, sem permissão por
+  conexão, sem convite por e-mail** — isso é v0.2.
+
+  `ADMIN_PASSWORD` continua sendo a senha do **primeiro** usuário, criado no
+  primeiro boot; se a env não estiver setada, o app gera uma aleatória e a
+  imprime no log uma única vez.
+
+  Enquanto a autenticação não existir, `actor` é a string `"unauthenticated"` —
+  **nunca `"admin"`**, que daria ao registro aparência de identidade sem ter
+  nenhuma.
 - **Nunca** retornar `password_enc` nem a senha em claro por nenhuma rota, nem em log, nem em mensagem de erro.
 - **Exposição:** sem porta publicada. Acesso só via Traefik do Dokploy com a regra da tailnet, ou porta bindada no IP `100.x` do Tailscale. O mesmo padrão DOCKER-USER já aplicado na 3000 e na 15672.
 - **Headers:** middleware próprio setando CSP restritiva, `X-Content-Type-Options`, `Referrer-Policy`. Sem CDN externo (tudo bundlado).
@@ -328,7 +365,7 @@ Como o repo é pessoal e privado, o GitHub App do Dokploy precisa receber acesso
 ### v0.1 — Uso interno, read-only
 - [ ] Scaffold do monorepo (Bun workspaces), Dockerfile, CI
 - [x] ~~**Spike do dia 1:** validar `pg` + `DECLARE CURSOR` no Bun contra uma tabela real grande~~ — concluído. `pg@8.23` sob Bun 1.3.14: sem incompatibilidade, sobrevive ao `bun build --compile`, pool e SCRAM ok, `statement_timeout` efetivo, todos os tipos como string sem perda de precisão. Revelou o bug do read-only corrigido na §6.
-- [ ] Login com senha única + sessão
+- [ ] **Login com usuários individuais + sessão** — e não senha única, ver §7. `actor` no `query_log` passa a ser o id do usuário. Último item da v0.1, mas **antes da instalação em produção**: não instalar sem ele.
 - [ ] CRUD de conexões com senha cifrada + teste de conexão
 - [ ] Listagem de databases do cluster
 - [ ] Árvore de schema (tabelas, views, colunas, tipos, PK/FK)
@@ -339,9 +376,20 @@ Como o repo é pessoal e privado, o GitHub App do Dokploy precisa receber acesso
 - [ ] Export CSV em stream
 - [ ] Deploy no Dokploy pela tailnet
 
+**Ordem de fechamento da v0.1** (decidida em 2026-09-05, sem exceção — nenhuma
+feature nova entra antes):
+
+1. Editor SQL + grid virtualizado
+2. Export CSV em stream
+3. Autenticação com identidade real
+4. Tag `v0.1.0` e instalação no Dokploy
+
 **Pronto quando:** uma semana de trabalho real sem abrir o DBeaver.
 
 ### v0.2 — Escrita controlada
+
+> Usuários individuais **subiram para a v0.1** (§7). O que fica aqui é o que se
+> constrói **sobre** identidade: papéis, permissão por conexão, e quem aprova o quê.
 - [ ] Modo escrita por conexão, com indicador visual permanente
 - [ ] Edição inline de linha com diff do SQL antes de aplicar
 - [ ] `INSERT`/`DELETE` de linha pela UI

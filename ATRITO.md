@@ -51,3 +51,19 @@ Duas coisas que faltam, para a fatia do editor não descobrir tarde:
 2026-09-05 · **os três estados de carregamento documentados no §7 são código morto** desde a fatia do shell. Ver o aviso no próprio design-system.md.
 
 2026-09-05 · **acessibilidade: selecionar coluna é mouse-only** (`<tr onClick>` sem tabIndex, role ou onKeyDown), e como o inspetor só abre por seleção de coluna, o inspetor inteiro é inacessível por teclado. O menu de contexto nunca move o foco do DOM. A árvore não usa `role="tree"`. Contradiz "a ferramenta é operada por teclado" do §6.
+
+2026-09-05 · `actor` no `query_log` é a string `"unauthenticated"` até a fatia de autenticação. Era `"admin"`, o que dava ao registro aparência de identidade sem ter nenhuma. Troca feita agora, não quando a auth chegar: um log que finge saber quem foi é pior que um que admite não saber.
+
+### Construído e não ligado
+
+Quatro coisas já existem no repositório e nenhum código as usa. Registradas para
+uma passada de "expor o que já está pronto" antes de qualquer sprint de feature
+nova — foi o achado mais consistente da revisão de features.
+
+2026-09-05 · `saved_queries` está criada na migration 001 e **nenhuma linha de código a usa**. Queries salvas do time custam repositório + rotas + painel, sem migration de tabela nova (só `owner_id` e `visibility` depois).
+
+2026-09-05 · a introspecção devolve `foreignKeys` com `referencedSchema`, `referencedTable` e `referencedColumns` **em ordem preservada** (o `WITH ORDINALITY` existe para FK composta não sair trocada) e **nada na UI consome**. Navegação por FK no grid — clicar numa célula e abrir a linha referenciada — é montar a query a partir do que já está em memória.
+
+2026-09-05 · **`EXPLAIN` já executa hoje**: o `DECLARE` recusa, o `SAVEPOINT` desfaz e o `executeDirect` roda. Visualizar o plano é trabalho de front, não de servidor. (`EXPLAIN ANALYZE` é escrita — ADR 006, já coberto por teste.)
+
+2026-09-05 · `splitStatements` já devolve o `offset` de cada statement no SQL original. É exatamente a peça de "executar o statement sob o cursor" no editor; falta mover o arquivo para `packages/shared` (é TS puro, sem dependência) para o front usar a mesma função.
