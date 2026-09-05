@@ -141,7 +141,7 @@ export class MutationService {
         const failure = err.rowCount === 0 ? "row_changed" : "ambiguous_row";
         const mensagem =
           err.rowCount === 0
-            ? "a linha mudou desde que você a leu"
+            ? "a linha mudou desde que você a leu — recarregue a linha e refaça a edição"
             : `a condição casaria ${String(err.rowCount)} linhas`;
         this.#registrar(
           connectionId,
