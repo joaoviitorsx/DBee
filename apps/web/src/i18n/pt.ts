@@ -334,6 +334,7 @@ export const pt = {
   "export.notaPlanilha": "planilha",
   "export.notaArray": "array",
   "export.notaObjetoLinha": "um objeto por linha",
+  "export.notaSql": "estrutura + dados",
   "export.sepExcel": "Excel pt-BR",
   "export.sepPadrao": "padrão",
   "export.sepTab": "Tab",

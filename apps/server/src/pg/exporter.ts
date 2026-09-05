@@ -6,6 +6,7 @@ import {
   EXPORT_BATCH,
   csvLine,
   csvOptions,
+  sqlInsertLine,
   type CsvOptions,
   type ExportFormat,
 } from "@dbee/shared";
@@ -41,6 +42,15 @@ export interface ExportPlan {
   readonly maxRows: number | undefined;
   /** Parâmetros ligados, quando a origem é uma relação com filtros. */
   readonly values: readonly (string | null)[];
+  /**
+   * Só no formato `sql`. `tabela` é o nome qualificado e citado do destino do
+   * `INSERT` (`"public"."pedidos"`); `prelude` é o `CREATE TABLE` gerado da
+   * introspecção, emitido uma vez antes das linhas. Ausentes nos outros
+   * formatos, e `export.service` garante que só a origem tabela chega aqui com
+   * `format: "sql"`.
+   */
+  readonly sqlTable?: string;
+  readonly sqlPrelude?: string;
 }
 
 export interface ExportOutcome {
@@ -135,6 +145,11 @@ export async function streamExport(
             if (opcoes.header) emitir(controller, csvLine(nomes, opcoes.delimiter));
           }
           if (plan.format === "json") emitir(controller, "[");
+          // CREATE TABLE de referência antes de qualquer INSERT. Só existe na
+          // origem tabela — `export.service` monta o prelude e o passa aqui.
+          if (plan.format === "sql" && plan.sqlPrelude !== undefined) {
+            emitir(controller, plan.sqlPrelude);
+          }
         }
 
         if (lote.rows.length === 0) {
@@ -148,7 +163,9 @@ export async function streamExport(
         // de memória não muda.
         const pedaco: string[] = [];
         for (const linha of lote.rows) {
-          pedaco.push(formatar(linha, plan.format, nomes, opcoes.delimiter, entregues === 0));
+          pedaco.push(
+            formatar(linha, plan.format, nomes, opcoes.delimiter, entregues === 0, plan.sqlTable),
+          );
           entregues++;
         }
         emitir(controller, pedaco.join(""));
@@ -181,8 +198,15 @@ function formatar(
   nomes: readonly string[],
   delimiter: string,
   primeira: boolean,
+  sqlTable: string | undefined,
 ): string {
   if (format === "csv") return csvLine(linha, delimiter);
+
+  if (format === "sql") {
+    // `sqlTable` sempre presente aqui: `export.service` só produz `format:
+    // "sql"` para origem tabela, e nela o nome qualificado é montado junto.
+    return sqlInsertLine(sqlTable ?? "", nomes, linha);
+  }
 
   const objeto = Object.fromEntries(nomes.map((nome, i) => [nome, linha[i] ?? null]));
   const json = JSON.stringify(objeto);

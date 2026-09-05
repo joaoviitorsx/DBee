@@ -283,8 +283,17 @@ sem cobertura faz o teste falhar sozinha.
   Origem: `{ kind: "query", sql }` ou `{ kind: "table", schema, table, orderBy, orderDirection, filters }`
   — a origem tabela reusa o **mesmo `RowFilter`** da aba Dados, para o arquivo ser o que está na tela.
 
-  Formatos: `csv` | `json` | `ndjson`. Opções de CSV com os defaults do **Excel pt-BR**:
+  Formatos: `csv` | `json` | `ndjson` | `sql`. Opções de CSV com os defaults do **Excel pt-BR**:
   `;` e BOM UTF-8 (§11.29). `maxRows` ausente significa **tudo** — é o ponto da rota.
+
+  O `sql` **só vale para a origem tabela** (a consulta arbitrária não tem tabela de destino para
+  o `INSERT`; o backend recusa com 400). Emite um `CREATE TABLE` de referência da introspecção
+  (colunas com tipo/nulidade/default e a PRIMARY KEY) mais um `INSERT` por linha, no mesmo laço de
+  cursor. Cada valor sai como literal de texto (`NULL` para nulo), e o Postgres coage para o tipo da
+  coluna no destino — coerente com a regra 10. Dentro da **fronteira (ADR 006)**: dados por `SELECT`,
+  DDL **gerado**, sem `pg_dump`; FKs, índices não-PK, checks e grants ficam de fora, e o cabeçalho do
+  arquivo diz isso. O `.sql` gerado é rodado num database vazio pelo teste de integração, que confere
+  a recriação.
 
   Medido contra Postgres real (`exporter.integration.test.ts`): 150 mil linhas / 39,5 MB de corpo,
   primeiro byte em **5 ms** de 1,7 s, pico de heap **+14 MB** contra +0 MB para 5 mil linhas.

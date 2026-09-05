@@ -2,8 +2,20 @@ import { t, type Static } from "elysia";
 
 import { RowFilter } from "./rows";
 
-/** Formatos de export. XLSX está fora de escopo (exigiria dependência nativa). */
-export const ExportFormat = t.Union([t.Literal("csv"), t.Literal("json"), t.Literal("ndjson")]);
+/**
+ * Formatos de export. XLSX está fora de escopo (exigiria dependência nativa).
+ *
+ * `sql` só vale para origem **tabela** (não consulta arbitrária): sem uma tabela
+ * de destino, `INSERT INTO …` não teria para onde ir. Emite `CREATE TABLE` de
+ * referência (da introspecção) + um `INSERT` por linha, tudo em stream — dentro
+ * da fronteira (ADR 006): dados por `SELECT`, DDL **gerado**, sem `pg_dump`.
+ */
+export const ExportFormat = t.Union([
+  t.Literal("csv"),
+  t.Literal("json"),
+  t.Literal("ndjson"),
+  t.Literal("sql"),
+]);
 export type ExportFormat = Static<typeof ExportFormat>;
 
 /**
@@ -128,4 +140,43 @@ export const CONTENT_TYPE: Readonly<Record<ExportFormat, string>> = {
   csv: "text/csv; charset=utf-8",
   json: "application/json; charset=utf-8",
   ndjson: "application/x-ndjson; charset=utf-8",
+  sql: "application/sql; charset=utf-8",
 };
+
+/**
+ * Identificador SQL entre aspas duplas, com aspas internas dobradas.
+ *
+ * Vale para schema, tabela e nome de coluna. `"` no meio de um nome é raro mas
+ * legal no Postgres (`create table "a""b" (…)`) — dobrar é o escape correto e
+ * fecha o vetor de quebrar o identificador para injetar DDL.
+ */
+export function sqlIdent(nome: string): string {
+  return `"${nome.replaceAll('"', '""')}"`;
+}
+
+/**
+ * Um valor de célula como literal SQL.
+ *
+ * `null` vira `NULL`. **Todo o resto sai como string entre aspas simples**, com
+ * aspas simples internas dobradas — mesmo número, boolean, timestamp. Isso é
+ * seguro porque toda célula já trafega como texto (regra 10) e o Postgres
+ * coage o literal de texto para o tipo da coluna no `INSERT`: `'10'` entra numa
+ * coluna `integer`, `'2026-01-01'` numa `date`. Não tentar detectar tipo aqui —
+ * detecção erra (um CPF com zero à esquerda viraria número e perderia o zero) e
+ * a coerção do destino é o comportamento que já queremos.
+ */
+export function sqlValue(valor: string | null): string {
+  if (valor === null) return "NULL";
+  return `'${valor.replaceAll("'", "''")}'`;
+}
+
+/** Uma linha de `INSERT INTO … VALUES (…);` já montada. */
+export function sqlInsertLine(
+  tabelaQualificada: string,
+  colunas: readonly string[],
+  valores: readonly (string | null)[],
+): string {
+  const cols = colunas.map(sqlIdent).join(", ");
+  const vals = valores.map(sqlValue).join(", ");
+  return `INSERT INTO ${tabelaQualificada} (${cols}) VALUES (${vals});\n`;
+}

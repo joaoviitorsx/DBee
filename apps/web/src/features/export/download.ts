@@ -39,6 +39,7 @@ const ACEITA: Record<ExportRequest["format"], { descricao: string; mime: string;
   csv: { descricao: "CSV", mime: "text/csv", ext: ".csv" },
   json: { descricao: "JSON", mime: "application/json", ext: ".json" },
   ndjson: { descricao: "NDJSON", mime: "application/x-ndjson", ext: ".ndjson" },
+  sql: { descricao: "SQL", mime: "application/sql", ext: ".sql" },
 };
 
 export interface Progresso {

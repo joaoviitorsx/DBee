@@ -408,3 +408,77 @@ describe.if(temDocker)("teto e origem", () => {
     await res.body?.cancel();
   });
 });
+
+describe.if(temDocker)("formato sql", () => {
+  const texto = async (body: unknown): Promise<string> => {
+    const res = await exportar(body);
+    expect(res.status).toBe(200);
+    return await res.text();
+  };
+
+  it("emite CREATE TABLE de referência e um INSERT por linha", async () => {
+    const sql = await texto({
+      source: { kind: "table", schema: "public", table: "esquisita" },
+      format: "sql",
+    });
+
+    // Cabeçalho de referência, tabela citada, colunas com tipo e a PK.
+    expect(sql).toContain("-- tabela: public.esquisita");
+    expect(sql).toContain('CREATE TABLE "public"."esquisita" (');
+    expect(sql).toContain('"id" integer NOT NULL');
+    expect(sql).toContain('"texto" text');
+    expect(sql).toContain('PRIMARY KEY ("id")');
+
+    // NULL vira NULL literal; tudo o mais é string entre aspas simples, com
+    // aspas internas dobradas. A célula "NULL" (texto) não vira NULL.
+    expect(sql).toContain(`INSERT INTO "public"."esquisita" ("id", "texto") VALUES ('1', NULL);`);
+    expect(sql).toContain(`VALUES ('2', '');`);
+    expect(sql).toContain(`VALUES ('7', 'NULL');`);
+    // Aspas simples dobradas seria o vetor de injeção se não escapasse.
+    expect(sql).toMatch(/VALUES \('4', 'com "aspas" dentro'\);/);
+  });
+
+  it("o SQL gerado recria a tabela e as linhas num banco vazio", async () => {
+    const sql = await texto({
+      source: { kind: "table", schema: "public", table: "esquisita" },
+      format: "sql",
+    });
+
+    // Prova de fidelidade: rodar o arquivo num database limpo tem que produzir
+    // a mesma tabela e a mesma contagem — INSERTs válidos, tipos coagidos.
+    sh("docker", "exec", CONTAINER, "psql", "-U", "postgres", "-d", "exp", "-c", "DROP DATABASE IF EXISTS roundtrip");
+    expect(sh("docker", "exec", CONTAINER, "psql", "-U", "postgres", "-d", "exp", "-c", "CREATE DATABASE roundtrip")).toBe(true);
+
+    const rodar = Bun.spawnSync(
+      ["docker", "exec", "-i", CONTAINER, "psql", "-U", "postgres", "-d", "roundtrip", "-q", "-v", "ON_ERROR_STOP=1"],
+      { stdin: Buffer.from(sql) },
+    );
+    expect(rodar.exitCode).toBe(0);
+
+    const contagem = Bun.spawnSync(
+      ["docker", "exec", CONTAINER, "psql", "-U", "postgres", "-d", "roundtrip", "-tAc",
+       "SELECT count(*), count(*) FILTER (WHERE texto IS NULL) FROM esquisita"],
+    );
+    expect(contagem.stdout.toString().trim()).toBe("7|1");
+
+    sh("docker", "exec", CONTAINER, "psql", "-U", "postgres", "-d", "exp", "-c", "DROP DATABASE roundtrip");
+  });
+
+  it("origem consulta recusa .sql — não há tabela de destino para o INSERT", async () => {
+    const res = await exportar({
+      source: { kind: "query", sql: "SELECT id FROM esquisita" },
+      format: "sql",
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("o arquivo .sql carrega a extensão certa", async () => {
+    const res = await exportar({
+      source: { kind: "table", schema: "public", table: "esquisita" },
+      format: "sql",
+    });
+    expect(res.headers.get("content-type")).toContain("application/sql");
+    expect(res.headers.get("content-disposition")).toMatch(/filename="public\.esquisita_[\d-T]+\.sql"/);
+    await res.body?.cancel();
+  });
+});

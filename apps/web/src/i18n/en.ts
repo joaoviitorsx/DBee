@@ -334,6 +334,7 @@ export const en: Record<ChaveI18n, string> = {
   "export.notaPlanilha": "spreadsheet",
   "export.notaArray": "array",
   "export.notaObjetoLinha": "one object per line",
+  "export.notaSql": "schema + rows",
   "export.sepExcel": "Excel pt-BR",
   "export.sepPadrao": "default",
   "export.sepTab": "Tab",

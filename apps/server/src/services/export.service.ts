@@ -1,7 +1,9 @@
 import {
   exportFilename,
   splitStatements,
+  sqlIdent,
   type ExportRequest,
+  type Relation,
   type RowsRequest,
 } from "@dbee/shared";
 
@@ -25,6 +27,43 @@ export interface ExportStream {
   readonly stream: ReadableStream<Uint8Array>;
   readonly contentType: string;
   readonly filename: string;
+}
+
+/** Nome qualificado e citado da tabela: `"public"."pedidos"`. */
+function tabelaQualificada(schema: string, table: string): string {
+  return `${sqlIdent(schema)}.${sqlIdent(table)}`;
+}
+
+/**
+ * `CREATE TABLE` de referência para o export `.sql`, montado da introspecção.
+ *
+ * É **referência, não fidelidade total**: colunas com tipo, nulidade e default,
+ * mais a PRIMARY KEY. Fica de fora o que a fronteira (ADR 006) não modela por
+ * uma tabela — FKs, índices não-PK, checks, ownership, storage. O arquivo abre
+ * a tabela num banco vazio e recebe os INSERTs; não é um `pg_dump`, e o
+ * cabeçalho diz isso. `dataType` e `defaultValue` já vêm do Postgres como
+ * `format_type`/`pg_get_expr` — expressões SQL válidas, usadas literais.
+ */
+function montarCreateTable(schema: string, table: string, relation: Relation): string {
+  const alvo = tabelaQualificada(schema, table);
+  const linhas = relation.columns.map((c) => {
+    const partes = [`  ${sqlIdent(c.name)} ${c.dataType}`];
+    if (!c.nullable) partes.push("NOT NULL");
+    if (c.defaultValue !== null) partes.push(`DEFAULT ${c.defaultValue}`);
+    return partes.join(" ");
+  });
+
+  if (relation.primaryKey.length > 0) {
+    const cols = relation.primaryKey.map(sqlIdent).join(", ");
+    linhas.push(`  PRIMARY KEY (${cols})`);
+  }
+
+  return (
+    `-- tabela: ${schema}.${table}\n` +
+    `-- gerado pelo DBee — CREATE TABLE de referência (colunas, defaults, PK).\n` +
+    `-- FKs, índices, checks e grants ficam de fora; não é um pg_dump.\n` +
+    `CREATE TABLE ${alvo} (\n${linhas.join(",\n")}\n);\n`
+  );
 }
 
 /**
@@ -76,8 +115,15 @@ export class ExportService {
     let sql: string;
     let values: readonly (string | null)[] = [];
     let base: string;
+    let sqlTable: string | undefined;
+    let sqlPrelude: string | undefined;
 
     if (request.source.kind === "query") {
+      if (request.format === "sql") {
+        // Sem tabela de destino, não há para onde os INSERTs irem. A UI só
+        // oferece `.sql` na aba Dados; isto barra o caminho por API.
+        return fail("bad_request", "exportar como .sql só vale para uma tabela, não uma consulta");
+      }
       const statements = splitStatements(request.source.sql);
       if (statements.length === 0) return fail("bad_request", "não há SQL para exportar");
       if (statements.length > 1) {
@@ -122,6 +168,11 @@ export class ExportService {
       }
 
       base = `${schemaName}.${table}`;
+
+      if (request.format === "sql") {
+        sqlTable = tabelaQualificada(schemaName, table);
+        sqlPrelude = montarCreateTable(schemaName, table, relation);
+      }
     }
 
     const inicio = performance.now();
@@ -152,6 +203,8 @@ export class ExportService {
               csv: request.csv,
               maxRows: request.maxRows,
               values,
+              ...(sqlTable === undefined ? {} : { sqlTable }),
+              ...(sqlPrelude === undefined ? {} : { sqlPrelude }),
             },
             (outcome, erro) => {
               registrar(outcome.rows, erro);

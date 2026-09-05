@@ -2,6 +2,31 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado
+- **Export de tabela como `.sql`** (novo formato no menu Exportar, na aba Dados):
+  `CREATE TABLE` de referência montado da introspecção (colunas com tipo, nulidade
+  e default, mais a PRIMARY KEY) seguido de um `INSERT` por linha, tudo em stream
+  pelo mesmo cursor dos outros formatos. Só na origem tabela — numa consulta
+  arbitrária não há tabela de destino para o `INSERT`, e o backend recusa com 400.
+  Todo valor sai como literal de texto com aspas simples dobradas (`NULL` para
+  nulo), e o Postgres coage o literal para o tipo da coluna no destino — coerente
+  com a regra 10. Dentro da fronteira (ADR 006): dados por `SELECT`, DDL **gerado**,
+  sem `pg_dump`. FKs, índices não-PK, checks e grants ficam de fora, e o cabeçalho
+  do arquivo diz isso. Coberto por teste de integração que roda o `.sql` gerado num
+  database vazio e confere a recriação.
+
+### Corrigido
+- **Popover de Exportar** agora dispõe os formatos em grade 2×2 em vez de uma fila
+  única — com o quarto formato (SQL), a fila apertava e cortava o rótulo. Largura
+  do popover limitada à viewport (`min(20rem, 100vw − 1.5rem)`) para não vazar a
+  borda em 375 px.
+- **Responsividade do cabeçalho** em telas estreitas: o lockup da marca deixou de
+  ser cortado (`shrink-0`), o breadcrumb da conexão some abaixo de `md` (a barra de
+  abas já nomeia a tabela), e o selo "Escrita habilitada" encolhe para só o cadeado
+  abaixo de `sm` (rótulo por `aria-label`), em vez de empurrar a marca para fora.
+
 ## [0.1.1] — 2026-09-05
 
 > **Corrige um defeito grave da 0.1.0.** A **0.1.0** — publicada no GHCR como

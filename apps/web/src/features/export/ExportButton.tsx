@@ -22,10 +22,13 @@ import { ExportCancelado, baixarExport, salvaEmStream } from "./download";
  * perguntar é atrito.
  */
 
-const FORMATOS: { id: ExportFormat; rotulo: string; nota: ChaveI18n }[] = [
+const FORMATOS: { id: ExportFormat; rotulo: string; nota: ChaveI18n; somenteTabela?: boolean }[] = [
   { id: "csv", rotulo: "CSV", nota: "export.notaPlanilha" },
   { id: "json", rotulo: "JSON", nota: "export.notaArray" },
   { id: "ndjson", rotulo: "NDJSON", nota: "export.notaObjetoLinha" },
+  // `.sql` só na aba Dados: precisa de uma tabela de destino para os INSERTs.
+  // Numa consulta arbitrária não há para onde eles irem (o backend recusa).
+  { id: "sql", rotulo: "SQL", nota: "export.notaSql", somenteTabela: true },
 ];
 
 const SEPARADORES: { id: ";" | "," | "\t"; rotulo: string; nota: ChaveI18n }[] = [
@@ -135,10 +138,12 @@ export function ExportButton({
         <div
           role="dialog"
           aria-label={t("export.opcoes")}
-          className="absolute right-0 z-40 mt-1 w-80 rounded-[6px] border border-line bg-overlay p-3 shadow-lg"
+          // Largura fixa em 20rem, mas nunca além da viewport: em 375px o popover
+          // alinhado à direita passava da borda e cortava a última coluna.
+          className="absolute right-0 z-40 mt-1 w-[min(20rem,calc(100vw-1.5rem))] rounded-[6px] border border-line bg-overlay p-3 shadow-lg"
         >
-          <Grupo rotulo={t("export.formato")}>
-            {FORMATOS.map((f) => (
+          <Grupo rotulo={t("export.formato")} layout="grid">
+            {FORMATOS.filter((f) => !f.somenteTabela || source.kind === "table").map((f) => (
               <Opcao
                 key={f.id}
                 ativo={format === f.id}
@@ -246,11 +251,20 @@ export function ExportButton({
   );
 }
 
-function Grupo({ rotulo, children }: { readonly rotulo: string; readonly children: React.ReactNode }) {
+function Grupo({
+  rotulo,
+  children,
+  layout = "flex",
+}: {
+  readonly rotulo: string;
+  readonly children: React.ReactNode;
+  /** `grid` alinha itens em duas colunas — necessário quando são 4 e um flex os aperta. */
+  readonly layout?: "flex" | "grid";
+}) {
   return (
     <div className="mb-2">
       <p className="mb-1 text-2xs text-subtle">{rotulo}</p>
-      <div className="flex gap-1">{children}</div>
+      <div className={layout === "grid" ? "grid grid-cols-2 gap-1" : "flex gap-1"}>{children}</div>
     </div>
   );
 }
@@ -272,7 +286,7 @@ function Opcao({
       onClick={onClick}
       aria-pressed={ativo}
       className={cn(
-        "flex-1 cursor-pointer rounded-[4px] border px-2 py-1 text-left transition-colors duration-150",
+        "min-w-0 flex-1 cursor-pointer rounded-[4px] border px-2 py-1 text-left transition-colors duration-150",
         ativo
           ? "border-accent/45 bg-accent/10 text-ink"
           : "border-line bg-sunken text-muted hover:border-line-strong hover:text-ink",
