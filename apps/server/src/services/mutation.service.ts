@@ -1,7 +1,9 @@
 import {
   construirDelete,
+  construirInsert,
   construirUpdate,
   type RowDeleteRequest,
+  type RowInsertRequest,
   type RowMutationResult,
   type RowUpdateRequest,
   type SqlConstruido,
@@ -72,6 +74,16 @@ export class MutationService {
     actor: string,
   ): Promise<MutationResult<RowMutationResult>> {
     return this.#aplicar(connectionId, request.database, actor, construirDelete(request));
+  }
+
+  insert(
+    connectionId: string,
+    request: RowInsertRequest,
+    actor: string,
+  ): Promise<MutationResult<RowMutationResult>> {
+    // Reusa #aplicar: um INSERT de uma linha afeta exatamente 1 (ou o Postgres
+    // recusa por constraint, e o erro vai inteiro para a tela).
+    return this.#aplicar(connectionId, request.database, actor, construirInsert(request));
   }
 
   async #aplicar(

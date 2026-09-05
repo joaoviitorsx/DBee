@@ -1,6 +1,12 @@
 import { Elysia, t } from "elysia";
 
-import { ErrorResponse, RowDeleteRequest, RowMutationResult, RowUpdateRequest } from "@dbee/shared";
+import {
+  ErrorResponse,
+  RowDeleteRequest,
+  RowInsertRequest,
+  RowMutationResult,
+  RowUpdateRequest,
+} from "@dbee/shared";
 
 import type { MutationService } from "../services/mutation.service";
 import type { UsersRepository } from "../db/users.repo";
@@ -54,4 +60,17 @@ export const mutationRoutes = (service: MutationService, users: UsersRepository)
         );
       },
       { params: t.Object({ id: t.String() }), body: RowDeleteRequest, response: respostas },
+    )
+    .post(
+      "/:id/rows/insert",
+      async ({ params, body, status, sessao }) => {
+        const result = await service.insert(params.id, body, exigirAtor(sessao));
+        if (result.ok) return result.value;
+        const { status: code, body: payload } = MUTATION_FAILURES[result.failure];
+        return status(
+          code,
+          result.detail === undefined ? payload : { ...payload, message: result.detail },
+        );
+      },
+      { params: t.Object({ id: t.String() }), body: RowInsertRequest, response: respostas },
     );

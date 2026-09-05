@@ -5,6 +5,12 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Nova linha (INSERT)** (v0.2), fechando a escrita: `POST /rows/insert` informa só
+  as colunas escolhidas — as omitidas ficam com default/sequence do Postgres. O
+  formulário nasce esperto (coluna com default ou nullable já vem em "default";
+  NOT NULL sem default pede valor), com o mesmo preview do diff literal e checkbox
+  de NULL. Construtor `construirInsert` unit-testado; integração real cobrindo
+  serial+default preenchidos sozinhos e NOT NULL sem valor virando erro sem inserir.
 - **Cancelamento de query** (v0.2): o cliente manda um `queryId` na execução; um
   botão "Cancelar" (visível enquanto roda) chama `POST /query/cancel`, que dispara
   `pg_cancel_backend(pid)` numa conexão **fora do pool** (cancela-se justamente

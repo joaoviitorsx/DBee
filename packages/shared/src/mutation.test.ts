@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { construirDelete, construirUpdate } from "./mutation";
+import { construirDelete, construirInsert, construirUpdate } from "./mutation";
 
 describe("construirUpdate", () => {
   it("SET com os novos valores, WHERE com PK e valores originais", () => {
@@ -89,6 +89,27 @@ describe("construirUpdate", () => {
       'UPDATE "public"."itens" SET "qtd" = $1 WHERE "pedido_id" = $2 AND "produto_id" = $3 AND "qtd" = $4',
     );
     expect(c.params).toEqual(["2", "10", "20", "1"]);
+  });
+});
+
+describe("construirInsert", () => {
+  it("só as colunas informadas; NULL vai como parâmetro", () => {
+    const c = construirInsert({
+      database: "app",
+      schema: "public",
+      table: "pessoas",
+      readOnly: false,
+      values: [
+        { column: "nome", value: "Ana" },
+        { column: "apelido", value: null },
+      ],
+    });
+
+    expect(c.text).toBe('INSERT INTO "public"."pessoas" ("nome", "apelido") VALUES ($1, $2)');
+    expect(c.params).toEqual(["Ana", null]);
+    expect(c.literal).toBe(
+      `INSERT INTO "public"."pessoas" ("nome", "apelido") VALUES ('Ana', NULL)`,
+    );
   });
 });
 

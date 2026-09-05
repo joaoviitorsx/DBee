@@ -88,6 +88,13 @@ beforeAll(async () => {
         -- Coluna NÃO única, para forçar o WHERE a casar duas linhas.
         CREATE TABLE dupes (id int PRIMARY KEY, k text, v text);
         INSERT INTO dupes VALUES (1,'same','a'),(2,'same','a'),(3,'other','a');
+
+        -- Serial + default + NOT NULL, para o INSERT exercitar as omissões.
+        CREATE TABLE com_default (
+          id serial PRIMARY KEY,
+          nome text NOT NULL,
+          criado timestamptz NOT NULL DEFAULT now()
+        );
       `),
     },
   );
@@ -217,5 +224,36 @@ describe.skipIf(!temDocker)("edição de linha — DELETE", () => {
     });
     expect(res.status).toBe(403);
     expect(valorDireto("SELECT count(*) FROM pessoas WHERE id = 3")).toBe("1");
+  });
+});
+
+describe.skipIf(!temDocker)("edição de linha — INSERT", () => {
+  it("insere só as colunas dadas; a serial e o default entram sozinhos", async () => {
+    const res = await call(`/api/connections/${connWrite}/rows/insert`, {
+      ...alvo, table: "com_default",
+      values: [{ column: "nome", value: "Zé" }],
+    });
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { rowCount: number }).rowCount).toBe(1);
+    // id (serial) e criado (default now()) foram preenchidos pelo Postgres.
+    expect(valorDireto("SELECT count(*) FROM com_default WHERE nome='Zé' AND id > 0 AND criado IS NOT NULL")).toBe("1");
+  });
+
+  it("NOT NULL sem valor volta como erro do Postgres, sem inserir", async () => {
+    const antes = valorDireto("SELECT count(*) FROM com_default");
+    const res = await call(`/api/connections/${connWrite}/rows/insert`, {
+      ...alvo, table: "com_default",
+      values: [{ column: "criado", value: "2026-01-01T00:00:00+00" }], // falta o `nome` NOT NULL
+    });
+    expect(res.status).toBe(502);
+    expect(valorDireto("SELECT count(*) FROM com_default")).toBe(antes);
+  });
+
+  it("recusa sem write_enabled", async () => {
+    const res = await call(`/api/connections/${connReadOnly}/rows/insert`, {
+      ...alvo, table: "com_default",
+      values: [{ column: "nome", value: "X" }],
+    });
+    expect(res.status).toBe(403);
   });
 });

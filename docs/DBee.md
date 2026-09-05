@@ -230,7 +230,7 @@ Prefixo `/api`. Tudo JSON. Autenticação por cookie de sessão `httpOnly` + `Sa
 - `POST /auth/logout` — apaga a sessão **no servidor**, não só o cookie
 - `GET /auth/me` — o usuário da sessão; **401 é resposta, não erro**
 - `POST /auth/password` — troca a senha e derruba todas as sessões do usuário
-- `POST /connections/:id/rows/update` e `/rows/delete` — edição de uma linha (v0.2). Exige `write_enabled` e `readOnly: false`. WHERE por PK + valores originais (guarda otimista); cardinalidade provada antes do commit; grava o SQL literal no `query_log`. Ver §11.
+- `POST /connections/:id/rows/update`, `/rows/delete` e `/rows/insert` — edição de uma linha (v0.2). Exige `write_enabled` e `readOnly: false`. WHERE por PK + valores originais (guarda otimista); cardinalidade provada antes do commit; grava o SQL literal no `query_log`. Ver §11.
 - `GET /audit?q=&status=&connectionId=&actor=&cursor=` — o `query_log` pesquisável (v0.2). Filtros combinam com AND, paginação por keyset. Só-leitura.
 - `PATCH /auth/locale` — `{ locale: "pt" | "en" }` grava o idioma da UI no registro do usuário; devolve o usuário atualizado. Preferência, não segredo — não mexe em cookie nem em sessão
 
@@ -503,7 +503,7 @@ vezes e guardar a preferência em `localStorage` para migrar depois.
 > constrói **sobre** identidade: papéis, permissão por conexão, e quem aprova o quê.
 - [x] Modo escrita por conexão, com indicador visual permanente (já na v0.1: `write_enabled`, tarja de perigo, `BEGIN READ ONLY/WRITE`)
 - [x] Edição inline de célula com diff do SQL antes de aplicar — concorrência otimista + cardinalidade provada antes do commit
-- [x] `DELETE` de linha pela UI (mesma peça: WHERE por PK + cardinalidade). **`INSERT` fica para a fatia seguinte** (defaults, sequences, colunas geradas — problema diferente)
+- [x] `INSERT`/`DELETE` de linha pela UI — DELETE por PK + cardinalidade; INSERT informa só as colunas escolhidas, as omitidas ficam com default/sequence (coluna gerada informada → erro do Postgres, não detectável na introspecção atual)
 - [x] Cancelamento de query em execução — `pg_cancel_backend` por conexão à parte; a query volta com 57014 e o log marca `cancelled`
 - [x] Tela de auditoria (histórico pesquisável) — busca por SQL/estado/conexão, keyset
 

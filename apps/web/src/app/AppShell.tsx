@@ -674,6 +674,7 @@ function TableTabContent({
           onConsultar={onConsultar}
           estimatedRows={rel.estimatedRows}
           writeEnabled={danger}
+          colunasSchema={rel.columns}
           leading={<SubTabButtons value={tab.view} onChange={onView} counts={counts} />}
           trailing={inspetorBtn}
         />

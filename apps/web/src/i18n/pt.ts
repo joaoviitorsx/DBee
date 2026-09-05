@@ -105,6 +105,14 @@ export const pt = {
   "edit.aplicado": "Aplicado.",
   "edit.semPk": "Sem chave primária, a edição fica indisponível: o WHERE não identificaria a linha com segurança.",
   "edit.duploClique": "Duplo clique numa célula para editar.",
+  "edit.novaLinha": "Nova linha",
+  "edit.inserir": "Inserir",
+  "edit.inserindo": "Inserindo…",
+  "edit.tituloInsert": "Nova linha",
+  "edit.usarDefault": "default",
+  "edit.obrigatoria": "obrigatória",
+  "edit.nenhumaColuna": "Preencha ao menos uma coluna.",
+  "edit.valorColuna": "Valor de {col}",
 
   // --- abas / navegação ---
   "aba.consultar": "Consultar",

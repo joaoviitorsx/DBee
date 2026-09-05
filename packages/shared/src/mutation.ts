@@ -59,6 +59,21 @@ export const RowDeleteRequest = t.Object({
 });
 export type RowDeleteRequest = Static<typeof RowDeleteRequest>;
 
+export const RowInsertRequest = t.Object({
+  ...Alvo,
+  /**
+   * Só as colunas que o usuário informou. As omitidas ficam com o default /
+   * sequence do Postgres — é o ponto do INSERT ser um problema diferente do
+   * UPDATE. Coluna gerada informada aqui faz o Postgres recusar (não há como
+   * detectá-la na introspecção atual); o erro vai inteiro para a tela.
+   */
+  values: t.Array(
+    t.Object({ column: t.String({ minLength: 1, maxLength: 63 }), value: CellValue }),
+    { minItems: 1, maxItems: 512 },
+  ),
+});
+export type RowInsertRequest = Static<typeof RowInsertRequest>;
+
 export const RowMutationResult = t.Object({
   rowCount: t.Integer(),
   /** O SQL literal aplicado — o mesmo que foi ao `query_log`. */
@@ -116,6 +131,25 @@ export function construirUpdate(req: RowUpdateRequest): SqlConstruido {
     text: `UPDATE ${alvo} SET ${setSql} WHERE ${whereSql.join(" AND ")}`,
     params,
     literal: `UPDATE ${alvo} SET ${setLit} WHERE ${whereLit.join(" AND ")}`,
+  };
+}
+
+export function construirInsert(req: RowInsertRequest): SqlConstruido {
+  const params: CellValue[] = [];
+  const ph = (v: CellValue): string => {
+    params.push(v);
+    return `$${String(params.length)}`;
+  };
+
+  const cols = req.values.map((v) => qid(v.column)).join(", ");
+  const phs = req.values.map((v) => ph(v.value)).join(", ");
+  const lits = req.values.map((v) => lit(v.value)).join(", ");
+
+  const alvo = rel(req.schema, req.table);
+  return {
+    text: `INSERT INTO ${alvo} (${cols}) VALUES (${phs})`,
+    params,
+    literal: `INSERT INTO ${alvo} (${cols}) VALUES (${lits})`,
   };
 }
 

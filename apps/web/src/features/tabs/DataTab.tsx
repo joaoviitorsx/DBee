@@ -1,6 +1,6 @@
-import type { RowFilter, RowsResponse } from "@dbee/shared";
+import type { Column, RowFilter, RowsResponse } from "@dbee/shared";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Filter, Trash2, TriangleAlert, X } from "lucide-react";
+import { Filter, Plus, Trash2, TriangleAlert, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge, Button, Input } from "../../components/ui";
@@ -10,6 +10,7 @@ import { ExportButton } from "../export/ExportButton";
 import { Trabalhando, TrabalhandoInline } from "../motion/Trabalhando";
 import { ResultGrid } from "../grid/ResultGrid";
 import { RowEditModal, type Pendente, type PkValor } from "../grid/RowEditModal";
+import { InsertModal } from "../grid/InsertModal";
 import { useT } from "../../i18n";
 
 const PAGINA = 200;
@@ -28,6 +29,7 @@ export function DataTab({
   onConsultar,
   estimatedRows = null,
   writeEnabled = false,
+  colunasSchema,
   leading,
   trailing,
 }: {
@@ -37,6 +39,8 @@ export function DataTab({
   readonly estimatedRows?: number | null;
   /** A conexão permite escrita — habilita a edição de célula e o excluir linha. */
   readonly writeEnabled?: boolean;
+  /** Colunas do schema (com nullable/default), para o formulário de "Nova linha". */
+  readonly colunasSchema?: readonly Column[];
   /** Sub-abas, à esquerda da toolbar — uma linha só (ver `SubTabs`). */
   readonly leading?: React.ReactNode;
   /** Ações à direita, ex.: o botão do inspetor. */
@@ -50,6 +54,7 @@ export function DataTab({
   // Edição de linha (v0.2): o modal do diff, e a linha selecionada para excluir.
   const [pendente, setPendente] = useState<Pendente | null>(null);
   const [linhaSel, setLinhaSel] = useState<number | null>(null);
+  const [inserindo, setInserindo] = useState(false);
 
   const chave = ["rows", target.connectionId, target.database, target.schema, target.relation, orderBy, orderDirection, filtros];
 
@@ -161,6 +166,13 @@ export function DataTab({
           <Button size="sm" variant="secondary" onClick={onConsultar}>
             {t("aba.consultar")}
           </Button>
+
+          {editavel && (colunasSchema?.length ?? 0) > 0 ? (
+            <Button size="sm" variant="secondary" onClick={() => { setInserindo(true); }}>
+              <Plus aria-hidden className="h-3.5 w-3.5" />
+              {t("edit.novaLinha")}
+            </Button>
+          ) : null}
 
           <div className="flex items-center gap-1">
             <Filter aria-hidden className="h-3 w-3 text-subtle" />
@@ -292,6 +304,17 @@ export function DataTab({
           connectionId={target.connectionId}
           pendente={pendente}
           onClose={() => { setPendente(null); }}
+        />
+      ) : null}
+
+      {inserindo && colunasSchema !== undefined ? (
+        <InsertModal
+          connectionId={target.connectionId}
+          database={target.database}
+          schema={target.schema}
+          table={target.relation}
+          columns={colunasSchema}
+          onClose={() => { setInserindo(false); }}
         />
       ) : null}
     </div>

@@ -105,6 +105,14 @@ export const en: Record<ChaveI18n, string> = {
   "edit.aplicado": "Applied.",
   "edit.semPk": "Without a primary key, editing is unavailable: the WHERE couldn’t identify the row safely.",
   "edit.duploClique": "Double-click a cell to edit.",
+  "edit.novaLinha": "New row",
+  "edit.inserir": "Insert",
+  "edit.inserindo": "Inserting…",
+  "edit.tituloInsert": "New row",
+  "edit.usarDefault": "default",
+  "edit.obrigatoria": "required",
+  "edit.nenhumaColuna": "Fill at least one column.",
+  "edit.valorColuna": "{col} value",
 
   // --- tabs / navigation ---
   "aba.consultar": "Query",
