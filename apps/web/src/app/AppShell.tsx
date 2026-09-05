@@ -1,5 +1,5 @@
 import type { Connection, RowFilter } from "@dbee/shared";
-import { Code2, PanelLeft, PanelRight, Plus, TriangleAlert } from "lucide-react";
+import { Code2, PanelLeft, PanelRight, Plus, Unlock } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ConnectionWarning } from "@dbee/shared";
@@ -450,7 +450,10 @@ function TopBar({
     <header
       className={cn(
         "relative flex shrink-0 items-center gap-3 overflow-hidden border-b px-3 py-2",
-        perigo ? "border-danger-line bg-danger-surface" : "border-line bg-surface",
+        // Escrita habilitada é CAUTELA, não erro: uma faixa âmbar quente e suave,
+        // não o vermelho de perigo (que fica reservado para o ato destrutivo —
+        // confirmar um DELETE). O tom diz "cuidado, dá para gravar" sem alarme.
+        perigo ? "border-accent-line bg-accent-soft" : "border-line bg-surface",
       )}
     >
       {/*
@@ -516,9 +519,12 @@ function TopBar({
         </div>
       ) : null}
 
+      {/* Selo de escrita canônico (design-system §313): âmbar sólido com texto
+          escuro. Quente e claro, sem o vermelho de perigo — o cadeado aberto diz
+          "dá para gravar", o âmbar diz "com cuidado". */}
       {perigo ? (
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 rounded-[4px] bg-danger px-2 py-1 text-2xs font-semibold text-ink">
-          <TriangleAlert aria-hidden className="h-3 w-3" />
+        <span className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full bg-amber px-2.5 py-1 text-2xs font-semibold text-accent-ink">
+          <Unlock aria-hidden className="h-3 w-3" />
           {t("conexao.escritaHabilitada")}
         </span>
       ) : null}
@@ -653,7 +659,7 @@ function TableTabContent({
   );
 
   return (
-    <div className={cn("flex min-h-0 flex-1 flex-col", danger && "border-l-2 border-l-danger")}>
+    <div className={cn("flex min-h-0 flex-1 flex-col", danger && "border-l-2 border-l-accent")}>
       {arvore.isPending ? (
         <>
           {barraComum}

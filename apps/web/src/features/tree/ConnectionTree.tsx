@@ -228,8 +228,8 @@ function Row({
       className={cn(
         "relative",
         "group/row flex items-center gap-1 rounded-[4px] pr-1 transition-colors duration-150",
-        danger ? "hover:bg-danger-raised" : "hover:bg-raised",
-        active && (danger ? "bg-danger-raised" : "bg-raised"),
+        danger ? "hover:bg-accent-soft" : "hover:bg-raised",
+        active && (danger ? "bg-accent-soft" : "bg-raised"),
       )}
       style={{ paddingLeft: `${String(depth * 12 + 4)}px` }}
     >
@@ -246,8 +246,7 @@ function Row({
         <span
           aria-hidden
           className={cn(
-            "absolute inset-y-[3px] left-0 w-[3px] rounded-full",
-            danger ? "bg-danger-ink" : "bg-accent",
+            "absolute inset-y-[3px] left-0 w-[3px] rounded-full bg-accent",
           )}
         />
       ) : null}
@@ -335,9 +334,10 @@ function ConnectionBranch({
     <li
       className={cn(
         "rounded-[6px]",
-        // O nó INTEIRO em tom de perigo, não uma barra de 2px: com escrita
-        // habilitada o alerta precisa ser pego de relance (design-system §11).
-        perigo && "my-0.5 border border-danger-line bg-danger-surface",
+        // O nó INTEIRO em tom âmbar de cautela, não uma barra de 2px: com
+        // escrita habilitada o estado precisa ser pego de relance — mas é
+        // cautela, não perigo, então âmbar quente, não vermelho (design-system).
+        perigo && "my-0.5 border border-accent-line bg-accent-soft",
       )}
     >
       <Row
