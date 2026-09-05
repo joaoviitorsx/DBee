@@ -453,7 +453,7 @@ Como o repo é pessoal e privado, o GitHub App do Dokploy precisa receber acesso
 - [x] Grid virtualizado com tipos preservados como string
 - [x] `query_log` gravando tudo
 - [x] Export CSV em stream — com seleção retangular e `Ctrl+C` como TSV
-- [x] Autocomplete no editor (Ctrl+Espaço), alimentado pelo schema
+- [x] Autocomplete no editor — abre sozinho ao digitar (VSCode-like), Ctrl+Espaço força; alimentado pelo schema
 - [x] Ordenação e largura ajustável no cabeçalho do grid; cabeçalho acompanha o scroll horizontal
 - [x] Painel dividido editor + dados da tabela de origem
 - [x] Diagrama ERD (dagre) — aba própria e sub-aba da tabela

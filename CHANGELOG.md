@@ -5,6 +5,11 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Autocomplete abre sozinho ao digitar** (VSCode-like): `activateOnTyping` ligado
+  com 120 ms de respiro; Esc fecha, Ctrl+Espaço força. O popup foi repaginado —
+  entrada encenada (`dbee-settle`), material de overlay com sombra, opção
+  selecionada no leito âmbar com régua da marca, trecho que casa em âmbar e ícone
+  colorido por tipo (tabela/coluna/palavra-chave). Alimentado pelo schema completo.
 - **Split do `/schema`** (Fase 2, dívida de perf): a árvore de navegação passou a
   usar um endpoint leve `GET /schema/tree` (só schema → relação: nome, tipo,
   estimativa) em vez do schema completo. Num catálogo de 800 relações o payload

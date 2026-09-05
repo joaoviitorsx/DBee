@@ -48,6 +48,71 @@ const tema = EditorView.theme(
       backgroundColor: "color-mix(in oklab, var(--color-amber) 7%, transparent)",
       borderLeft: "2px solid color-mix(in oklab, var(--color-accent) 55%, transparent)",
     },
+
+    /*
+     * Autocomplete — dinâmico e polido (v0.2).
+     *
+     * O popup nasce com a mesma entrada encenada do resto do app (`dbee-settle`,
+     * sobe e assenta), material de `overlay`, canto arredondado e sombra. A
+     * opção selecionada ganha o leito âmbar (`accent-soft`) e a régua da marca;
+     * o trecho que casa com o que foi digitado vem em âmbar — o olho pula direto
+     * para o que importa. Ícone colorido por tipo (tabela/coluna/palavra-chave).
+     */
+    ".cm-tooltip.cm-tooltip-autocomplete": {
+      border: "1px solid var(--color-line)",
+      borderRadius: "8px",
+      backgroundColor: "var(--color-overlay)",
+      boxShadow: "0 12px 34px rgba(0,0,0,.34)",
+      overflow: "hidden",
+      animation: "dbee-settle 130ms var(--ease-enter)",
+      transformOrigin: "top left",
+    },
+    ".cm-tooltip-autocomplete > ul": {
+      fontFamily: "var(--font-mono)",
+      fontSize: "12px",
+      maxHeight: "17rem",
+    },
+    ".cm-tooltip-autocomplete > ul > li": {
+      display: "flex",
+      alignItems: "center",
+      gap: "7px",
+      padding: "3.5px 11px",
+      lineHeight: "1.5",
+      color: "var(--color-muted)",
+      borderLeft: "2px solid transparent",
+      transition: "background-color 90ms, color 90ms",
+    },
+    ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
+      backgroundColor: "var(--color-accent-soft)",
+      color: "var(--color-ink)",
+      borderLeftColor: "var(--color-accent)",
+    },
+    ".cm-completionLabel": { color: "inherit" },
+    ".cm-completionMatchedText": {
+      color: "var(--color-accent)",
+      fontWeight: "700",
+      textDecoration: "none",
+    },
+    ".cm-completionDetail": {
+      marginLeft: "auto",
+      paddingLeft: "14px",
+      fontStyle: "normal",
+      fontSize: "11px",
+      color: "var(--color-subtle)",
+    },
+    ".cm-completionIcon": {
+      boxSizing: "content-box",
+      width: "1.1em",
+      paddingRight: "0",
+      textAlign: "center",
+      opacity: "0.9",
+      fontSize: "95%",
+    },
+    ".cm-completionIcon-table, .cm-completionIcon-keyword, .cm-completionIcon-class": {
+      color: "var(--color-accent)",
+    },
+    ".cm-completionIcon-property, .cm-completionIcon-variable": { color: "var(--color-ok)" },
+    ".cm-completionIcon-type, .cm-completionIcon-enum": { color: "var(--color-muted)" },
   },
   { dark: true },
 );
@@ -173,9 +238,15 @@ export function SqlEditor({ value, onChange, onRunStatement, onRunAll, schema }:
       lineNumbers(),
       history(),
       linguagem.current.of(configSql()),
-      // `activateOnTyping` desligado: sugestão que abre sozinha a cada tecla
-      // vira ruído numa ferramenta de quem já sabe SQL. Ctrl+Espaço quando quer.
-      autocompletion({ activateOnTyping: false, icons: true }),
+      // Abre sozinho ao digitar, como o VSCode. `Esc` fecha, `Ctrl+Espaço`
+      // reabre. O `delay` dá um respiro para não piscar a cada tecla rápida.
+      autocompletion({
+        activateOnTyping: true,
+        activateOnTypingDelay: 120,
+        icons: true,
+        maxRenderedOptions: 24,
+        selectOnOpen: true,
+      }),
       syntaxHighlighting(realce),
       tema,
       EditorView.lineWrapping,
