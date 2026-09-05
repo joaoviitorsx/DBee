@@ -92,7 +92,7 @@ próxima sessão no que já foi decidido. Fora desta lista, ainda vale perguntar
 | `@radix-ui/react-*` | primitivos por trás dos componentes shadcn/ui em uso |
 | `@fontsource-variable/sora` | Sora bundlada, subset latin — sem CDN |
 | `codemirror`, `@codemirror/lang-sql` | editor SQL (v0.1) |
-| `@codemirror/autocomplete` | autocomplete de tabela/coluna no editor (Ctrl+Espaço) |
+| `@codemirror/autocomplete` | autocomplete de tabela/coluna no editor (abre ao digitar; Ctrl+Espaço força) |
 | `@dagrejs/dagre` | layout do diagrama ERD — ver nota abaixo |
 
 **`animejs` saiu** (2026-09-05): as cenas animadas viraram o mascote 3D em WebP, e o pacote foi removido.
