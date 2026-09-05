@@ -1,7 +1,7 @@
 # DBee — Design System
 
 Fonte: os arquivos em `assets/`. Nada aqui foi inventado: cada token sai da marca
-ou de uma restrição do `DBee.md`.
+ou de uma restrição do projeto.
 
 > **Regra de ouro:** este é um cliente de banco de produção. A tela existe para
 > deixar óbvio **em qual banco você está** e **se ele aceita escrita**. Toda
@@ -103,7 +103,7 @@ para texto essencial sem ninguém notar.
 Duas famílias, claramente distintas. Sora tem contrapunção geométrica e resolve
 bem em peso 600; a mono só aparece onde há valor técnico literal.
 
-> **Pendência:** `CLAUDE.md` proíbe CDN em runtime, então Sora precisa ser
+> **Pendência:** o projeto proíbe CDN em runtime, então Sora precisa ser
 > bundlada (`@fontsource/sora`, ~40 KB por peso) — dependência ainda não
 > aprovada. Enquanto isso a pilha cai em `ui-sans-serif`. O sistema de tokens já
 > está pronto para a troca: só muda `--font-display`.
@@ -247,7 +247,7 @@ fecha a gaveta.
 > fechá-lo, ao contrário da árvore. E `selectColumn` abre o inspetor sozinho,
 > então o gesto normal de leitura é o que enterra o conteúdo.
 >
-> Screenshot da falha: `bp-375-inspetor.png`. Registrado em `ATRITO.md`.
+> Screenshot da falha: `bp-375-inspetor.png`.
 >
 > **Lição de método:** screenshot de estado vazio não verifica layout. O estado
 > a fotografar é o mais cheio que a tela alcança, não o mais limpo.
@@ -289,7 +289,7 @@ verbo.
   (dollar quoting, `;` dentro de string) e o editor destacaria um trecho
   enquanto o banco executaria outro.
 
-**Grid** — virtualizado (`CLAUDE.md` regra 11), nunca `.map()` direto sobre as
+**Grid** — virtualizado (regra 11 do projeto), nunca `.map()` direto sobre as
 linhas. Três coisas precisam ser distinguíveis a olho:
 
 | valor | tratamento |
@@ -397,8 +397,7 @@ que marca a navegação.
 ### 5.4b-6 Diagrama (ERD)
 
 Tabelas como caixas com colunas — **PK** (🔑, âmbar) e **FK** (⋈) marcadas, tipo
-à direita —, ligadas por linhas de FK. Layout em camadas por `dagre` (§3 do
-`DBee.md`): a tabela referenciada fica num posto à esquerda da que a referencia,
+à direita —, ligadas por linhas de FK. Layout em camadas por `dagre`: a tabela referenciada fica num posto à esquerda da que a referencia,
 a leitura "esta depende daquela" da esquerda para a direita.
 
 Pan arrastando o fundo, zoom na roda (em direção ao ponteiro), **clique no nome
@@ -621,7 +620,7 @@ dados chegam (CLS). O esqueleto herda as mesmas divisórias — os cortes da mar
 
 ## 8. Escrita
 
-`CLAUDE.md`: o erro do Postgres é informação útil, não ruído a esconder.
+Princípio do projeto: o erro do Postgres é informação útil, não ruído a esconder.
 
 - **Verbo no botão, e o mesmo verbo depois.** "Testar conexão" → "Testando…" →
   "Conectou". Nunca "Enviar".

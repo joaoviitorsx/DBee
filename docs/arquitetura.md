@@ -1,7 +1,6 @@
 # Arquitetura
 
-Como o código está separado e onde uma mudança deve cair. Complementa o
-`DBee.md` §3, que descreve a estrutura de pastas.
+Como o código está separado e onde uma mudança deve cair. Descreve também a estrutura de pastas do projeto.
 
 ---
 
@@ -62,7 +61,7 @@ que é 404.
 
 ### Erro do Postgres
 
-`CLAUDE.md`: o erro do banco é informação útil, não ruído. Ele atravessa as
+Princípio do projeto: o erro do banco é informação útil, não ruído. Ele atravessa as
 camadas intacto — `code`, `message` e, quando existir, `position` — até a UI.
 Nenhuma camada engole nem reescreve.
 
@@ -86,7 +85,7 @@ lado do servidor.
 
 `lib/api.ts` é o **único** ponto que fala com a rede, tipado a partir do tipo
 exportado do server. Mudar uma rota quebra o build do web — comportamento
-desejado (`DBee.md` §11.10), não bug a contornar com `any`.
+desejado, não bug a contornar com `any`.
 
 Consequência prática: o `tsc` do web atravessa o fonte de `apps/server`. É por
 isso que `apps/web/src/env.d.ts` declara o módulo `*.sql` — sem ela o typecheck

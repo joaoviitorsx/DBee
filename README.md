@@ -1,10 +1,11 @@
+<p align="center">
+  <img src="assets/readme-banner.svg" alt="DBee — Cliente PostgreSQL web, self-hosted" width="720">
+</p>
+
 # DBee
 
 Cliente PostgreSQL web, self-hosted, para uso diário em produção. Bun + Elysia +
 React, um único container.
-
-Especificação completa em [`docs/DBee.md`](docs/DBee.md). Instruções para agentes
-em [`CLAUDE.md`](CLAUDE.md).
 
 O que faz hoje: autenticação com sessão e usuários individuais, CRUD de conexões
 com senha cifrada, árvore de schema navegável, editor SQL com autocomplete e
@@ -85,10 +86,10 @@ não há senha gerada nem impressa em lugar nenhum.
 
 Serviço com provider Git apontando para este repo, branch `main`, Compose Path
 `deploy/docker-compose.yml`, trigger On Push. O GitHub App do Dokploy precisa de
-acesso explícito ao repo (é privado). Defina `APP_SECRET` nos secrets do serviço.
+acesso explícito a este repo. Defina `APP_SECRET` nos secrets do serviço.
 Para criar a primeira conta, leia o token de `/data/setup-token` pelo terminal do
 serviço no painel do Dokploy (`cat /data/setup-token`) e informe-o na tela de
-primeiro acesso. Ver `DBee.md` §8.
+primeiro acesso.
 
 A imagem é **amd64** (`bun build --target bun-linux-x64`) — o host do Dokploy
 precisa ser amd64. Numa VM arm64 o container não sobe.
@@ -104,8 +105,8 @@ como uma falha diferente e obscura:
   perdê-lo é irreversível.
 
 **Acessos a conceder**
-- [ ] GitHub App do Dokploy com acesso **explícito** a `joaoviitorsx/Dbee` (repo
-  privado — o acesso à organização não basta).
+- [ ] GitHub App do Dokploy com acesso **explícito** a `joaoviitorsx/Dbee` (o
+  acesso amplo à conta não basta — conecte o repo no serviço).
 - [ ] Credencial de registry no Dokploy para puxar do GHCR: o pacote nasce
   **privado**. Ou um PAT com `read:packages` configurado como registry credential
   no Dokploy, **ou** tornar o pacote público em `github.com/users/joaoviitorsx/
@@ -145,8 +146,8 @@ como uma falha diferente e obscura:
 > deste README as citavam; o código não as lê. A primeira conta nasce pela tela
 > de setup, com o token de `/data/setup-token` (passos 4–5) — **nenhuma senha é
 > gerada nem impressa**. A atualização por webhook e o badge de versão são
-> planejados (`DBee.md` §8), ainda não implementados — hoje se atualiza
-> publicando uma tag e re-deployando.
+> planejados, ainda não implementados — hoje se atualiza publicando uma tag e
+> re-deployando.
 >
 > `DBEE_PUBLIC_DIR` (opcional) aponta o diretório do web estático que o binário
 > serve; default `./public` a partir do diretório de trabalho (no container,
@@ -165,7 +166,7 @@ como uma falha diferente e obscura:
 >   certo.
 >
 > Guarde o `APP_SECRET` no gerenciamento de segredos e **declare o volume**.
-> Não há recuperação — só recadastrar tudo. Ver `DBee.md` §7 e §11.5.
+> Não há recuperação — só recadastrar tudo.
 
 ## Desenvolvimento
 
@@ -219,9 +220,9 @@ Persista as regras como já faz para as outras portas (o mesmo `iptables-restore
 / unit que mantém as regras da 3000 e da 15672). Confirmar depois: de fora da
 tailnet, a 3001 não responde; de dentro, sim.
 
-Ver `DBee.md` §7.
+## Documentação
 
-## Processo
-
-- Fricção do uso real vai para [`ATRITO.md`](ATRITO.md), na hora que doeu.
-- Decisão de arquitetura vira ADR em [`docs/adr/`](docs/adr/README.md).
+- [`docs/arquitetura.md`](docs/arquitetura.md) — estrutura de pastas e fluxo do erro do Postgres até a UI.
+- [`docs/design-system.md`](docs/design-system.md) — paleta, tipografia e semântica de cor.
+- [`docs/papeis-postgres.md`](docs/papeis-postgres.md) — SQL para papéis restritos no Postgres do cliente.
+- [`CHANGELOG.md`](CHANGELOG.md) — histórico de versões.

@@ -172,8 +172,7 @@ GRANT dbee_ro_<slug> TO dbee_rw_<slug>;
 -- GRANT USAGE ON SEQUENCE <schema>.<seq_da_tabela_1> TO dbee_rw_<slug>;
 ```
 
-> Coluna gerada (`GENERATED ALWAYS AS IDENTITY`) e o INSERT do DBee: ver
-> `ATRITO.md` — o form ainda oferece a coluna e o Postgres recusa; não é
+> Coluna gerada (`GENERATED ALWAYS AS IDENTITY`) e o INSERT do DBee: o form ainda oferece a coluna e o Postgres recusa; não é
 > problema de GRANT.
 
 ---
