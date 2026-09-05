@@ -5,6 +5,13 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Edição de linha** (v0.2), a metade de UI da fatia de escrita: duplo clique numa
+  célula edita inline; Enter abre o **preview do diff** (o SQL com valores
+  literais, '2026-03-01' e não `$1`) para confirmar antes de aplicar; selecionar
+  uma linha mostra "Excluir linha", também com preview. Só aparece quando a
+  conexão tem escrita habilitada e a tabela tem PK. A execução liga parâmetros; o
+  literal é só para leitura. Modal em `RowEditModal`, grade editável em
+  `ResultGrid` (`editavel`/`onEditCell`). Ao aplicar, a grade recarrega.
 - **Auditoria** (v0.2): tela de `query_log` pesquisável — filtro por texto do SQL
   (substring case-insensitive), estado, conexão e autor, combinando com AND;
   paginação por keyset ("Carregar mais"). Rota `GET /audit`, só-leitura. Aberta

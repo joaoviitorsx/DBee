@@ -57,6 +57,13 @@ export interface ResultGridProps {
   readonly sortColumn?: string | null;
   readonly sortDirection?: "asc" | "desc";
   readonly onSort?: (coluna: string) => void;
+  /**
+   * Liga a edição de célula por duplo clique (v0.2). Só quando a conexão
+   * permite escrita e a tabela tem PK — quem decide é o consumidor.
+   */
+  readonly editavel?: boolean;
+  /** Duplo clique numa célula, editado e confirmado com Enter, chega aqui. */
+  readonly onEditCell?: (linha: number, coluna: number, valor: string) => void;
 }
 
 export function ResultGrid({
@@ -68,8 +75,14 @@ export function ResultGrid({
   sortColumn = null,
   sortDirection = "asc",
   onSort,
+  editavel = false,
+  onEditCell,
 }: ResultGridProps) {
   const scroller = useRef<HTMLDivElement>(null);
+  // Célula em edição inline (duplo clique). `valor` é o rascunho do input.
+  const [editando, setEditando] = useState<{ linha: number; coluna: number; valor: string } | null>(
+    null,
+  );
   // O conteúdo do cabeçalho, para acompanhar o scroll horizontal do corpo.
   const cabecalho = useRef<HTMLDivElement>(null);
 
@@ -330,10 +343,43 @@ export function ResultGrid({
                 className="absolute left-0 flex border-b border-line/40 hover:bg-surface"
                 style={{ top: 0, transform: `translateY(${String(item.start)}px)`, height: ALTURA_LINHA }}
               >
-                {linha.map((celula, j) => (
+                {linha.map((celula, j) => {
+                  const emEdicao =
+                    editando !== null && editando.linha === item.index && editando.coluna === j;
+                  if (emEdicao) {
+                    return (
+                      <input
+                        key={j}
+                        autoFocus
+                        value={editando.valor}
+                        onChange={(e) => {
+                          setEditando({ linha: item.index, coluna: j, valor: e.target.value });
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            onEditCell?.(item.index, j, editando.valor);
+                            setEditando(null);
+                          }
+                          if (e.key === "Escape") setEditando(null);
+                        }}
+                        // Sai da edição sem aplicar — a confirmação é o modal do
+                        // diff, não o blur; blur cancela, para não abrir modal à
+                        // toa ao clicar fora.
+                        onBlur={() => { setEditando(null); }}
+                        className="shrink-0 truncate border-r border-accent bg-sunken px-3 font-mono text-xs leading-[26px] text-ink outline-none ring-1 ring-accent"
+                        style={{ width: larguraDe(columns[j]?.name ?? "") }}
+                      />
+                    );
+                  }
+                  return (
                   <button
                     key={j}
                     type="button"
+                    onDoubleClick={
+                      editavel
+                        ? () => { setEditando({ linha: item.index, coluna: j, valor: celula ?? "" }); }
+                        : undefined
+                    }
                     onClick={(e) => {
                       // Shift estende a partir da âncora; clique simples a move.
                       if (e.shiftKey && ancora !== null) setFoco({ linha: item.index, coluna: j });
@@ -368,7 +414,8 @@ export function ResultGrid({
                       celula
                     )}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             );
           })}

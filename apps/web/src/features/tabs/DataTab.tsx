@@ -1,6 +1,6 @@
 import type { RowFilter, RowsResponse } from "@dbee/shared";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { Filter, TriangleAlert, X } from "lucide-react";
+import { Filter, Trash2, TriangleAlert, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Badge, Button, Input } from "../../components/ui";
@@ -9,6 +9,7 @@ import type { TableTarget } from "../../app/workspace";
 import { ExportButton } from "../export/ExportButton";
 import { Trabalhando, TrabalhandoInline } from "../motion/Trabalhando";
 import { ResultGrid } from "../grid/ResultGrid";
+import { RowEditModal, type Pendente, type PkValor } from "../grid/RowEditModal";
 import { useT } from "../../i18n";
 
 const PAGINA = 200;
@@ -26,6 +27,7 @@ export function DataTab({
   target,
   onConsultar,
   estimatedRows = null,
+  writeEnabled = false,
   leading,
   trailing,
 }: {
@@ -33,6 +35,8 @@ export function DataTab({
   readonly onConsultar: () => void;
   /** `reltuples` do catálogo, para a escolha "exportar tudo" ter um número. */
   readonly estimatedRows?: number | null;
+  /** A conexão permite escrita — habilita a edição de célula e o excluir linha. */
+  readonly writeEnabled?: boolean;
   /** Sub-abas, à esquerda da toolbar — uma linha só (ver `SubTabs`). */
   readonly leading?: React.ReactNode;
   /** Ações à direita, ex.: o botão do inspetor. */
@@ -43,6 +47,9 @@ export function DataTab({
   const [orderDirection, setOrderDirection] = useState<"asc" | "desc">("asc");
   const [filtros, setFiltros] = useState<RowFilter[]>([]);
   const [rascunho, setRascunho] = useState({ column: "", value: "" });
+  // Edição de linha (v0.2): o modal do diff, e a linha selecionada para excluir.
+  const [pendente, setPendente] = useState<Pendente | null>(null);
+  const [linhaSel, setLinhaSel] = useState<number | null>(null);
 
   const chave = ["rows", target.connectionId, target.database, target.schema, target.relation, orderBy, orderDirection, filtros];
 
@@ -81,6 +88,55 @@ export function DataTab({
     }
     setOrderBy(nome);
     setOrderDirection("asc");
+  };
+
+  // Editável só com escrita habilitada E chave primária: sem PK o WHERE não
+  // identifica a linha com segurança (a rota também recusaria).
+  const pk = primeira?.primaryKey ?? [];
+  const editavel = writeEnabled && (primeira?.keyset ?? false) && pk.length > 0;
+
+  /** Valores da PK de uma linha, ou `null` se algum for nulo (não identifica). */
+  const pkDaLinha = (li: number): PkValor[] | null => {
+    const linha = linhas[li];
+    if (linha === undefined) return null;
+    const out: PkValor[] = [];
+    for (const nome of pk) {
+      const idx = colunas.findIndex((c) => c.name === nome);
+      const v = idx >= 0 ? linha[idx] : undefined;
+      if (v === undefined || v === null) return null;
+      out.push({ column: nome, value: v });
+    }
+    return out;
+  };
+
+  const abrirEdicao = (li: number, col: number, valor: string): void => {
+    const p = pkDaLinha(li);
+    const coluna = colunas[col]?.name;
+    const linha = linhas[li];
+    if (p === null || coluna === undefined || linha === undefined) return;
+    setPendente({
+      kind: "update",
+      database: target.database,
+      schema: target.schema,
+      table: target.relation,
+      pk: p,
+      column: coluna,
+      from: linha[col] ?? null,
+      to: valor,
+    });
+  };
+
+  const abrirExclusao = (): void => {
+    if (linhaSel === null) return;
+    const p = pkDaLinha(linhaSel);
+    if (p === null) return;
+    setPendente({
+      kind: "delete",
+      database: target.database,
+      schema: target.schema,
+      table: target.relation,
+      pk: p,
+    });
   };
 
   return (
@@ -150,6 +206,13 @@ export function DataTab({
         </div>
 
         <div className="ml-auto flex items-center gap-2">
+          {editavel && linhaSel !== null ? (
+            <Button size="sm" variant="danger" onClick={abrirExclusao}>
+              <Trash2 aria-hidden className="h-3.5 w-3.5" />
+              {t("edit.excluirLinha")}
+            </Button>
+          ) : null}
+
           {consulta.isFetchingNextPage ? (
             <TrabalhandoInline rotulo={t("dados.buscandoMais")} />
           ) : (
@@ -213,6 +276,9 @@ export function DataTab({
             sortColumn={orderBy}
             sortDirection={orderDirection}
             onSort={ordenarPor}
+            editavel={editavel}
+            onEditCell={abrirEdicao}
+            onCellClick={(li) => { setLinhaSel(li); }}
             loadingMore={consulta.isFetchingNextPage}
             onReachEnd={() => {
               if (consulta.hasNextPage && !consulta.isFetchingNextPage) void consulta.fetchNextPage();
@@ -220,6 +286,14 @@ export function DataTab({
           />
         )}
       </div>
+
+      {pendente !== null ? (
+        <RowEditModal
+          connectionId={target.connectionId}
+          pendente={pendente}
+          onClose={() => { setPendente(null); }}
+        />
+      ) : null}
     </div>
   );
 }

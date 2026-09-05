@@ -171,6 +171,7 @@ export function QueryTabContent({
             key={`${tab.source.schema}.${tab.source.relation}`}
             target={tab.source}
             estimatedRows={relOrigem?.estimatedRows ?? null}
+            writeEnabled={writeEnabled}
             // "Consultar" aqui recarrega o SELECT da tabela no editor de cima,
             // em vez de abrir outra aba: já estamos na aba de consulta dela.
             onConsultar={() => {
