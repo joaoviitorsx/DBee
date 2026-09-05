@@ -51,11 +51,31 @@ jobs:
             type=semver,pattern=v{{major}}.{{minor}}
             type=raw,value=latest
 
-      - uses: docker/build-push-action@v6
+      # Constrói e CARREGA no docker local, sem publicar ainda. O smoke roda
+      # sobre esta imagem; só depois de passar é que ela vai ao registry — uma
+      # imagem que não serve a UI nunca é publicada.
+      - name: Build (carrega local, sem push)
+        uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          load: true
+          push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Smoke test do ARTEFATO (DBee.md §11.42): o binário compilado serve a UI?
+      # GET / (HTML), o bundle JS (MIME de JS) e /api sem sessão (401). Foi o
+      # buraco entre "os testes passam" e "a imagem funciona".
+      - name: Smoke test da imagem
+        run: |
+          IMG=$(printf '%s\n' "${{ steps.meta.outputs.tags }}" | head -n1)
+          scripts/smoke-image.sh "$IMG"
+
+      # Publica só depois do smoke. A imagem local já tem todas as tags do meta.
+      - name: Push (depois do smoke passar)
+        run: |
+          printf '%s\n' "${{ steps.meta.outputs.tags }}" | while read -r t; do
+            [ -n "$t" ] && docker push "$t"
+          done

@@ -468,6 +468,8 @@ Como o repo é pessoal e privado, o GitHub App do Dokploy precisa receber acesso
 
 **Atualização.** O que existe hoje: GitHub Actions publica `:latest` e `:vX.Y.Z` a cada tag; atualizar é publicar a tag e re-deployar no Dokploy (o `restart: unless-stopped` + trigger On Push cobrem parte). Container não se auto-atualiza por dentro — nada de montar socket do Docker.
 
+O workflow **carrega a imagem local, roda `scripts/smoke-image.sh` e só então publica** — se o artefato não servir a UI (GET / com HTML, bundle JS com MIME de JS, `/api` sem sessão em 401), a imagem não vai ao registry. É a defesa contra o §11.42, onde "os testes passam" e "a imagem funciona" divergiram sem aviso.
+
 > **Planejado, não implementado (2026-09-05).** A consulta à Releases API 1x/dia, o badge de "há versão nova" e o botão "Atualizar" que chama um webhook do Dokploy estão descritos aqui como intenção — **não estão no código** (`grep` por `releases`/`DOKPLOY_DEPLOY_WEBHOOK` vem vazio). `/meta/update` na §5 é do mesmo pacote futuro. Documentado como planejado para não afirmar recurso que o binário não tem.
 
 ---
