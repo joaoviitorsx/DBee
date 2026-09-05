@@ -88,6 +88,26 @@ distingue "compila" de "funciona".
    `Page.captureScreenshot` captura. Isso permite navegar até um estado real —
    árvore expandida, aba aberta, menu de contexto — em vez de fotografar a
    tela inicial.
+
+   **A UI vive atrás de login — isso não é isenção de verificação.** A árvore,
+   as abas e os modais de escrita (onde um erro visual custa mais caro) só
+   aparecem autenticado. O caminho padrão para chegar lá é
+   `scripts/headless-shot.ts`: minta uma sessão do jeito que os testes de
+   integração fazem — um token direto na tabela `sessions` do
+   `~/.dbee-dev/dbee.sqlite` (não passa pelo `/auth/login`, então não depende do
+   estado do backend) — e injeta o cookie `dbee_session` no Chrome headless por
+   `Network.setCookie` (CDP), que a página não conseguiria setar sozinha (é
+   `httpOnly`). O obstáculo nunca foi a extensão; era só ter uma sessão válida.
+
+   ```bash
+   bun scripts/headless-shot.ts <saida.png> [caminho] [tema] [idioma] [w] [h]
+   # ex.: bun scripts/headless-shot.ts /tmp/vazio.png / dark pt 1440 900
+   ```
+
+   Pré-requisitos: `bun run dev` de pé **com o código atual** (a tela chama
+   rotas que um backend velho não tem — reinicie o dev depois de mexer em rota
+   ou migration) e o Chrome headless na porta `9223`. O script já emula os
+   quatro breakpoints via o arg de largura; rode um por breakpoint.
 5. **Uma passada de revisão focada em segurança**, adversarial, antes de fechar.
    Perguntas mínimas: credencial vaza por algum caminho, inclusive de erro? SQL
    é montado por concatenação em algum lugar? Existe caminho que abre transação
