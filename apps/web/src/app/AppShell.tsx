@@ -11,6 +11,7 @@ import { cn } from "../lib/cn";
 import { useLayoutLargo } from "../lib/useMediaQuery";
 import { Inspector } from "../features/inspector/Inspector";
 import { ActivityTab } from "../features/overview/ActivityTab";
+import { AuditTab } from "../features/overview/AuditTab";
 import { DatabasesOverviewTab } from "../features/overview/DatabasesOverview";
 import { DiagramTabContent } from "../features/diagram/DiagramTabContent";
 import { DiagramView } from "../features/diagram/DiagramView";
@@ -123,7 +124,7 @@ export function AppShell({
   }, []);
 
   const abrirCluster = useCallback(
-    (connectionId: string, kind: "overview" | "activity") => {
+    (connectionId: string, kind: "overview" | "activity" | "audit") => {
       setWs((atual) => openCluster(atual, connectionId, kind));
     },
     [],
@@ -160,7 +161,8 @@ export function AppShell({
   const abaTabela: TableTab | null = aba?.kind === "table" ? aba : null;
   const abaQuery: QueryTab | null = aba?.kind === "query" ? aba : null;
   const abaDiagrama = aba?.kind === "diagram" ? aba : null;
-  const abaCluster = aba?.kind === "overview" || aba?.kind === "activity" ? aba : null;
+  const abaCluster =
+    aba?.kind === "overview" || aba?.kind === "activity" || aba?.kind === "audit" ? aba : null;
 
   const alvoAtivo =
     abaTabela !== null
@@ -254,8 +256,14 @@ export function AppShell({
           {abaCluster !== null ? (
             abaCluster.kind === "overview" ? (
               <DatabasesOverviewTab key={abaCluster.id} connectionId={abaCluster.connectionId} />
-            ) : (
+            ) : abaCluster.kind === "activity" ? (
               <ActivityTab key={abaCluster.id} connectionId={abaCluster.connectionId} />
+            ) : (
+              <AuditTab
+                key={abaCluster.id}
+                connectionId={abaCluster.connectionId}
+                connections={connections}
+              />
             )
           ) : abaDiagrama !== null ? (
             <DiagramTabContent

@@ -5,6 +5,11 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Auditoria** (v0.2): tela de `query_log` pesquisável — filtro por texto do SQL
+  (substring case-insensitive), estado, conexão e autor, combinando com AND;
+  paginação por keyset ("Carregar mais"). Rota `GET /audit`, só-leitura. Aberta
+  pelo menu da conexão ("Ver auditoria"), cross-conexão. Títulos de aba passaram
+  a ser traduzidos (`tabTitle(tab, t)`).
 - Scaffold do monorepo com Bun workspaces: `apps/server` (Elysia), `apps/web` (React + Vite), `packages/shared`.
 - `GET /api/health` respondendo 200.
 - TypeScript strict em todo o workspace, ESLint com regras type-aware, `bun test`.

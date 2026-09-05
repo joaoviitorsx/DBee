@@ -1,5 +1,7 @@
 import type { Connection, RelationKind } from "@dbee/shared";
 
+import type { Tradutor } from "../i18n";
+
 /**
  * Estado do workspace — abas, seleção e inspetor.
  *
@@ -76,7 +78,7 @@ export interface DiagramTab {
  * database porque olha o cluster inteiro.
  */
 export interface ClusterTab {
-  readonly kind: "overview" | "activity";
+  readonly kind: "overview" | "activity" | "audit";
   readonly id: string;
   readonly connectionId: string;
 }
@@ -151,7 +153,7 @@ let sequencia = 0;
 export function openCluster(
   ws: Workspace,
   connectionId: string,
-  kind: "overview" | "activity",
+  kind: "overview" | "activity" | "audit",
 ): Workspace {
   const id = `${kind}:${connectionId}`;
   if (ws.tabs.some((tab) => tab.id === id)) return { ...ws, activeTabId: id };
@@ -264,17 +266,20 @@ export function toggleInspector(ws: Workspace): Workspace {
   return { ...ws, inspectorOpen: !ws.inspectorOpen };
 }
 
-/** Rótulo curto da aba. */
-export function tabTitle(tab: Tab): string {
+/** Rótulo curto da aba. Os títulos fixos passam por `t`; nome de tabela e de
+ * consulta são dados, não texto de UI, então vão como estão. */
+export function tabTitle(tab: Tab, t: Tradutor): string {
   switch (tab.kind) {
     case "table":
       return `${tab.target.schema}.${tab.target.relation}`;
     case "diagram":
-      return `Diagrama · ${tab.database}`;
+      return t("aba.tituloDiagrama", { db: tab.database });
     case "overview":
-      return "Databases";
+      return t("aba.tituloDatabases");
     case "activity":
-      return "Processos";
+      return t("aba.tituloProcessos");
+    case "audit":
+      return t("aba.tituloAuditoria");
     case "query":
       return tab.title;
   }

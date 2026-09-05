@@ -1,4 +1,4 @@
-import { Activity, Code2, Copy, Database, Pencil, Plug, RefreshCw, Share2, Table2, Trash2 } from "lucide-react";
+import { Activity, Code2, Copy, Database, Pencil, Plug, RefreshCw, ScrollText, Share2, Table2, Trash2 } from "lucide-react";
 
 import type { MenuSection } from "../../components/ContextMenu";
 import type { TableTarget } from "../../app/workspace";
@@ -20,7 +20,7 @@ export interface TreeMenuActions {
   readonly onRefreshSchema: (connectionId: string, database: string) => void;
   readonly onNewQuery: (connectionId: string, database: string, sql?: string) => void;
   readonly onOpenDiagram: (connectionId: string, database: string) => void;
-  readonly onOpenCluster: (connectionId: string, kind: "overview" | "activity") => void;
+  readonly onOpenCluster: (connectionId: string, kind: "overview" | "activity" | "audit") => void;
   readonly testing: boolean;
 }
 
@@ -65,6 +65,12 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
               label: t("menu.verProcessos"),
               icon: <Activity aria-hidden className={icone} />,
               onSelect: () => { actions.onOpenCluster(target.connection.id, "activity"); },
+            },
+            {
+              id: "audit",
+              label: t("menu.verAuditoria"),
+              icon: <ScrollText aria-hidden className={icone} />,
+              onSelect: () => { actions.onOpenCluster(target.connection.id, "audit"); },
             },
           ],
         },

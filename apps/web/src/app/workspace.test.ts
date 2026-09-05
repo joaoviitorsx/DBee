@@ -1,6 +1,12 @@
 import type { Connection } from "@dbee/shared";
 import { describe, expect, it } from "bun:test";
 
+import type { Tradutor } from "../i18n";
+
+// Título de tabela e de consulta é dado, não texto de UI, então o `t` nunca é
+// chamado nesses casos — um stub basta para satisfazer a assinatura.
+const tStub = ((chave: string) => chave) as unknown as Tradutor;
+
 import {
   activeTab,
   closeTab,
@@ -53,7 +59,7 @@ describe("abrir aba", () => {
     const ws = openTable(emptyWorkspace, alvo());
     expect(ws.tabs).toHaveLength(1);
     expect(ws.activeTabId).toBe(tableTabId(alvo()));
-    expect(tabTitle(primeira(ws))).toBe("public.clientes");
+    expect(tabTitle(primeira(ws), tStub)).toBe("public.clientes");
   });
 
   it("abre em Estrutura — Dados é placeholder nesta fatia", () => {
@@ -239,7 +245,7 @@ describe("aba de query é atrelada à conexão e ao database", () => {
   });
 
   it("o título da aba de query vem do próprio título, não do alvo", () => {
-    expect(tabTitle(queryTab())).toBe("Consulta 1");
+    expect(tabTitle(queryTab(), tStub)).toBe("Consulta 1");
   });
 
   it("a conexão da aba de query é a que decide a tarja de perigo", () => {

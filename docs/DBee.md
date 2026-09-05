@@ -230,6 +230,7 @@ Prefixo `/api`. Tudo JSON. Autenticação por cookie de sessão `httpOnly` + `Sa
 - `POST /auth/logout` — apaga a sessão **no servidor**, não só o cookie
 - `GET /auth/me` — o usuário da sessão; **401 é resposta, não erro**
 - `POST /auth/password` — troca a senha e derruba todas as sessões do usuário
+- `GET /audit?q=&status=&connectionId=&actor=&cursor=` — o `query_log` pesquisável (v0.2). Filtros combinam com AND, paginação por keyset. Só-leitura.
 - `PATCH /auth/locale` — `{ locale: "pt" | "en" }` grava o idioma da UI no registro do usuário; devolve o usuário atualizado. Preferência, não segredo — não mexe em cookie nem em sessão
 
 **Todas as outras rotas exigem sessão.** As únicas abertas são `GET /api/health`
@@ -503,7 +504,7 @@ vezes e guardar a preferência em `localStorage` para migrar depois.
 - [ ] Edição inline de linha com diff do SQL antes de aplicar
 - [ ] `INSERT`/`DELETE` de linha pela UI
 - [ ] Cancelamento de query em execução
-- [ ] Tela de auditoria (histórico pesquisável)
+- [x] Tela de auditoria (histórico pesquisável) — busca por SQL/estado/conexão, keyset
 
 ### v0.3 — Workflow
 - [ ] Autocomplete schema-aware com resolução de alias

@@ -1,5 +1,5 @@
 import type { Connection } from "@dbee/shared";
-import { Activity, Code2, Database, Eye, Layers, Plus, Share2, Table2, X } from "lucide-react";
+import { Activity, Code2, Database, Eye, Layers, Plus, ScrollText, Share2, Table2, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "../../lib/cn";
@@ -58,7 +58,9 @@ export function TabStrip({
                 ? Database
                 : tab.kind === "activity"
                   ? Activity
-                  : Code2;
+                  : tab.kind === "audit"
+                    ? ScrollText
+                    : Code2;
 
         return (
           <div
@@ -95,12 +97,12 @@ export function TabStrip({
                   ativa ? "text-ink" : "text-muted",
                 )}
               >
-                {tabTitle(tab)}
+                {tabTitle(tab, t)}
               </span>
             </button>
             <button
               type="button"
-              aria-label={`${t("comum.fechar")} ${tabTitle(tab)}`}
+              aria-label={`${t("comum.fechar")} ${tabTitle(tab, t)}`}
               onClick={() => { onClose(tab.id); }}
               className={cn(
                 "cursor-pointer rounded p-0.5 text-subtle transition-opacity duration-150 hover:text-ink",

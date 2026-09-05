@@ -5,8 +5,10 @@ import { HealthResponse } from "@dbee/shared";
 import { ConnectionsRepository } from "./db/connections.repo";
 import { UsersRepository } from "./db/users.repo";
 import { QueryLogRepository } from "./db/queryLog.repo";
+import { AuditService } from "./services/audit.service";
 import type { Store } from "./db/client";
 import { PoolManager } from "./pg/pool";
+import { auditRoutes } from "./routes/audit";
 import { authRoutes } from "./routes/auth";
 import { connectionsRoutes } from "./routes/connections";
 import { errorHandler } from "./routes/errors";
@@ -42,6 +44,7 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert) }: Ap
   const auth = new AuthService({ users });
   const schema = new SchemaService({ repository, pools });
   const log = new QueryLogRepository(store.db);
+  const audit = new AuditService(log);
   const query = new QueryService({ repository, pools, log });
   const rows = new RowsService({ repository, pools, schema, log });
   const exportar = new ExportService({ repository, pools, schema, log });
@@ -84,6 +87,7 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert) }: Ap
       .use(queryRoutes(query, users))
       .use(rowsRoutes(rows, users))
       .use(exportRoutes(exportar, users))
+      .use(auditRoutes(audit))
   );
 }
 

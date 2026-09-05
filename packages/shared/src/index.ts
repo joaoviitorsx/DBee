@@ -1,5 +1,6 @@
 /** Schemas TypeBox e tipos compartilhados entre server e web (DBee.md §3). */
 
+export * from "./audit";
 export * from "./auth";
 export * from "./connections";
 export * from "./export";
