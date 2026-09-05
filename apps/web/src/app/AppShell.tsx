@@ -490,7 +490,7 @@ function TopBar({
         </Button>
       ) : null}
 
-      <div className="relative flex items-center gap-2.5">
+      <div className="relative flex shrink-0 items-center gap-2.5">
         {/* Ícone maior, com um leve halo âmbar para ganhar presença sem virar
             enfeite — a marca é a âncora do cabeçalho, não mais um controle. */}
         <Marca className="h-8 w-8 drop-shadow-[0_1px_5px_rgba(245,166,35,0.28)]" />
@@ -502,8 +502,11 @@ function TopBar({
         </span>
       </div>
 
+      {/* Breadcrumb some no mobile: a barra de abas já nomeia a tabela aberta,
+          e aqui ele disputava espaço com a marca e o selo de escrita, forçando
+          o lockup a cortar. Volta a partir de `md`, onde há largura. */}
       {connection !== null && database !== null ? (
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="hidden min-w-0 items-center gap-2 md:flex">
           <span aria-hidden className="text-subtle">/</span>
           {connection.color !== null ? (
             <span
@@ -523,9 +526,14 @@ function TopBar({
           escuro. Quente e claro, sem o vermelho de perigo — o cadeado aberto diz
           "dá para gravar", o âmbar diz "com cuidado". */}
       {perigo ? (
-        <span className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full bg-amber px-2.5 py-1 text-2xs font-semibold text-accent-ink">
+        // No mobile encolhe para só o cadeado (rótulo por aria-label), senão o
+        // selo empurrava a marca para fora. O texto volta a partir de `sm`.
+        <span
+          aria-label={t("conexao.escritaHabilitada")}
+          className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full bg-amber px-2 py-1 text-2xs font-semibold text-accent-ink sm:px-2.5"
+        >
           <Unlock aria-hidden className="h-3 w-3" />
-          {t("conexao.escritaHabilitada")}
+          <span className="hidden sm:inline">{t("conexao.escritaHabilitada")}</span>
         </span>
       ) : null}
 
