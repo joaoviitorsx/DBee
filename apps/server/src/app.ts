@@ -5,6 +5,7 @@ import { HealthResponse } from "@dbee/shared";
 import { ConnectionsRepository } from "./db/connections.repo";
 import { UsersRepository } from "./db/users.repo";
 import { QueryLogRepository } from "./db/queryLog.repo";
+import { MutationService } from "./services/mutation.service";
 import { AuditService } from "./services/audit.service";
 import type { Store } from "./db/client";
 import { PoolManager } from "./pg/pool";
@@ -14,6 +15,7 @@ import { connectionsRoutes } from "./routes/connections";
 import { errorHandler } from "./routes/errors";
 import { exportRoutes } from "./routes/export";
 import { sessionGuard } from "./routes/guard";
+import { mutationRoutes } from "./routes/mutation";
 import { queryRoutes } from "./routes/query";
 import { rowsRoutes } from "./routes/rows";
 import { schemaRoutes } from "./routes/schema";
@@ -46,6 +48,7 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert) }: Ap
   const log = new QueryLogRepository(store.db);
   const audit = new AuditService(log);
   const query = new QueryService({ repository, pools, log });
+  const mutation = new MutationService({ repository, pools, log });
   const rows = new RowsService({ repository, pools, schema, log });
   const exportar = new ExportService({ repository, pools, schema, log });
 
@@ -86,6 +89,7 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert) }: Ap
       .use(schemaRoutes(schema))
       .use(queryRoutes(query, users))
       .use(rowsRoutes(rows, users))
+      .use(mutationRoutes(mutation, users))
       .use(exportRoutes(exportar, users))
       .use(auditRoutes(audit))
   );

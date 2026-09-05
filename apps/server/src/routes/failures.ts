@@ -1,4 +1,4 @@
-import type { AuthFailure, ServiceFailure } from "../services/result";
+import type { AuthFailure, MutationFailure, ServiceFailure } from "../services/result";
 
 /** Único ponto que traduz falha de domínio em status HTTP. */
 export const FAILURES: Readonly<
@@ -61,4 +61,48 @@ export const AUTH_FAILURES = {
 } as const satisfies Record<
   AuthFailure,
   { status: 401 | 403 | 429; body: { code: string; message: string } }
+>;
+
+/**
+ * Falhas da edição de linha → status. Separadas de `FAILURES` pela mesma razão
+ * de `AUTH_FAILURES`: `409` e `403` só nascem na rota de mutação, e só ela
+ * declara esses status no `response`.
+ */
+export const MUTATION_FAILURES = {
+  not_found: {
+    status: 404,
+    body: { code: "connection_not_found", message: "conexão não encontrada" },
+  },
+  decryption_failed: {
+    status: 500,
+    body: { code: "decryption_failed", message: "não foi possível decifrar a senha desta conexão" },
+  },
+  upstream_error: {
+    status: 502,
+    body: { code: "upstream_error", message: "o banco não respondeu" },
+  },
+  write_forbidden: {
+    status: 403,
+    body: {
+      code: "write_forbidden",
+      message: "escrita não habilitada nesta conexão",
+    },
+  },
+  row_changed: {
+    status: 409,
+    body: {
+      code: "row_changed",
+      message: "a linha mudou desde que você a leu — releia e tente de novo",
+    },
+  },
+  ambiguous_row: {
+    status: 409,
+    body: {
+      code: "ambiguous_row",
+      message: "a condição casaria mais de uma linha — nada foi alterado",
+    },
+  },
+} as const satisfies Record<
+  MutationFailure,
+  { status: 403 | 404 | 409 | 500 | 502; body: { code: string; message: string } }
 >;

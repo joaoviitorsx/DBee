@@ -10,6 +10,37 @@ export type ServiceFailure =
   | "bad_request";
 
 /**
+ * Falhas da edição de linha, num tipo à parte — mesma razão de `AuthFailure`.
+ *
+ * `write_forbidden` (403), `row_changed` e `ambiguous_row` (409) só nascem na
+ * rota de mutação. Colocá-las em `ServiceFailure` obrigaria `/query`, `/rows` e
+ * todas as outras a declarar `409` no `response` — uma resposta que não têm como
+ * devolver. Reaproveita as três genéricas porque o serviço resolve conexão.
+ */
+export type MutationFailure =
+  | "not_found"
+  | "decryption_failed"
+  | "upstream_error"
+  /** Escrita pedida numa conexão sem `write_enabled`. */
+  | "write_forbidden"
+  /**
+   * Concorrência otimista: o `UPDATE`/`DELETE` casou **0 linhas** — a linha mudou
+   * (ou sumiu) entre a leitura e a aplicação. Não é "não encontrado".
+   */
+  | "row_changed"
+  /** O `WHERE` casaria mais de uma linha. A transação reverteu sem commitar. */
+  | "ambiguous_row";
+
+export type MutationResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly failure: MutationFailure; readonly detail?: string };
+
+export const mutOk = <T>(value: T): MutationResult<T> => ({ ok: true, value });
+
+export const mutFail = <T>(failure: MutationFailure, detail?: string): MutationResult<T> =>
+  detail === undefined ? { ok: false, failure } : { ok: false, failure, detail };
+
+/**
  * Falhas de autenticação, num tipo à parte.
  *
  * Não entram no `ServiceFailure` porque não são produzíveis pelas outras
