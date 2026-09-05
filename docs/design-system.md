@@ -684,3 +684,13 @@ Registrado para não voltar por engano:
 - **Animação de entrada por seção no load.** Fade-and-slide-up em tudo que
   aparece é o tique visual de página gerada, e aqui não responde a nada.
 - **Mais de um ciclo contínuo na tela.** Se a abelha voa, nada mais pisca.
+
+## Movimento do mascote — três ritmos, um ponto de sincronia
+
+O mascote animado (hoje mascote 3D em WebP; antes `animejs`, removido) tinha três
+ritmos independentes com um instante de sincronia: asa em ~240 ms, voo em ~1,6 s,
+e a trilha se desenhando junto do voo. É a razão de não ser só `@keyframes` CSS:
+ciclos de duração diferente entram em fase sozinhos de tempos em tempos, e no
+instante em que coincidem o bicho volta a parecer objeto interpolado. Se algum
+dia a cena voltar a ser animada em código, os três ritmos não podem ser um loop
+CSS só. Movimento simples (as cinco animações do `index.css`) continua em CSS.
