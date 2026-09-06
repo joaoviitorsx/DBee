@@ -14,8 +14,11 @@ services:
       # secrets do Dokploy, não em `.env` versionado.
       APP_SECRET: ${APP_SECRET}
       # DBEE_DATA_DIR fica no default /data, persistido pelo volume abaixo.
-      # ADMIN_PASSWORD e DOKPLOY_DEPLOY_WEBHOOK NÃO existem no código — a senha
-      # do admin nasce no log do primeiro boot. Ver README.
+      # NODE_ENV=production já vem embutido na imagem: sem APP_SECRET o boot
+      # ABORTA (nada de segredo de dev em produção).
+      # ADMIN_PASSWORD e DOKPLOY_DEPLOY_WEBHOOK NÃO existem no código. A primeira
+      # conta nasce pela tela de setup: leia o token com
+      # `docker exec <container> cat /data/setup-token`. Nenhuma senha em log.
     volumes:
       # O SQLite E o salt de cifra vivem aqui. Perder este volume = perder as
       # conexões, mesmo com o APP_SECRET certo.
