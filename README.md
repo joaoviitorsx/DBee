@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/readme-banner.svg" alt="DBee — Cliente PostgreSQL web, self-hosted" width="720">
+  <img src="assets/readme-banner.png" alt="DBee — Cliente PostgreSQL web, self-hosted" width="820">
 </p>
 
 # DBee
