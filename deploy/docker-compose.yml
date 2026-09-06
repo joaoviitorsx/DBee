@@ -1,46 +1,13 @@
-# DBee — Dokploy, Compose Path deploy/docker-compose.yml (DBee.md §8).
-#
-# Sem porta publicada de propósito: acesso só via Traefik do Dokploy com a
-# regra da tailnet, ou bind no IP 100.x do Tailscale (DBee.md §7). A imagem é
-# amd64 (`bun build --target bun-linux-x64`) — o host do Dokploy tem que ser
-# amd64.
 services:
   dbee:
     image: ghcr.io/joaoviitorsx/dbee:latest
     restart: unless-stopped
     environment:
-      # Único obrigatório. Deriva a chave que cifra as senhas das conexões;
-      # perdê-lo torna as conexões ilegíveis (README, DBee.md §7). Guarde nos
-      # secrets do Dokploy, não em `.env` versionado.
       APP_SECRET: ${APP_SECRET}
-      # DBEE_DATA_DIR fica no default /data, persistido pelo volume abaixo.
-      # NODE_ENV=production já vem embutido na imagem: sem APP_SECRET o boot
-      # ABORTA (nada de segredo de dev em produção).
-      # ADMIN_PASSWORD e DOKPLOY_DEPLOY_WEBHOOK NÃO existem no código. A primeira
-      # conta nasce pela tela de setup: leia o token com
-      # `docker exec <container> cat /data/setup-token`. Nenhuma senha em log.
     volumes:
-      # O SQLite E o salt de cifra vivem aqui. Perder este volume = perder as
-      # conexões, mesmo com o APP_SECRET certo.
       - dbee-data:/data
     networks:
       - dokploy-network
-    # A imagem já traz HEALTHCHECK (o próprio binário, `dbee --healthcheck`);
-    # não é preciso repetir aqui. O container só fica `healthy` quando o SQLite
-    # responde — é o sinal que o Dokploy observa.
-    #
-    # Roteamento: o normal no Dokploy é configurar o domínio pela UI do serviço,
-    # apontando a **porta interna 3001** (o app escuta em 3001, sem porta
-    # publicada). Se preferir declarar no compose em vez da UI, as labels de
-    # Traefik seguem este molde — troque o host pela sua regra da tailnet:
-    #
-    #   labels:
-    #     - traefik.enable=true
-    #     - traefik.http.routers.dbee.rule=Host(`dbee.sua-tailnet`)
-    #     - traefik.http.routers.dbee.entrypoints=web
-    #     - traefik.http.services.dbee.loadbalancer.server.port=3001
-    #
-    # Não declare as duas formas ao mesmo tempo (UI + labels) — conflitam.
 
 volumes:
   dbee-data:
