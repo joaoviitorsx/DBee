@@ -30,18 +30,47 @@ import { sessionContext } from "./guard";
  * - `httpOnly` — JavaScript da página não lê. Sem isso, um XSS rouba a sessão.
  * - `sameSite: "strict"` — o cookie não viaja em requisição vinda de outro
  *   site, o que dispensa token de CSRF para as rotas com efeito.
- * - `secure` — o navegador só manda por HTTPS. **Vale também em
- *   `http://localhost`**, que os navegadores tratam como origem confiável
- *   justamente para o desenvolvimento não precisar afrouxar isto. Conferido no
- *   Chrome, não presumido.
  * - `path: "/"` — vale para `/api` e para o front servido na raiz.
+ *
+ * O `secure` **não** mora aqui: era `true` incondicional, e o navegador
+ * **descarta** um cookie `Secure` recebido sobre `http://`. No acesso por IP da
+ * tailnet (`http://100.x.x.x:3001`, o caminho documentado sem domínio/TLS) o
+ * login autenticava, o cookie era jogado fora, e a tela voltava para o login —
+ * sessão impossível. O `secure` passou a ser resolvido por requisição em
+ * `cookieSecuro` (DBee.md §11.44). `httpOnly` e `sameSite` seguem inegociáveis.
  */
 const COOKIE_BASE = {
   httpOnly: true,
   sameSite: "strict",
-  secure: true,
   path: "/",
 } as const;
+
+/**
+ * Marca o cookie `Secure` **só quando faz sentido** — senão o navegador o
+ * descarta e não há sessão.
+ *
+ * - `DBEE_COOKIE_SECURE` explícito vence: `true`/`1` força `Secure`, `false`/`0`
+ *   desliga. É o botão para o TLS que **termina no proxy** (Traefik/Dokploy): o
+ *   app vê `http` internamente, mas o usuário está em `https`, então o operador
+ *   declara `DBEE_COOKIE_SECURE=true`.
+ * - Sem a env, segue o **protocolo da requisição**: `https` direto ⇒ `Secure`;
+ *   `http` (tailnet por IP, sem TLS) ⇒ sem `Secure`. Default seguro quando há
+ *   TLS de ponta a ponta, e funcional quando não há.
+ *
+ * `X-Forwarded-Proto` **não** é consultado: o app não confia em cabeçalho de
+ * proxy não configurado (mesma postura do rate limit com o IP). Quem termina TLS
+ * no proxy usa a env.
+ */
+function cookieSecuro(request: Request): boolean {
+  const bruto = process.env["DBEE_COOKIE_SECURE"]?.trim().toLowerCase();
+  if (bruto === "true" || bruto === "1") return true;
+  if (bruto === "false" || bruto === "0") return false;
+  try {
+    return new URL(request.url).protocol === "https:";
+  } catch {
+    return false;
+  }
+}
 
 export const authRoutes = (service: AuthService, users: UsersRepository) =>
   new Elysia({ prefix: "/auth" })
@@ -69,7 +98,7 @@ export const authRoutes = (service: AuthService, users: UsersRepository) =>
           );
         }
         const { user, token, expiraEm } = resultado.value;
-        cookie[SESSION_COOKIE]?.set({ ...COOKIE_BASE, value: token, expires: expiraEm });
+        cookie[SESSION_COOKIE]?.set({ ...COOKIE_BASE, secure: cookieSecuro(request), value: token, expires: expiraEm });
         return { user };
       },
       {
@@ -102,7 +131,7 @@ export const authRoutes = (service: AuthService, users: UsersRepository) =>
         }
 
         const { user, token, expiraEm } = resultado.value;
-        cookie[SESSION_COOKIE]?.set({ ...COOKIE_BASE, value: token, expires: expiraEm });
+        cookie[SESSION_COOKIE]?.set({ ...COOKIE_BASE, secure: cookieSecuro(request), value: token, expires: expiraEm });
         return { user };
       },
       {

@@ -71,10 +71,12 @@ describe("login", () => {
 
     expect(res.status).toBe(200);
     const set = res.headers.get("set-cookie") ?? "";
-    // Os três atributos que impedem roubo por XSS e por CSRF.
+    // Os atributos inegociáveis, que impedem roubo por XSS e por CSRF. O
+    // `Secure` é condicional (segue o protocolo) e tem cobertura própria em
+    // "cookie Secure" abaixo — aqui a chamada é http, então ele não vem.
     expect(set).toContain("HttpOnly");
     expect(set.toLowerCase()).toContain("samesite=strict");
-    expect(set).toContain("Secure");
+    expect(set).not.toContain("Secure");
     // A resposta traz o usuário, **nunca** o hash.
     const corpo = (await res.json()) as {
       user: {
@@ -308,5 +310,79 @@ describe("idioma", () => {
     const { app, cookie } = await logar();
     const res = await chamar(app, "PATCH", "/api/auth/locale", { cookie, body: { locale: "fr" } });
     expect(res.status).toBe(422);
+  });
+});
+
+/**
+ * O cookie `Secure` segue o protocolo (DBee.md §11.44).
+ *
+ * O bug que motivou isto não aparece em teste de "consegue logar": o servidor
+ * autentica e emite o `Set-Cookie` normalmente — é o **navegador** que descarta
+ * um cookie `Secure` recebido sobre `http://`, e a suíte chama o app direto, sem
+ * navegador. Mesmo padrão do parseDate: cobrir os dois lados da fronteira em vez
+ * de confiar que "logou no servidor" significa "sessão no cliente".
+ *
+ * Aqui o lado do navegador é simulado pela regra dele: sobre `http` o cookie
+ * `Secure` seria jogado fora, então a asserção é que ele **não vem** com `Secure`
+ * — e, crucialmente, que a requisição seguinte com esse cookie é aceita.
+ */
+describe("cookie Secure segue o protocolo", () => {
+  const loginEm = async (
+    app: ReturnType<typeof createApp>,
+    esquema: "http" | "https",
+  ): Promise<Response> =>
+    app.handle(
+      new Request(`${esquema}://localhost/api/auth/login`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: "admin", password: "senha-normal-12345" }),
+      }),
+    );
+
+  it("sobre http emite cookie SEM Secure e a sessão seguinte é aceita", async () => {
+    const { app } = await cenario();
+    const res = await loginEm(app, "http");
+    expect(res.status).toBe(200);
+
+    const set = res.headers.get("set-cookie") ?? "";
+    expect(set).not.toContain("Secure");
+    // Os inegociáveis continuam.
+    expect(set).toContain("HttpOnly");
+    expect(set.toLowerCase()).toContain("samesite=strict");
+
+    // A prova real: o cookie emitido volta e é aceito — a sessão existe.
+    const token = cookieDaResposta(res);
+    expect(token).not.toBeNull();
+    const me = await app.handle(
+      new Request("http://localhost/api/auth/me", {
+        headers: { cookie: `${SESSION_COOKIE}=${token ?? ""}` },
+      }),
+    );
+    expect(me.status).toBe(200);
+  });
+
+  it("sobre https emite cookie COM Secure", async () => {
+    const { app } = await cenario();
+    const res = await loginEm(app, "https");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie") ?? "").toContain("Secure");
+  });
+
+  it("DBEE_COOKIE_SECURE explícito vence o protocolo (TLS que termina no proxy)", async () => {
+    const anterior = process.env["DBEE_COOKIE_SECURE"];
+    try {
+      // Proxy termina TLS: app vê http, mas o operador força Secure.
+      process.env["DBEE_COOKIE_SECURE"] = "true";
+      const forcado = await loginEm((await cenario()).app, "http");
+      expect(forcado.headers.get("set-cookie") ?? "").toContain("Secure");
+
+      // E o inverso desliga, mesmo sobre https.
+      process.env["DBEE_COOKIE_SECURE"] = "false";
+      const desligado = await loginEm((await cenario()).app, "https");
+      expect(desligado.headers.get("set-cookie") ?? "").not.toContain("Secure");
+    } finally {
+      if (anterior === undefined) delete process.env["DBEE_COOKIE_SECURE"];
+      else process.env["DBEE_COOKIE_SECURE"] = anterior;
+    }
   });
 });

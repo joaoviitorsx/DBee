@@ -141,6 +141,7 @@ como uma falha diferente e obscura:
 | `DBEE_DATA_DIR` | não | Onde ficam o SQLite e o salt de cifra. Default `/data` no container. **Precisa de volume persistente** (ver aviso). |
 | `PORT` | não | Porta do servidor. Default `3001`. Valor inválido aborta o boot. |
 | `DBEE_CA_CERT` | não | CA em PEM para `sslmode=verify-full` contra um CA privado. Vazio é tratado como ausente (não zera o CA store do sistema). |
+| `DBEE_COOKIE_SECURE` | não | Marca o cookie de sessão como `Secure`. Sem a env, segue o protocolo da requisição (`https` ⇒ `Secure`, `http` ⇒ sem). Acesso por IP da tailnet sobre `http` **não precisa de nada** — funciona. Só defina `true` quando o **TLS termina no proxy** (Traefik/Dokploy com domínio): o app vê `http` internamente, mas o usuário está em `https`. Não afeta `HttpOnly` nem `SameSite=Strict`. |
 
 > **Não existem `ADMIN_PASSWORD` nem `DOKPLOY_DEPLOY_WEBHOOK`.** Versões antigas
 > deste README as citavam; o código não as lê. A primeira conta nasce pela tela
