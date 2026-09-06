@@ -2,6 +2,30 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [0.1.3] — 2026-09-05
+
+> **Corrige um bug bloqueante de login em produção sem TLS.** A **0.1.2** (e
+> anteriores) emitia o cookie de sessão com `Secure` incondicional. O navegador
+> **descarta** um cookie `Secure` recebido sobre `http://`, então no acesso por
+> IP da tailnet (`http://100.x.x.x:3001`, o caminho documentado sem domínio) o
+> login autenticava, o cookie era jogado fora, e a tela voltava para o login —
+> **sessão impossível**. Quem acessa por `http` deve atualizar.
+
+### Corrigido
+- **Cookie de sessão `Secure` agora é condicional** (§11.44): segue o protocolo
+  da requisição (`https` ⇒ `Secure`, `http` ⇒ sem), com override explícito por
+  `DBEE_COOKIE_SECURE` (`true`/`false`) para o caso de **TLS que termina no
+  proxy** (Traefik/Dokploy com domínio — defina `DBEE_COOKIE_SECURE=true`).
+  `HttpOnly` e `SameSite=Strict` seguem inegociáveis — só o `Secure` mudou.
+  Coberto dos dois lados em `auth.test.ts` ("cookie Secure segue o protocolo"):
+  login sobre `http` emite cookie sem `Secure` **e** a sessão seguinte é aceita;
+  sobre `https` vem `Secure`; a env explícita vence o protocolo nos dois sentidos.
+
+### Adicionado
+- **`DBEE_COOKIE_SECURE`** — nova variável de ambiente (ver README). Opcional;
+  o default (seguir o protocolo) atende tanto o acesso `http` por IP da tailnet
+  quanto o `https` direto.
+
 ## [0.1.2] — 2026-09-05
 
 ### Adicionado
