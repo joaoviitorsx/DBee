@@ -4,6 +4,8 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.2.1] — 2026-09-08
+
 > **Aviso de versão nova e botão de atualizar, dentro do app.** O cabeçalho
 > passa a mostrar um selo quando há release mais nova; o diálogo traz o link
 > das notas e o botão que pede o redeploy ao Dokploy. **Quem troca o container
