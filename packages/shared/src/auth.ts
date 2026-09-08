@@ -71,6 +71,24 @@ export type Locale = Static<typeof Locale>;
 export const LocaleRequest = t.Object({ locale: Locale });
 export type LocaleRequest = Static<typeof LocaleRequest>;
 
+/**
+ * Papel (DBee.md §9, v0.2).
+ *
+ * Dois valores, não uma escala numérica: `admin` administra contas e conexões,
+ * `member` usa. Uma escala convidaria a comparações do tipo `nivel >= 2`
+ * espalhadas pelo código, e cada uma delas é um lugar onde a regra pode
+ * divergir das outras.
+ *
+ * **Sem `default` (ADR 004).** Ele parecia inofensivo aqui, e não é: `Role`
+ * também é o corpo do `PATCH /users/:id`, e o Elysia **materializa** o default
+ * durante a validação. Um `PATCH {}` chegaria ao handler como
+ * `{ role: "member" }` e rebaixaria a pessoa sem ninguém ter pedido. O default
+ * mora na coluna (`DEFAULT 'member'`, migração 004), que é onde ele descreve
+ * uma linha nova em vez de preencher a lacuna de uma requisição.
+ */
+export const Role = t.Union([t.Literal("admin"), t.Literal("member")]);
+export type Role = Static<typeof Role>;
+
 /** O usuário da sessão. **Nunca** carrega hash de senha. */
 export const SessionUser = t.Object({
   id: t.String(),
@@ -83,6 +101,13 @@ export const SessionUser = t.Object({
   mustChangePassword: t.Boolean(),
   /** Idioma escolhido, servido no login e no `/me` para o front hidratar o `t()`. */
   locale: Locale,
+  /**
+   * O papel viaja no `/me` porque a UI precisa dele para decidir o que
+   * desenhar. **Isso não é o controle** — esconder a tela de usuários não
+   * impede um `POST /api/users`. O controle é o `exigirAdmin` no servidor; o
+   * campo aqui só evita oferecer à pessoa um botão que vai dar 403.
+   */
+  role: Role,
   createdAt: t.String(),
 });
 export type SessionUser = Static<typeof SessionUser>;

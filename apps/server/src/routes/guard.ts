@@ -171,6 +171,22 @@ export const sessionGuard = (users: UsersRepository) =>
  * `ROTAS_ABERTAS`, o que não pode acontecer é o `query_log` ganhar linhas com
  * `actor` vazio, que é auditoria com aparência de auditoria.
  */
+/**
+ * Confere que quem pediu é administrador.
+ *
+ * Devolve o id de quem pediu, para o chamador não ter de extraí-lo de novo —
+ * as regras de administração precisam saber quem está agindo (a trava de "não
+ * faça isso com a própria conta").
+ *
+ * **Este é o controle.** O `role` também viaja no `/me` para a UI decidir o que
+ * desenhar, mas esconder a tela não impede um `POST /api/users` feito à mão.
+ * Toda rota de administração passa por aqui, no servidor.
+ */
+export function exigirAdmin(sessao: Sessao | null): { ok: true; atorId: string } | { ok: false } {
+  if (sessao?.user.role !== "admin") return { ok: false };
+  return { ok: true, atorId: sessao.user.id };
+}
+
 export function exigirAtor(sessao: Sessao | null): string {
   if (sessao === null) {
     throw new Error("rota de execução sem sessão: o guard foi contornado");

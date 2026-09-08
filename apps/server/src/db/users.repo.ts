@@ -1,7 +1,13 @@
 import type { Database, Statement } from "bun:sqlite";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
-import { SESSION_TTL_MS, type Locale, type SessionUser } from "@dbee/shared";
+import {
+  SESSION_TTL_MS,
+  type Locale,
+  type Role,
+  type SessionUser,
+  type UserSummary,
+} from "@dbee/shared";
 
 import { nanoid } from "../lib/ids";
 
@@ -16,7 +22,24 @@ const PUBLIC_COLUMNS = `
   id, username,
   must_change_password AS mustChangePassword,
   locale,
+  role,
   created_at AS createdAt
+`;
+
+/**
+ * As mesmas colunas, qualificadas por `u`, para o `JOIN` com `sessions`.
+ *
+ * Não dá para reaproveitar `PUBLIC_COLUMNS` ali: **`created_at` existe nas duas
+ * tabelas**, e sem prefixo o SQLite resolve a ambiguidade sozinho — pela ordem
+ * do `FROM`, não pela intenção de quem escreveu. Uma lista separada é mais
+ * verbosa e não tem esse silêncio.
+ */
+const PUBLIC_COLUMNS_U = `
+  u.id, u.username,
+  u.must_change_password AS mustChangePassword,
+  u.locale,
+  u.role,
+  u.created_at AS createdAt
 `;
 
 interface UserRow {
@@ -24,6 +47,7 @@ interface UserRow {
   username: string;
   mustChangePassword: number;
   locale: string;
+  role: string;
   createdAt: string;
 }
 
@@ -31,8 +55,10 @@ const toUser = (row: UserRow): SessionUser => ({
   ...row,
   mustChangePassword: row.mustChangePassword === 1,
   // O CHECK da migração 003 garante o domínio; o cast só reconcilia o tipo
-  // largo do SQLite (string) com a união fechada de `Locale`.
+  // largo do SQLite (string) com a união fechada de `Locale`. Mesmo caso do
+  // `role`, cujo CHECK está na 004.
   locale: row.locale as Locale,
+  role: row.role as Role,
 });
 
 /**
@@ -64,7 +90,8 @@ export class UsersRepository {
   readonly #porNome: Statement<UserRow & { password_hash: string }, [string]>;
   readonly #porId: Statement<UserRow, [string]>;
   readonly #contar: Statement<{ n: number }, []>;
-  readonly #criar: Statement<unknown, [string, string, string, number, string, string]>;
+  readonly #listar: Statement<UserRow & { activeSessions: number }, [string]>;
+  readonly #criar: Statement<unknown, [string, string, string, number, string, string, string]>;
   readonly #trocarSenha: Statement<unknown, [string, string, string]>;
   readonly #atualizarIdioma: Statement<unknown, [string, string, string]>;
 
@@ -82,9 +109,17 @@ export class UsersRepository {
     );
     this.#porId = db.query(`SELECT ${PUBLIC_COLUMNS} FROM users WHERE id = ?`);
     this.#contar = db.query("SELECT COUNT(*) AS n FROM users");
+    this.#listar = db.query(
+      `SELECT ${PUBLIC_COLUMNS_U},
+              COUNT(s.token_hash) AS activeSessions
+         FROM users u
+         LEFT JOIN sessions s ON s.user_id = u.id AND s.expires_at > ?
+        GROUP BY u.id
+        ORDER BY u.username`,
+    );
     this.#criar = db.query(
-      `INSERT INTO users (id, username, password_hash, must_change_password, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO users (id, username, password_hash, must_change_password, role, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     this.#trocarSenha = db.query(
       `UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?`,
@@ -125,11 +160,22 @@ export class UsersRepository {
     return row === null ? null : toUser(row);
   }
 
-  criar(username: string, passwordHash: string, mustChangePassword: boolean): SessionUser {
+  /**
+   * Cria conta. `role` tem default `"admin"` porque o **único** chamador sem
+   * papel explícito é o setup do primeiro acesso, e a primeira conta é a de
+   * quem administra a instalação — mesma regra do `UPDATE` na migração 004.
+   * A rota de admin sempre passa o papel de forma explícita.
+   */
+  criar(
+    username: string,
+    passwordHash: string,
+    mustChangePassword: boolean,
+    role: Role = "admin",
+  ): SessionUser {
     const id = nanoid();
     const agora = new Date().toISOString();
-    this.#criar.run(id, username, passwordHash, mustChangePassword ? 1 : 0, agora, agora);
-    return { id, username, mustChangePassword, locale: "pt", createdAt: agora };
+    this.#criar.run(id, username, passwordHash, mustChangePassword ? 1 : 0, role, agora, agora);
+    return { id, username, mustChangePassword, locale: "pt", role, createdAt: agora };
   }
 
   /**
@@ -202,6 +248,81 @@ export class UsersRepository {
    */
   fecharSessao(tokenHash: string): void {
     this.#apagarSessao.run(tokenHash);
+  }
+
+  /**
+   * A lista da tela de administração, com as sessões vivas de cada um.
+   *
+   * A contagem sai de um `LEFT JOIN` agregado, não de uma consulta por linha:
+   * N+1 aqui seria N+1 sobre o mesmo arquivo SQLite que atende as queries do
+   * usuário. O `expires_at > ?` importa — sessão expirada continua na tabela
+   * até alguém logar (a limpeza é oportunista em `abrirSessao`), e contá-la
+   * faria a tela afirmar que existe acesso que já não existe.
+   */
+  listar(): UserSummary[] {
+    return this.#listar
+      .all(new Date().toISOString())
+      .map((row) => ({ ...toUser(row), activeSessions: row.activeSessions }));
+  }
+
+  /**
+   * Quantos admins existem.
+   *
+   * A rota usa isto para recusar a remoção ou o rebaixamento do **último**
+   * admin. Sem essa trava, uma instalação pode chegar a zero administradores, e
+   * o conserto exige editar o SQLite dentro do container à mão — não há tela
+   * que resolva, porque a tela é justamente a que exige admin.
+   */
+  contarAdmins(): number {
+    return (
+      this.#db
+        .query<{ n: number }, []>("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'")
+        .get()?.n ?? 0
+    );
+  }
+
+  /** Troca o papel. Não mexe em sessão: papel não é segredo, é permissão. */
+  definirPapel(userId: string, role: Role): void {
+    this.#db
+      .query<unknown, [string, string, string]>(
+        "UPDATE users SET role = ?, updated_at = ? WHERE id = ?",
+      )
+      .run(role, new Date().toISOString(), userId);
+  }
+
+  /**
+   * Reset administrativo: nova senha provisória, exigência de troca de volta, e
+   * **todas as sessões da pessoa derrubadas**, numa transação só.
+   *
+   * Derrubar é o ponto. Resetar senha é o que se faz quando se suspeita que
+   * alguém está dentro; deixar a sessão viva deixaria essa pessoa dentro.
+   */
+  resetarSenha(userId: string, passwordHash: string): void {
+    this.#db.transaction(() => {
+      this.#db
+        .query<unknown, [string, string, string]>(
+          "UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?",
+        )
+        .run(passwordHash, new Date().toISOString(), userId);
+      this.#apagarSessoesDoUsuario.run(userId);
+    })();
+  }
+
+  /**
+   * Remove a conta. As sessões vão junto pelo `ON DELETE CASCADE` da migração
+   * 002 — mas o `DELETE` explícito fica aqui porque `PRAGMA foreign_keys` é
+   * por conexão no SQLite, e depender dele para uma garantia de segurança é
+   * depender de configuração que pode mudar longe daqui.
+   *
+   * O `query_log` **não** é tocado: `actor` guarda o id, não uma FK, justamente
+   * para a auditoria sobreviver à saída da pessoa. Auditoria que some quando o
+   * usuário é removido não é auditoria.
+   */
+  remover(userId: string): void {
+    this.#db.transaction(() => {
+      this.#apagarSessoesDoUsuario.run(userId);
+      this.#db.query<unknown, [string]>("DELETE FROM users WHERE id = ?").run(userId);
+    })();
   }
 
   /** Só para teste: quantas sessões vivas o usuário tem. */

@@ -84,6 +84,7 @@ describe("login", () => {
         username: string;
         mustChangePassword: boolean;
         locale: string;
+        role: string;
         createdAt: string;
       };
     };
@@ -93,8 +94,12 @@ describe("login", () => {
     expect(typeof corpo.user.id).toBe("string");
     expect(typeof corpo.user.createdAt).toBe("string");
     // A barreira que importa: o hash não sai da tabela por rota nenhuma.
+    // `role` entrou com a administração de contas (v0.2) e é decisão
+    // deliberada: a UI precisa dele para não oferecer um botão que dará 403.
+    // O controle continua sendo o `exigirAdmin` no servidor.
+    expect(corpo.user.role).toBe("admin");
     expect(Object.keys(corpo.user).sort()).toEqual([
-      "createdAt", "id", "locale", "mustChangePassword", "username",
+      "createdAt", "id", "locale", "mustChangePassword", "role", "username",
     ]);
   });
 

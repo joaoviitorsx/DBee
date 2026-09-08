@@ -23,6 +23,7 @@ import { mutationRoutes } from "./routes/mutation";
 import { queryRoutes } from "./routes/query";
 import { rowsRoutes } from "./routes/rows";
 import { savedQueriesRoutes } from "./routes/savedQueries";
+import { usersRoutes } from "./routes/users";
 import { schemaRoutes } from "./routes/schema";
 import { AuthService } from "./services/auth.service";
 import { ConnectionsService } from "./services/connections.service";
@@ -30,6 +31,7 @@ import { ExportService } from "./services/export.service";
 import { QueryService } from "./services/query.service";
 import { RowsService } from "./services/rows.service";
 import { DdlService } from "./services/ddl.service";
+import { UsersService } from "./services/users.service";
 import { SchemaService } from "./services/schema.service";
 import { UpdateService, versaoDoBinario } from "./services/update.service";
 
@@ -75,6 +77,7 @@ export function createApp({
   const rows = new RowsService({ repository, pools, schema, log });
   const exportar = new ExportService({ repository, pools, schema, log });
   const ddl = new DdlService({ repository, pools, log });
+  const usuarios = new UsersService(users);
   const update = new UpdateService({
     settings: new SettingsRepository(store.db, store.key),
     current: versaoDoBinario(),
@@ -123,6 +126,7 @@ export function createApp({
       .use(auditRoutes(audit))
       .use(ddlRoutes(ddl, users))
       .use(savedQueriesRoutes(savedQueries))
+      .use(usersRoutes(usuarios, users))
       .use(metaRoutes(update, users))
   );
 }

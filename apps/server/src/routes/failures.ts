@@ -1,4 +1,9 @@
-import type { AuthFailure, MutationFailure, ServiceFailure } from "../services/result";
+import type {
+  AuthFailure,
+  MutationFailure,
+  ServiceFailure,
+  UserFailure,
+} from "../services/result";
 
 /** Único ponto que traduz falha de domínio em status HTTP. */
 export const FAILURES: Readonly<
@@ -114,4 +119,40 @@ export const MUTATION_FAILURES = {
 } as const satisfies Record<
   MutationFailure,
   { status: 403 | 404 | 409 | 500 | 502; body: { code: string; message: string } }
+>;
+
+/**
+ * Falhas da administração de contas → status.
+ *
+ * `admin_required` é 403 e **não** 404: quem tem sessão válida sabe que a rota
+ * existe (o front dela é servido pelo mesmo binário), então esconder o status
+ * não esconderia nada e só tornaria o erro mais difícil de diagnosticar.
+ */
+export const USER_FAILURES = {
+  admin_required: {
+    status: 403,
+    body: { code: "admin_required", message: "só um administrador pode fazer isso" },
+  },
+  user_not_found: {
+    status: 404,
+    body: { code: "user_not_found", message: "usuário não encontrado" },
+  },
+  username_taken: {
+    status: 409,
+    body: { code: "username_taken", message: "já existe uma conta com esse nome" },
+  },
+  last_admin: {
+    status: 409,
+    body: {
+      code: "last_admin",
+      message: "esta é a última conta de administrador — promova outra antes",
+    },
+  },
+  self_target: {
+    status: 409,
+    body: { code: "self_target", message: "não dá para fazer isso com a própria conta" },
+  },
+} as const satisfies Record<
+  UserFailure,
+  { status: 403 | 404 | 409; body: { code: string; message: string } }
 >;

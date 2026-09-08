@@ -14,3 +14,4 @@ export * from "./rows";
 export * from "./savedQueries";
 export * from "./schema";
 export * from "./split";
+export * from "./users";

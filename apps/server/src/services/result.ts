@@ -41,6 +41,36 @@ export const mutFail = <T>(failure: MutationFailure, detail?: string): MutationR
   detail === undefined ? { ok: false, failure } : { ok: false, failure, detail };
 
 /**
+ * Falhas da administração de contas, num tipo à parte — mesma razão das
+ * outras: `409` e `403` daqui só nascem nas rotas `/users`.
+ */
+export type UserFailure =
+  /** Quem pediu não é admin. */
+  | "admin_required"
+  | "user_not_found"
+  /** O `UNIQUE` de `users.username` recusou. */
+  | "username_taken"
+  /**
+   * A ação deixaria a instalação **sem nenhum admin**. Sem essa trava o conserto
+   * exige editar o SQLite dentro do container à mão, porque a tela que
+   * resolveria é a que exige admin.
+   */
+  | "last_admin"
+  /**
+   * Admin tentando remover a própria conta. Não é perigoso — a trava do último
+   * admin já cobre o caso destrutivo —, é só um botão sem uso nenhum que
+   * desloga a pessoa para sempre.
+   */
+  | "self_target";
+
+export type UserResult<T> =
+  | { readonly ok: true; readonly value: T }
+  | { readonly ok: false; readonly failure: UserFailure };
+
+export const userOk = <T>(value: T): UserResult<T> => ({ ok: true, value });
+export const userFail = <T>(failure: UserFailure): UserResult<T> => ({ ok: false, failure });
+
+/**
  * Falhas de autenticação, num tipo à parte.
  *
  * Não entram no `ServiceFailure` porque não são produzíveis pelas outras
