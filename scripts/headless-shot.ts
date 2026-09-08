@@ -10,8 +10,12 @@
  * sessão válida.
  *
  * Uso:
- *   bun scripts/headless-shot.ts <saida.png> [caminho] [tema] [idioma] [w] [h]
+ *   bun scripts/headless-shot.ts <saida.png> [caminho] [tema] [idioma] [w] [h] [acao]
  *   ex.: bun scripts/headless-shot.ts /tmp/vazio.png / dark pt 1440 900
+ *
+ * `acao` é uma expressão JS avaliada na página depois da navegação e antes da
+ * captura — é como se chega a um estado real (menu aberto, modal na tela) em
+ * vez de fotografar sempre a tela inicial.
  *
  * Pré-requisitos: `bun run dev` de pé (web :5173 + server :3001) COM o código
  * atual (o backend precisa ter as rotas que a tela usa), e um Chrome headless
@@ -21,7 +25,7 @@ import { Database } from "bun:sqlite";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
 
-const [, , saida, caminho = "/", tema = "dark", idioma = "pt", w = "1440", h = "900"] = process.argv;
+const [, , saida, caminho = "/", tema = "dark", idioma = "pt", w = "1440", h = "900", acao] = process.argv;
 if (saida === undefined) {
   console.error("uso: bun scripts/headless-shot.ts <saida.png> [caminho] [tema] [idioma] [w] [h]");
   process.exit(1);
@@ -116,6 +120,20 @@ await send("Runtime.evaluate", {
 });
 await send("Page.navigate", { url: `http://localhost:5173${caminho}` });
 await new Promise((r) => setTimeout(r, 2200));
+
+// Estado real antes da captura: sem isto todo screenshot é a tela inicial, e a
+// tela inicial não é onde os erros visuais moram.
+if (acao !== undefined && acao !== "") {
+  const r = (await send("Runtime.evaluate", {
+    expression: acao,
+    awaitPromise: true,
+    returnByValue: true,
+  })) as { exceptionDetails?: { text?: string } };
+  if (r.exceptionDetails !== undefined) {
+    throw new Error(`ação falhou na página: ${r.exceptionDetails.text ?? "erro"}`);
+  }
+  await new Promise((rr) => setTimeout(rr, 900));
+}
 const cap = (await send("Page.captureScreenshot", { format: "png" })) as { data: string };
 await Bun.write(saida, Buffer.from(cap.data, "base64"));
 console.log("wrote", saida);

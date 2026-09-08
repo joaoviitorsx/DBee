@@ -17,11 +17,23 @@ RUN bun install --frozen-lockfile
 FROM deps AS build
 WORKDIR /app
 COPY . .
-# web primeiro (Vite), depois o binário do server
+
+# A versão que o binário vai afirmar ser, para o aviso de atualização (§8).
+# O `release.yml` passa a tag (`v0.2.0`); fora dele fica `dev`, que nunca
+# compara com tag nenhuma.
+ARG DBEE_VERSION=dev
+
+# web primeiro (Vite), depois o binário do server.
+#
+# `--define` grava o literal DENTRO do binário. Não é `ENV`: a imagem de
+# runtime é `debian-slim` e não tem `package.json` para ler a versão, e uma
+# variável de ambiente no compose exigiria editar o compose a cada release —
+# que é justamente o trabalho que este recurso existe para eliminar.
 RUN bun run --filter '@dbee/web' build \
  && bun build apps/server/src/index.ts \
       --compile \
       --target bun-linux-x64 \
+      --define "process.env.DBEE_VERSION=\"${DBEE_VERSION}\"" \
       --outfile /tmp/dbee
 
 # ---------- runtime ----------
