@@ -5,6 +5,25 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Permissão por conexão (fase 2 do multi-usuário).** A fase 1 entregou contas
+  individuais e, com elas, o pior arranjo: auditoria correta e **todo mundo
+  enxergando todas as conexões**. Agora `admin` vê tudo (ele as administra) e
+  `member` vê só o que lhe foi concedido.
+  - **Escrita exige as duas pontas**: `write_enabled` na conexão E `can_write`
+    na concessão. Produção segue gravável para quem precisa sem virar gravável
+    para quem recebeu leitura.
+  - O controle mora num ponto só: `resolve(id, ator)`, por onde passa **todo**
+    caminho que fala com o Postgres. Ele devolve `null` para quem não alcança —
+    indistinguível de "não existe", porque responder "existe, mas não é sua"
+    confirmaria o id — e o `writeEnabled` já rebaixado. As três portas de
+    escrita não mudaram uma linha.
+  - **Criar, editar e apagar conexão viraram de administrador.** Estavam
+    abertos a qualquer autenticado, o que com o time dentro seria um `member`
+    reapontando o host de uma conexão que ele nem enxerga.
+  - **A auditoria segue a visibilidade**: sem isso um `member` lia no `/audit` o
+    SQL de conexões que não aparecem na árvore dele.
+  - Painel "Quem alcança esta conexão" no formulário de edição, só para admin.
+    Aplica no clique, não no Salvar — revogar acesso é ação de segurança.
 - **Contas para o time (fase 1 do multi-usuário).** Até aqui o DBee era travado
   em **uma** conta: `POST /auth/setup` recusa quando já existe usuário, e
   nenhuma outra rota criava conta. Distribuir só era possível compartilhando o
