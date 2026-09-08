@@ -1,40 +1,50 @@
-import { Hexagon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Honeycomb } from "../../components/Honeycomb";
+import vitrine from "../../assets/vitrine-login.webp";
 import { HoneycombCluster } from "../../components/HoneycombCluster";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
 import { IdiomaToggle } from "../idioma/IdiomaToggle";
-import { Mascote, type Humor } from "../mascote";
 
 /**
- * A moldura das telas de entrada — duas colunas.
+ * A moldura das telas de entrada: um cartão com a ilustração à esquerda e o
+ * formulário à direita.
  *
- * À **esquerda**, a vitrine: fundo âmbar profundo com favo de mel (o motivo da
- * abelha) e o mascote flutuando, com a marca. É o rosto do produto na porta. À
- * **direita**, o formulário, sobre o material do app. No mobile a vitrine vira
- * uma faixa curta no topo — o mascote continua presente sem comer a tela do
- * teclado.
+ * ## A ilustração carrega a marca sozinha
  *
- * O favo aparece **de leve** também atrás do formulário: costura os dois lados,
- * para a divisa não parecer dois produtos colados.
+ * Antes, a vitrine empilhava selo, mascote com halo, duas auroras animadas,
+ * favo de fundo, slogan e três provas — sete elementos disputando a mesma
+ * coluna, e o formulário do lado com um cacho de favo de canto. Agora a
+ * ilustração **é** a vitrine. Um elemento memorável, e tudo em volta quieto:
+ * o resto da tela só precisa levar a pessoa ao campo de usuário.
+ *
+ * O mascote saiu junto, e não é perda: a cena já tem a abelha. Repeti-la ao
+ * lado seria a redundância que o design-system lista no §1.4.
+ *
+ * ## O que a tela NÃO tem
+ *
+ * Não há "criar conta", "esqueci minha senha" nem "lembrar de mim". Não é
+ * esquecimento: **nenhum dos três existe no servidor.** Não há rota de
+ * recuperação, e a sessão tem expiração absoluta de 12 h (§7), sem modo
+ * prolongado. Um controle que não faz nada é pior que a ausência dele — quem
+ * perdeu a senha precisa saber que o caminho é o servidor, e o rodapé diz
+ * isso.
  */
 export function AuthPanel({
   titulo,
+  tituloDestaque,
   descricao,
-  humor,
-  ocupado = false,
   recusado = false,
   children,
   rodape,
 }: {
   readonly titulo: string;
+  /**
+   * Fecho do título, em âmbar. "Bem-vindo" + "de volta" — a cor separa a
+   * saudação do estado, sem precisar de duas linhas.
+   */
+  readonly tituloDestaque?: string;
   readonly descricao: string;
-  /** Humor do mascote na vitrine. */
-  readonly humor: Humor;
-  /** O mascote flutua enquanto a requisição está no ar. */
-  readonly ocupado?: boolean;
   /** Dispara o gesto de recusa uma vez. */
   readonly recusado?: boolean;
   readonly children: React.ReactNode;
@@ -51,161 +61,94 @@ export function AuthPanel({
   const t = useT();
 
   return (
-    <main className="relative grid min-h-dvh grid-rows-[auto_1fr] bg-sunken lg:grid-cols-[1.05fr_1fr] lg:grid-rows-1">
-      {/* Idioma escolhível antes do login — quem só lê inglês troca aqui. */}
-      <IdiomaToggle className="absolute right-3 top-3 z-10 text-bone/80 hover:text-bone lg:text-ink/70 lg:hover:text-ink" />
-      {/* Vitrine — marca, favo e mascote. */}
-      <div className="relative overflow-hidden bg-graphite lg:border-r lg:border-line">
-        {/* Gradiente âmbar quente, o fundo de marca. */}
-        <div
-          aria-hidden
-          className="absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(120% 120% at 20% 0%, color-mix(in oklab, var(--color-amber) 22%, var(--color-graphite)) 0%, var(--color-graphite) 60%)",
-          }}
-        />
+    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-sunken p-4 sm:p-6">
+      {/*
+        Dois cachos de favo nos cantos opostos, bem apagados. É a única
+        decoração do fundo: papel de parede atrás de um cartão escuro vira
+        ruído, e a tesselação cheia competia com a ilustração.
+      */}
+      <HoneycombCluster
+        aria-hidden
+        className="pointer-events-none absolute -left-16 -top-16 h-72 w-72 text-accent opacity-[0.07]"
+        size={22}
+      />
+      <HoneycombCluster
+        aria-hidden
+        className="pointer-events-none absolute -bottom-16 -right-16 h-72 w-72 -scale-x-100 text-accent opacity-[0.07]"
+        size={22}
+      />
+
+      <IdiomaToggle className="absolute right-4 top-4 z-20 text-muted hover:text-ink" />
+
+      <div
+        key={gesto}
+        className={cn(
+          // Um único momento de entrada, no cartão inteiro — não uma cascata
+          // por elemento, que é o tique de página gerada (design-system).
+          "animate-settle relative z-10 w-full max-w-5xl overflow-hidden rounded-2xl",
+          "border border-line/70 bg-surface shadow-[0_32px_80px_-32px_rgba(20,12,2,0.85)]",
+          "grid grid-cols-1 lg:grid-cols-[1fr_1.05fr]",
+          recusado && "animate-refuse",
+        )}
+      >
         {/*
-         * Aurora — dois glows âmbar que derivam devagar atrás do favo e do
-         * mascote. É o "vivo" da tela; fica no fundo, desfocado, então nunca
-         * disputa leitura com a marca. Congelado sob prefers-reduced-motion.
-         */}
-        <div
-          aria-hidden
-          className="animate-aurora absolute -left-1/4 -top-1/4 h-[80%] w-[80%] rounded-full blur-[80px]"
-          style={{
-            background:
-              "radial-gradient(circle, color-mix(in oklab, var(--color-amber) 52%, transparent), transparent 70%)",
-          }}
-        />
-        <div
-          aria-hidden
-          className="animate-aurora absolute -bottom-1/4 -right-1/4 h-[70%] w-[70%] rounded-full blur-[90px]"
-          style={{
-            background:
-              "radial-gradient(circle, color-mix(in oklab, var(--color-amber) 34%, transparent), transparent 70%)",
-            animationDelay: "-9s",
-            animationDuration: "26s",
-          }}
-        />
-        <Honeycomb className="absolute inset-0 text-amber" size={26} opacity={0.12} />
+          Ilustração à esquerda.
 
-        <div className="relative flex h-full flex-col items-center justify-center gap-5 px-6 py-8 lg:gap-7 lg:px-10 lg:py-12">
-          {/* Selo — o que é, em uma linha, antes do resto. */}
-          <span
-            className="animate-enter inline-flex items-center gap-1.5 rounded-full border border-amber/25 bg-amber/10 px-3 py-1 text-2xs font-medium text-amber"
-            style={{ animationDelay: "40ms" }}
-          >
-            <Hexagon aria-hidden className="h-3 w-3" fill="currentColor" strokeWidth={0} />
-            {t("login.selo")}
-          </span>
-
+          Em telas estreitas ela vira uma faixa curta no topo, com o
+          enquadramento no alto: é onde estão o céu e a abelha. `object-cover`
+          com `object-top` mantém o assunto visível em qualquer proporção, em
+          vez de cortar pelo meio.
+        */}
+        <div className="relative order-1 h-36 overflow-hidden sm:h-48 lg:h-auto">
+          <img
+            src={vitrine}
+            alt=""
+            aria-hidden
+            width={900}
+            height={1125}
+            // Sem animação contínua: o próprio CSS do projeto diz que nada
+            // anima só por decoração, e uma imagem pulsando não leva ninguém
+            // ao campo de usuário. O estado de carregando vive no botão.
+            className="h-full w-full object-cover object-top"
+          />
           {/*
-           * O mascote é o herói da vitrine: um halo âmbar difuso atrás dá
-           * profundidade sem virar movimento decorativo (o halo é estático; só
-           * o mascote flutua). O `float` para enquanto a requisição está no ar.
-           */}
-          <div className="animate-enter relative" style={{ animationDelay: "120ms" }}>
-            <div
-              aria-hidden
-              className="absolute inset-0 -z-10 scale-[1.6] rounded-full opacity-70 blur-2xl"
-              style={{
-                background:
-                  "radial-gradient(circle at 50% 45%, color-mix(in oklab, var(--color-amber) 40%, transparent), transparent 68%)",
-              }}
-            />
-            <Mascote
-              humor={humor}
-              float={!ocupado}
-              className="h-28 w-28 drop-shadow-[0_18px_36px_rgba(0,0,0,.45)] lg:h-44 lg:w-44"
-            />
-          </div>
-
-          {/* Marca + frase de efeito. */}
+            Véu que escurece a base da ilustração no empilhado, para o topo do
+            formulário não encostar num azul saturado. No desktop a divisa é a
+            borda do cartão e o véu some.
+          */}
           <div
-            className="animate-enter max-w-sm space-y-2.5 text-center"
-            style={{ animationDelay: "200ms" }}
-          >
-            <div className="flex items-center justify-center gap-2">
-              <img src="/icon-192.png" alt="" aria-hidden className="h-8 w-8" />
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-surface to-transparent lg:hidden"
+          />
+        </div>
+
+        {/* Formulário. */}
+        <div className="order-2 flex flex-col justify-center px-6 py-8 sm:px-10 sm:py-10 lg:px-12">
+          {/* Marca — ícone, lockup e a linha que diz o que é. */}
+          <div className="flex items-center gap-3">
+            <img src="/icon-192.png" alt="" aria-hidden className="h-10 w-10 shrink-0" />
+            <div className="min-w-0">
               {/*
-               * "D" e "Bee" no mesmo tamanho — a distinção é só de cor: "Bee"
-               * em âmbar (a abelha, o produto), "D" em osso. Sem diferença de
-               * corpo, então "DB" alinha em altura.
-               */}
-              <span className="font-marca text-3xl font-bold tracking-[-0.03em]">
-                <span className="text-bone">D</span>
-                <span className="text-amber">Bee</span>
+                "D" e "Bee" no mesmo corpo — a distinção é só de cor, então
+                "DB" alinha em altura.
+              */}
+              <span className="font-marca text-2xl font-bold leading-none tracking-[-0.03em]">
+                <span className="text-ink">D</span>
+                <span className="text-accent">Bee</span>
               </span>
+              <p className="mt-1 text-2xs text-subtle">{t("login.marcaTagline")}</p>
             </div>
-            {/*
-             * A assinatura da marca, em três tempos — "Build What's Next." é a
-             * batida final, em âmbar. Fica em inglês de propósito: é o slogan,
-             * não corpo de texto (o subtítulo abaixo fala português).
-             */}
-            <h2 className="text-2xl font-bold leading-[1.12] tracking-[-0.03em] text-bone lg:text-[1.7rem]">
-              {t("login.slogan1")}{" "}
-              <span className="text-amber">{t("login.slogan2")}</span>
-            </h2>
-            <p className="hidden max-w-[22rem] text-sm leading-relaxed text-bone/65 lg:block">
-              {t("login.subtitulo")}
-            </p>
           </div>
 
-          {/* Provas — três motivos, com marcador de favo. */}
-          <ul
-            className="animate-enter hidden w-full max-w-xs space-y-2.5 lg:block"
-            style={{ animationDelay: "300ms" }}
-          >
-            {[
-              [t("login.provaLeituraTitulo"), t("login.provaLeituraDetalhe")],
-              [t("login.provaHistoricoTitulo"), t("login.provaHistoricoDetalhe")],
-              [t("login.provaExportTitulo"), t("login.provaExportDetalhe")],
-            ].map(([titulo, detalhe]) => (
-              <li key={titulo} className="flex items-start gap-2.5">
-                <Hexagon
-                  aria-hidden
-                  className="mt-0.5 h-4 w-4 shrink-0 text-amber"
-                  fill="currentColor"
-                  strokeWidth={0}
-                />
-                <span className="text-xs leading-relaxed">
-                  <span className="font-medium text-bone">{titulo}</span>
-                  <span className="text-bone/55"> — {detalhe}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      {/* Formulário. */}
-      <div className="relative flex items-center justify-center overflow-hidden px-5 py-10">
-        {/*
-         * O detalhe de canto: um cacho de favo no canto inferior direito, âmbar
-         * do tema (traço no claro, mais quente no escuro). Substitui a
-         * tesselação de fundo que competia com o formulário — aqui é um selo, a
-         * marca assinando o rodapé, não papel de parede.
-         */}
-        <HoneycombCluster
-          className="absolute bottom-0 right-0 h-52 w-52 translate-x-8 translate-y-8 text-accent opacity-[0.16] lg:h-64 lg:w-64"
-          size={19}
-        />
-        <section
-          key={gesto}
-          className={cn(
-            // Cartão do formulário: material do app com um leve desfoque de fundo
-            // (o favo atrás ganha profundidade) e uma sombra contida e quente —
-            // não a sombra cinza difusa de card genérico. A régua âmbar à
-            // esquerda é a única moldura de marca; sem fio de luz no topo nem
-            // brilho decorativo, para não ter cara de template.
-            "relative w-full max-w-[25rem] rounded-2xl p-7 sm:p-9",
-            "border border-line/70 bg-surface/88 shadow-[0_24px_60px_-24px_rgba(20,12,2,0.75)] backdrop-blur-md",
-            "animate-settle border-l-[3px] border-l-accent",
-            recusado && "animate-refuse",
-          )}
-        >
-          <h1 className="text-xl font-semibold tracking-[-0.02em] text-ink">{titulo}</h1>
+          <h1 className="mt-8 text-2xl font-bold tracking-[-0.02em] text-ink sm:text-[1.75rem]">
+            {titulo}
+            {tituloDestaque === undefined ? null : (
+              <>
+                {" "}
+                <span className="text-accent">{tituloDestaque}</span>
+              </>
+            )}
+          </h1>
           <p className="mt-1.5 text-sm leading-relaxed text-muted">{descricao}</p>
 
           <div className="mt-7">{children}</div>
@@ -215,7 +158,7 @@ export function AuthPanel({
               {rodape}
             </p>
           )}
-        </section>
+        </div>
       </div>
     </main>
   );
@@ -278,7 +221,7 @@ export function CampoCredencial({
         {icone === undefined ? null : (
           // O ícone guia o campo (usuário, cadeado) e acende no foco junto do
           // rótulo — detalhe de login moderno, não enfeite: diz o que digitar.
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-10 items-center justify-center text-subtle transition-colors group-focus-within:text-accent">
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-11 items-center justify-center text-subtle transition-colors group-focus-within:text-accent">
             {icone}
           </div>
         )}
@@ -294,20 +237,20 @@ export function CampoCredencial({
           spellCheck={false}
           autoCapitalize="none"
           className={cn(
-            // 48px de altura: campo generoso de login moderno, e a mão pesada
-            // de quem digita senha errado duas vezes agradece o alvo grande.
-            "h-12 w-full rounded-lg border bg-sunken/60 px-3.5 font-mono text-sm text-ink",
+            // Cápsula alta, como na referência: alvo generoso para a mão pesada
+            // de quem já errou a senha duas vezes.
+            "h-12 w-full rounded-full border bg-sunken/70 px-4 font-mono text-sm text-ink",
             "transition-[color,border-color,box-shadow] duration-150 placeholder:text-subtle",
             "focus:outline-none focus:ring-4 focus:ring-accent/15",
-            icone === undefined ? "" : "pl-10",
-            acao === undefined ? "" : "pr-11",
+            icone === undefined ? "" : "pl-11",
+            acao === undefined ? "" : "pr-12",
             invalido
               ? "border-danger/60 focus:border-danger"
               : "border-line/80 hover:border-line-strong focus:border-accent",
           )}
         />
         {acao === undefined ? null : (
-          <div className="absolute inset-y-0 right-1 flex items-center">{acao}</div>
+          <div className="absolute inset-y-0 right-1.5 flex items-center">{acao}</div>
         )}
       </div>
 

@@ -1,4 +1,4 @@
-import { Eye, EyeOff, Lock, LogIn, User } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Lock, User } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { Button } from "../../components/ui";
@@ -51,9 +51,8 @@ export function LoginScreen() {
   return (
     <AuthPanel
       titulo={t("login.titulo")}
+      tituloDestaque={t("login.tituloDestaque")}
       descricao={t("login.descricao")}
-      humor={login.isError ? "pensando" : "laptop"}
-      ocupado={login.isPending}
       recusado={login.isError}
       rodape={t("login.rodape")}
     >
@@ -131,12 +130,16 @@ export function LoginScreen() {
           // Botão com peso: sobe 2px e ganha um halo âmbar no hover, volta no
           // clique. Só transform/shadow — compositado. O halo âmbar lê nos dois
           // temas; sob prefers-reduced-motion a transição some pelo bloco global.
-          className="h-11 w-full transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_-8px_rgba(245,166,35,0.6)] active:translate-y-0 active:shadow-none"
+          // Cápsula cheia, como os campos acima — a forma se repete e a
+          // coluna lê como um bloco só. Sobe 2px com halo âmbar no hover e
+          // volta no clique; só transform/shadow, compositado.
+          className="h-12 w-full rounded-full text-sm font-semibold transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_30px_-8px_rgba(245,166,35,0.6)] active:translate-y-0 active:shadow-none"
           loading={login.isPending}
           loadingLabel={t("login.entrando")}
         >
-          <LogIn aria-hidden className="h-4 w-4" />
           {t("login.entrar")}
+          {/* A seta aponta para onde a ação leva. Depois do rótulo, não antes. */}
+          <ArrowRight aria-hidden className="h-4 w-4" />
         </Button>
       </form>
     </AuthPanel>

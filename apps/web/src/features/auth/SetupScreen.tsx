@@ -48,8 +48,6 @@ export function SetupScreen() {
     <AuthPanel
       titulo={t("setup.titulo")}
       descricao={t("setup.descricao")}
-      humor={setup.isError ? "pensando" : "laptop"}
-      ocupado={setup.isPending}
       recusado={setup.isError}
       rodape={t("setup.rodape")}
     >

@@ -17,6 +17,10 @@
  * captura — é como se chega a um estado real (menu aberto, modal na tela) em
  * vez de fotografar sempre a tela inicial.
  *
+ * `DBEE_SHOT_SEM_SESSAO=1` pula a sessão: é o único jeito de fotografar as
+ * telas de ENTRADA (login, setup, troca de senha), que por definição são o
+ * que se vê sem estar autenticado.
+ *
  * Pré-requisitos: `bun run dev` de pé (web :5173 + server :3001) COM o código
  * atual (o backend precisa ter as rotas que a tela usa), e um Chrome headless
  * com --remote-debugging-port=9223 (ver o método CDP no CLAUDE.md).
@@ -80,7 +84,12 @@ function mintarSessao(): string {
   return token;
 }
 
-const token = mintarSessao();
+/**
+ * Sem sessão, nenhum banco é tocado: o guard barra antes, que é justamente o
+ * estado que as telas de entrada mostram.
+ */
+const semSessao = process.env.DBEE_SHOT_SEM_SESSAO === "1";
+const token = semSessao ? null : mintarSessao();
 
 const lista = (await (await fetch(`${CDP}/json/list`)).json()) as { type: string; url: string; webSocketDebuggerUrl: string }[];
 let alvo = lista.find((t) => t.type === "page" && t.url.includes("localhost:5173"));
@@ -106,15 +115,20 @@ await send("Network.enable");
 await send("Emulation.setDeviceMetricsOverride", { width: Number(w), height: Number(h), deviceScaleFactor: 2, mobile: false });
 // O cookie httpOnly da sessão — injetado por CDP, que a página não conseguiria
 // setar (é httpOnly de propósito). `secure:false` porque o vite dev é http.
-await send("Network.setCookie", {
-  name: "dbee_session",
-  value: token,
-  domain: "localhost",
-  path: "/",
-  httpOnly: true,
-  secure: false,
-  sameSite: "Lax",
-});
+// Limpa antes: uma sessão de execução anterior sobreviveria no perfil do
+// Chrome e o modo "sem sessão" mostraria o app logado.
+await send("Network.clearBrowserCookies");
+if (token !== null) {
+  await send("Network.setCookie", {
+    name: "dbee_session",
+    value: token,
+    domain: "localhost",
+    path: "/",
+    httpOnly: true,
+    secure: false,
+    sameSite: "Lax",
+  });
+}
 await send("Runtime.evaluate", {
   expression: `try{localStorage.setItem('dbee:tema','${tema}');localStorage.setItem('dbee:idioma','${idioma}')}catch(e){}`,
 });

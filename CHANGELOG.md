@@ -49,6 +49,18 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   selo nunca acenderia (§11.27c).
 
 ### Alterado
+- **Tela de login redesenhada**: ilustração à esquerda, formulário à direita,
+  num cartão único. A vitrine antiga empilhava selo, mascote com halo, duas
+  auroras animadas, favo de fundo, slogan e três provas — sete elementos
+  disputando a mesma coluna. Agora a ilustração **é** a vitrine, e tudo em
+  volta fica quieto.
+  - O mascote saiu da tela: a cena já tem a abelha, e repeti-la ao lado é a
+    redundância que o `design-system.md` §1.4 lista.
+  - **Não entram "criar conta", "esqueci minha senha" nem "lembrar de mim".**
+    Nenhum dos três existe no servidor: não há rota de recuperação, e a sessão
+    tem expiração absoluta de 12 h, sem modo prolongado. Controle que não faz
+    nada é pior que a ausência dele.
+  - Dez chaves de i18n ficaram órfãs com a vitrine antiga e foram removidas.
 - **Estado vazio enxugado.** Eram 45 palavras em três blocos — título,
   parágrafo e uma terceira linha que repetia o título — para dizer "abra uma
   conexão". Agora são o título e uma frase, e o mascote encolheu de 96 para

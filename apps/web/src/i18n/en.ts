@@ -32,8 +32,10 @@ export const en: Record<ChaveI18n, string> = {
   "tema.alternar": "Toggle theme",
 
   // --- login ---
-  "login.titulo": "Sign in to DBee",
-  "login.descricao": "Your connections and history are tied to this account.",
+  "login.titulo": "Welcome",
+  "login.tituloDestaque": "back",
+  "login.descricao": "Sign in to continue in DBee.",
+  "login.marcaTagline": "Your PostgreSQL, simpler.",
   "login.usuario": "Username",
   "login.senha": "Password",
   "login.entrar": "Sign in",
@@ -52,16 +54,6 @@ export const en: Record<ChaveI18n, string> = {
   "setup.criar": "Create account",
   "setup.criando": "Creating…",
   "setup.rodape": "The token lives in the volume, never in the log. It’s deleted once the account is created.",
-  "login.selo": "PostgreSQL client · self-hosted",
-  "login.slogan1": "Organize. Query.",
-  "login.slogan2": "Build What’s Next.",
-  "login.subtitulo": "Your modern PostgreSQL client — for the people building tomorrow.",
-  "login.provaLeituraTitulo": "Read-only by default",
-  "login.provaLeituraDetalhe": "BEGIN READ ONLY on every transaction.",
-  "login.provaHistoricoTitulo": "History tied to you",
-  "login.provaHistoricoDetalhe": "Connections and queries under your account.",
-  "login.provaExportTitulo": "Streaming export",
-  "login.provaExportDetalhe": "Millions of rows without blowing up memory.",
 
   // --- change password ---
   "senha.titulo": "Change your password to continue",

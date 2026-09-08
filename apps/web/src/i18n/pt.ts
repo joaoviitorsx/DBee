@@ -32,8 +32,10 @@ export const pt = {
   "tema.alternar": "Alternar tema",
 
   // --- login ---
-  "login.titulo": "Entrar no DBee",
-  "login.descricao": "Suas conexões e seu histórico ficam ligados a este usuário.",
+  "login.titulo": "Bem-vindo",
+  "login.tituloDestaque": "de volta",
+  "login.descricao": "Acesse sua conta para continuar no DBee.",
+  "login.marcaTagline": "Seu PostgreSQL, mais simples.",
   "login.usuario": "Usuário",
   "login.senha": "Senha",
   "login.entrar": "Entrar",
@@ -52,16 +54,6 @@ export const pt = {
   "setup.criar": "Criar conta",
   "setup.criando": "Criando…",
   "setup.rodape": "O token vive no volume, nunca no log. Depois de criar a conta ele é apagado.",
-  "login.selo": "Cliente PostgreSQL · self-hosted",
-  "login.slogan1": "Organize. Query.",
-  "login.slogan2": "Build What’s Next.",
-  "login.subtitulo": "Seu cliente PostgreSQL moderno — para quem constrói o amanhã.",
-  "login.provaLeituraTitulo": "Read-only por padrão",
-  "login.provaLeituraDetalhe": "BEGIN READ ONLY em toda transação.",
-  "login.provaHistoricoTitulo": "Histórico ligado a você",
-  "login.provaHistoricoDetalhe": "Conexões e consultas no seu usuário.",
-  "login.provaExportTitulo": "Export em streaming",
-  "login.provaExportDetalhe": "Milhões de linhas sem estourar a memória.",
 
   // --- troca de senha ---
   "senha.titulo": "Troque a senha antes de continuar",

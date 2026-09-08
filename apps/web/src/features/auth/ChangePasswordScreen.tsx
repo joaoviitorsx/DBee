@@ -33,8 +33,6 @@ export function ChangePasswordScreen({ user }: { readonly user: SessionUser }) {
     <AuthPanel
       titulo={t("senha.titulo")}
       descricao={t("senha.descricao", { user: user.username })}
-      humor={trocar.isError ? "pensando" : "joia"}
-      ocupado={trocar.isPending}
       recusado={trocar.isError}
       rodape={t("senha.rodape")}
     >
