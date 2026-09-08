@@ -2,6 +2,52 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+> **Aviso de versão nova e botão de atualizar, dentro do app.** O cabeçalho
+> passa a mostrar um selo quando há release mais nova; o diálogo traz o link
+> das notas e o botão que pede o redeploy ao Dokploy. **Quem troca o container
+> continua sendo o orquestrador** — o DBee avisa e pede (ADR 009).
+
+### Adicionado
+- **Selo "Atualizar" no cabeçalho**, só quando há versão maior publicada. Vira
+  ícone abaixo de `md`; sem ponto colorido, porque verde já significa "conexão
+  viva" na árvore e a mesma forma diria outra coisa.
+- **Diálogo de atualização** com versão atual, versão nova, link das notas,
+  interruptor de verificação automática e o botão "Atualizar servidor". Enquanto
+  o container é recriado, a tela avisa e recarrega sozinha quando o servidor
+  volta.
+- **`GET /meta/version`**, **`POST /meta/version/check`**,
+  **`PATCH /meta/update-settings`** e **`POST /meta/update`** (DBee.md §5).
+  Todas exigem sessão.
+- **Versão gravada no binário** em tempo de compilação
+  (`--define process.env.DBEE_VERSION`), passada pelo `release.yml` a partir da
+  tag. Fora do container o valor é `dev`, que nunca compara com tag.
+- **`release.yml` cria a Release no GitHub** a cada tag, depois do push da
+  imagem. Sem isso, `releases/latest` devolve 404 mesmo com a tag publicada e o
+  selo nunca acenderia (§11.27c).
+
+### Alterado
+- **`deploy/docker-compose.yml` ganhou `pull_policy: always`.** Sem ele, um
+  redeploy reusa a `:latest` já em cache no host e não traz nada — o botão diria
+  sucesso sem atualizar (§11.27b).
+- **`docs/DBee.md`:** §5 e §8 reescritas; o repo é **público**, não privado como
+  o doc afirmava — é o que dispensa token na consulta de versão.
+
+### Segurança
+- A **URL de deploy é credencial** e não sai da API: `GET /meta/version` devolve
+  `webhookConfigured: boolean`, nunca a URL. Nem a resposta de erro, nem o corpo
+  devolvido pelo Dokploy (que pode conter a própria URL) atravessam para o
+  cliente. Travado por teste de integração.
+- Guardada **cifrada** no SQLite com a mesma AES-256-GCM das senhas de conexão,
+  com AAD próprio (`app:update_webhook`) — um `password_enc` copiado para essa
+  chave falha na decifragem em vez de passar.
+- **Mitigação de SSRF** na URL configurável: só `http`/`https`, endereços de
+  metadado de nuvem barrados, redirecionamento não seguido e resposta cega.
+  Faixas privadas seguem liberadas de propósito (o Dokploy vive numa).
+- **Intervalo mínimo entre disparos**, para cliques repetidos não virarem
+  deploys enfileirados. Quem disparou fica no log do servidor.
+
 ## [0.1.3] — 2026-09-05
 
 > **Corrige um bug bloqueante de login em produção sem TLS.** A **0.1.2** (e

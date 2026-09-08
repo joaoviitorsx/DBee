@@ -680,6 +680,16 @@ Registrado para não voltar por engano:
   de escrita. Dar duplo clique num nome pintava a palavra como se fosse um selo
   sem padding, e a tela passava a afirmar um estado de conexão que não existia.
   Selo é informação; seleção é interação. Travado em `selection.test.ts`.
+- **Ponto verde para "há versão nova".** O Dokploy usa um; aqui `--ok` já
+  significa **conexão viva**, e o ponto ficaria a poucos pixels dos pontos de
+  saúde da árvore — a mesma forma dizendo outra coisa, que é o erro da tag de
+  cor logo acima. O selo de atualização é ícone e palavra, sem ponto.
+- **Duas versões na mesma tela.** O cabeçalho lia a `pkg.version` do build do
+  Vite e o diálogo de atualização, a tag gravada no binário. Bastava taggear sem
+  bumpar o `package.json` para a tela afirmar `v0.1.3` num canto e `v0.2.0` no
+  outro. Quem lê não tem como escolher entre duas versões que se contradizem:
+  ambas ficam sem valor. Uma fonte só — o servidor, que é quem sabe o que está
+  rodando.
 - **Animação de entrada por seção no load.** Fade-and-slide-up em tudo que
   aparece é o tique visual de página gerada, e aqui não responde a nada.
 - **Mais de um ciclo contínuo na tela.** Se a abelha voa, nada mais pisca.

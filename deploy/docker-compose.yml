@@ -1,6 +1,11 @@
 services:
   dbee:
     image: ghcr.io/joaoviitorsx/dbee:latest
+    # Sem isto o redeploy pode não trazer nada: `docker compose up -d` reusa a
+    # `:latest` que já está em cache no host, mesmo que a tag tenha mudado no
+    # registry. O deploy diria sucesso e o app continuaria na versão velha —
+    # exatamente o que o botão "Atualizar" existe para não fazer (DBee.md §8).
+    pull_policy: always
     restart: unless-stopped
     environment:
       APP_SECRET: ${APP_SECRET}
