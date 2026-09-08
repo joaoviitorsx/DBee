@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import vitrine from "../../assets/vitrine-login.webp";
+import { Honeycomb } from "../../components/Honeycomb";
 import { HoneycombCluster } from "../../components/HoneycombCluster";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
@@ -61,86 +62,151 @@ export function AuthPanel({
   const t = useT();
 
   return (
-    <main className="relative flex min-h-dvh items-center justify-center overflow-hidden bg-sunken p-4 sm:p-6">
+    /*
+      A página **é** o cartão.
+
+      Antes era um cartão de 64rem centrado num fundo grande com cachos de favo
+      — numa tela de 1440 sobravam 350px de nada de cada lado, e a tela lia como
+      um diálogo perdido em vez de uma porta de entrada. Agora o cartão ocupa a
+      janela e não há fundo para decorar.
+    */
+    /*
+      Cadeia de altura determinística: `h-dvh` no `main`, `h-full` no grid.
+
+      Antes o `main` era `grid place-items-center`, que dá ao filho altura de
+      **conteúdo** — e aí o `h-full` de dentro resolvia contra uma caixa que não
+      era a da janela, e a ilustração vazava por baixo da borda.
+
+      E sem `padding` aqui: ele era uma margem invisível em volta da página
+      inteira, e o favo do canto direito ficava cortado por ela em vez de sangrar
+      na borda da janela. O recuo da ilustração é dela própria.
+    */
+    <main className="h-dvh overflow-hidden bg-surface">
       {/*
-        Dois cachos de favo nos cantos opostos, bem apagados. É a única
-        decoração do fundo: papel de parede atrás de um cartão escuro vira
-        ruído, e a tesselação cheia competia com a ilustração.
+        Teto na composição.
+
+        Sem ele, numa janela de 1920 a ilustração ficava com 960px e o
+        formulário virava um bloco pequeno perdido num vazio — a tela lia como
+        duas coisas soltas em vez de um par. O contêiner é centrado e limitado;
+        como o fundo é o mesmo `bg-surface` dos dois lados, não vira "cartão
+        flutuando", continua sendo a página.
       */}
-      <HoneycombCluster
-        aria-hidden
-        className="pointer-events-none absolute -left-16 -top-16 h-72 w-72 text-accent opacity-[0.07]"
-        size={22}
-      />
-      <HoneycombCluster
-        aria-hidden
-        className="pointer-events-none absolute -bottom-16 -right-16 h-72 w-72 -scale-x-100 text-accent opacity-[0.07]"
-        size={22}
-      />
+      <div
+        className={cn(
+          "relative grid h-full w-full grid-cols-1 grid-rows-[auto_1fr] overflow-hidden",
+          // Preenche a janela inteira. O que impede o campo de virar uma faixa
+          // de 900px num ultrawide é o teto do CONTEÚDO (32rem), não um teto da
+          // coluna — capar a coluna deixava tarjas de fundo dos dois lados.
+          "lg:grid-cols-2 lg:grid-rows-1",
+        )}
+      >
+      {/*
+        Ilustração — embutida, não sangrando: uma margem em volta e cantos
+        arredondados, para ela ler como uma janela dentro da tela e não como
+        metade do fundo. Em telas estreitas vira faixa no topo, com o
+        enquadramento no alto, que é onde estão o céu e a abelha.
+      */}
+      <div className="order-1 h-40 p-4 sm:h-52 lg:h-auto lg:p-6">
+        <img
+          src={vitrine}
+          alt=""
+          aria-hidden
+          width={1200}
+          height={1499}
+          // Sem animação contínua: o próprio CSS do projeto diz que nada anima
+          // só por decoração. O estado de carregando vive no botão.
+          // `object-position` em 20% da altura, não `top`: na faixa larga e baixa
+          // do empilhado, alinhar pelo topo corta a abelha ao meio. Na coluna
+          // alta do desktop a proporção quase casa com a da arte, e o
+          // enquadramento não muda nada.
+          className="h-full w-full rounded-2xl object-cover object-[50%_20%]"
+        />
+      </div>
 
-      <IdiomaToggle className="absolute right-4 top-4 z-20 text-muted hover:text-ink" />
-
+      {/* Formulário. */}
       <div
         key={gesto}
         className={cn(
-          // Um único momento de entrada, no cartão inteiro — não uma cascata
-          // por elemento, que é o tique de página gerada (design-system).
-          "animate-settle relative z-10 w-full max-w-5xl overflow-hidden rounded-2xl",
-          "border border-line/70 bg-surface shadow-[0_32px_80px_-32px_rgba(20,12,2,0.85)]",
-          "grid grid-cols-1 lg:grid-cols-[1fr_1.05fr]",
+          "relative order-2 flex min-h-0 justify-center overflow-y-auto px-6 pb-8 sm:px-10 lg:px-12",
+          // `pt` maior no empilhado: o seletor de idioma vive no canto desta
+          // coluna, e sem folga ele encosta no lockup da marca.
+          "pt-14 sm:pt-10 lg:pt-8",
+          // Centrado na altura que sobra. Antes o vão morto vinha de as linhas
+          // do grid serem `auto`: a segunda não crescia e o conteúdo boiava.
+          // Com `1fr` a linha ocupa o resto, e centralizar fica equilibrado
+          // tanto em 375 quanto em 768.
+          "items-center",
           recusado && "animate-refuse",
         )}
       >
         {/*
-          Ilustração à esquerda.
+          Favo do lado do formulário, em **dois desenhos diferentes**: a
+          tesselação contínua do `Honeycomb` como campo de fundo, e um cacho
+          finito do `HoneycombCluster` como acento de canto. Dois modelos em vez
+          de dois cachos iguais — repetir o mesmo desenho espelhado lê como erro
+          de montagem.
 
-          Em telas estreitas ela vira uma faixa curta no topo, com o
-          enquadramento no alto: é onde estão o céu e a abelha. `object-cover`
-          com `object-top` mantém o assunto visível em qualquer proporção, em
-          vez de cortar pelo meio.
+          A camada é `absolute inset-0 overflow-hidden`: os elementos têm
+          deslocamento negativo de propósito (para o favo sair pela borda em vez
+          de flutuar), e soltos dentro da coluna que rola eles criavam barra de
+          rolagem nos dois eixos.
         */}
-        <div className="relative order-1 h-36 overflow-hidden sm:h-48 lg:h-auto">
-          <img
-            src={vitrine}
-            alt=""
-            aria-hidden
-            width={900}
-            height={1125}
-            // Sem animação contínua: o próprio CSS do projeto diz que nada
-            // anima só por decoração, e uma imagem pulsando não leva ninguém
-            // ao campo de usuário. O estado de carregando vive no botão.
-            className="h-full w-full object-cover object-top"
-          />
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
           {/*
-            Véu que escurece a base da ilustração no empilhado, para o topo do
-            formulário não encostar num azul saturado. No desktop a divisa é a
-            borda do cartão e o véu some.
+            Opacidades baixas de propósito, e menores no mobile.
+
+            O mesmo âmbar pesa **muito** mais sobre o fundo escuro do que sobre
+            o creme do tema claro: a 0.13 o cacho virava uma mancha disputando
+            atenção com o campo de usuário em 375px. Aqui é assinatura de canto,
+            não papel de parede.
           */}
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-surface to-transparent lg:hidden"
+          <Honeycomb className="absolute inset-0 text-accent" size={30} opacity={0.035} />
+          <HoneycombCluster
+            className="absolute -right-10 -top-12 h-36 w-36 text-accent opacity-[0.07] sm:h-52 sm:w-52 lg:h-72 lg:w-72"
+            size={22}
+          />
+          <HoneycombCluster
+            className="absolute -bottom-14 -left-12 h-28 w-28 rotate-180 text-accent opacity-[0.05] sm:h-40 sm:w-40 lg:h-56 lg:w-56"
+            size={16}
           />
         </div>
 
-        {/* Formulário. */}
-        <div className="order-2 flex flex-col justify-center px-6 py-8 sm:px-10 sm:py-10 lg:px-12">
+        {/*
+          O seletor mora aqui, e não solto sobre a tela: no empilhado ele caía
+          em cima do céu da ilustração — texto claro sobre azul claro.
+        */}
+        <IdiomaToggle className="absolute right-4 top-4 z-20 text-muted hover:text-ink" />
+        {/*
+          A coluna cresce com a janela, mas o conteúdo não: acima de ~32rem um
+          campo de usuário vira uma faixa larga e o olho perde o começo da
+          linha. `animate-settle` é o único momento de entrada da tela — um, não
+          uma cascata por elemento, que é o tique de página gerada.
+        */}
+        <div className="animate-settle relative z-10 w-full max-w-[32rem]">
           {/* Marca — ícone, lockup e a linha que diz o que é. */}
           <div className="flex items-center gap-3">
-            <img src="/icon-192.png" alt="" aria-hidden className="h-10 w-10 shrink-0" />
+            <img src="/icon-192.png" alt="" aria-hidden className="h-16 w-16 shrink-0 sm:h-20 sm:w-20" />
             <div className="min-w-0">
               {/*
                 "D" e "Bee" no mesmo corpo — a distinção é só de cor, então
                 "DB" alinha em altura.
+
+                "Bee" usa `text-amber`, o âmbar VIBRANTE, e não o `accent`
+                legível. Medido: sobre o creme do tema claro o vibrante dá
+                1,83:1, longe do mínimo AA de 4,5:1 — e mesmo assim é o certo
+                aqui, porque a WCAG isenta **logotipo** de contraste. O mesmo
+                amarelo em "de volta" logo abaixo seria violação: lá é texto de
+                cabeçalho, não marca.
               */}
-              <span className="font-marca text-2xl font-bold leading-none tracking-[-0.03em]">
+              <span className="font-marca text-[2.6rem] font-bold leading-none tracking-[-0.03em] sm:text-[3.1rem]">
                 <span className="text-ink">D</span>
-                <span className="text-accent">Bee</span>
+                <span className="text-amber">Bee</span>
               </span>
-              <p className="mt-1 text-2xs text-subtle">{t("login.marcaTagline")}</p>
+              <p className="mt-2 text-sm text-muted">{t("login.marcaTagline")}</p>
             </div>
           </div>
 
-          <h1 className="mt-8 text-2xl font-bold tracking-[-0.02em] text-ink sm:text-[1.75rem]">
+          <h1 className="mt-10 text-[2rem] font-bold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[2.35rem]">
             {titulo}
             {tituloDestaque === undefined ? null : (
               <>
@@ -149,15 +215,16 @@ export function AuthPanel({
               </>
             )}
           </h1>
-          <p className="mt-1.5 text-sm leading-relaxed text-muted">{descricao}</p>
+          <p className="mt-2.5 text-base leading-relaxed text-muted">{descricao}</p>
 
-          <div className="mt-7">{children}</div>
+          <div className="mt-6">{children}</div>
 
           {rodape === undefined ? null : (
             <p className="mt-6 border-t border-line/70 pt-4 text-2xs leading-relaxed text-subtle">
               {rodape}
             </p>
           )}
+        </div>
         </div>
       </div>
     </main>
