@@ -51,6 +51,15 @@ export interface AuditFiltros {
   readonly status?: "ok" | "error" | "cancelled" | undefined;
   readonly connectionId?: string | undefined;
   readonly actor?: string | undefined;
+  /**
+   * Recorta o log às conexões que **este usuário** enxerga (migração 005).
+   *
+   * `undefined` significa "sem recorte", e é o que o `admin` recebe. Para um
+   * `member` sem isto, a auditoria devolveria o SQL de conexões que ele nem vê
+   * na árvore — em contexto contábil, a query de um usuário visível a outro já
+   * é vazamento de dado, mesmo que ele não consiga executá-la.
+   */
+  readonly visivelPara?: string | undefined;
   readonly limit: number;
   /** `executedAt|id` da última linha da página anterior. */
   readonly cursor?: string | undefined;
@@ -137,6 +146,15 @@ export class QueryLogRepository {
     if (filtros.actor !== undefined && filtros.actor !== "") {
       clausulas.push("actor = ?");
       params.push(filtros.actor);
+    }
+    if (filtros.visivelPara !== undefined) {
+      // Subconsulta, não JOIN: o `connection_access` tem no máximo uma linha
+      // por par, então o `IN` não duplica, e o índice `idx_connection_access_user`
+      // atende exatamente esta pergunta.
+      clausulas.push(
+        "connection_id IN (SELECT connection_id FROM connection_access WHERE user_id = ?)",
+      );
+      params.push(filtros.visivelPara);
     }
     if (filtros.cursor !== undefined) {
       const corte = filtros.cursor.lastIndexOf("|");

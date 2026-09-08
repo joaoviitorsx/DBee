@@ -10,6 +10,7 @@ import {
   type RowsRequest,
 } from "@dbee/shared";
 
+import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import { streamBundle, type BundleOptions, type BundleTablePlan } from "../pg/bundle";
@@ -127,11 +128,11 @@ export class ExportService {
      * ninguém notar. Sem sessão a requisição nem chega ao serviço — o guard barra
      * antes.
      */
-    actor: string,
+    ator: Ator,
   ): Promise<ServiceResult<ExportStream>> {
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return fail("decryption_failed");
     }
@@ -163,7 +164,7 @@ export class ExportService {
       sql = statements[0]?.sql ?? "";
       base = "consulta";
     } else {
-      const arvore = await this.#schema.get(connectionId, database, false);
+      const arvore = await this.#schema.get(connectionId, database, false, ator);
       if (!arvore.ok) return arvore;
 
       const { schema: schemaName, table } = request.source;
@@ -215,7 +216,7 @@ export class ExportService {
         rowCount: rows,
         durationMs: Math.round(performance.now() - inicio),
         readOnly: true,
-        actor,
+        actor: ator.id,
       });
     };
 
@@ -260,11 +261,11 @@ export class ExportService {
   async exportBundle(
     connectionId: string,
     request: ExportBundleRequest,
-    actor: string,
+    ator: Ator,
   ): Promise<ServiceResult<ExportStream>> {
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return fail("decryption_failed");
     }
@@ -277,7 +278,7 @@ export class ExportService {
     const output = request.output ?? "download";
     const ehSql = format === "sql";
 
-    const arvore = await this.#schema.get(connectionId, database, false);
+    const arvore = await this.#schema.get(connectionId, database, false, ator);
     if (!arvore.ok) return arvore;
 
     const planos: BundleTablePlan[] = [];
@@ -350,7 +351,7 @@ export class ExportService {
                 rowCount: resultado.rows,
                 durationMs: Math.round(performance.now() - inicio),
                 readOnly: true,
-                actor,
+                actor: ator.id,
               });
               encerrar();
             }),
@@ -364,7 +365,7 @@ export class ExportService {
       this.#log.record({
         connectionId, database, sql: sqlDoLog, status: "error", error: message,
         rowCount: null, durationMs: Math.round(performance.now() - inicio),
-        readOnly: true, actor,
+        readOnly: true, actor: ator.id,
       });
       return fail("upstream_error", message);
     }

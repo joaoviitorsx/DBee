@@ -2,6 +2,7 @@ import type { DatabaseSchema } from "@dbee/shared";
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import { openTestStore, type Store } from "../db/client";
+import type { Ator } from "../lib/ator";
 import { ConnectionsRepository } from "../db/connections.repo";
 import type { PoolManager } from "../pg/pool";
 import { SchemaService } from "./schema.service";
@@ -30,6 +31,13 @@ function fakePools(behaviour: { fail?: boolean } = {}) {
 }
 
 let store: Store;
+/**
+ * Este arquivo testa cache e introspecção, não permissão. Um ator `admin`
+ * enxerga toda conexão (migração 005), então ele mantém os testes falando do
+ * que vieram falar. A permissão tem arquivo próprio.
+ */
+const ADMIN: Ator = { id: "u-admin", role: "admin" };
+
 let repository: ConnectionsRepository;
 let connectionId: string;
 
@@ -51,11 +59,11 @@ describe("SchemaService — cache", () => {
     const pools = fakePools();
     const service = new SchemaService({ repository, pools: pools.manager });
 
-    const first = await service.get(connectionId, undefined, false);
+    const first = await service.get(connectionId, undefined, false, ADMIN);
     expect(first.ok && first.value.cached).toBe(false);
     expect(pools.calls()).toBe(1);
 
-    const second = await service.get(connectionId, undefined, false);
+    const second = await service.get(connectionId, undefined, false, ADMIN);
     expect(second.ok && second.value.cached).toBe(true);
     expect(pools.calls()).toBe(1); // não voltou ao Postgres
   });
@@ -64,8 +72,8 @@ describe("SchemaService — cache", () => {
     const pools = fakePools();
     const service = new SchemaService({ repository, pools: pools.manager });
 
-    await service.get(connectionId, undefined, false);
-    const refreshed = await service.get(connectionId, undefined, true);
+    await service.get(connectionId, undefined, false, ADMIN);
+    const refreshed = await service.get(connectionId, undefined, true, ADMIN);
 
     expect(refreshed.ok && refreshed.value.cached).toBe(false);
     expect(pools.calls()).toBe(2);
@@ -76,10 +84,10 @@ describe("SchemaService — cache", () => {
     const service = new SchemaService({ repository, pools: pools.manager });
     const t0 = Date.now();
 
-    await service.get(connectionId, undefined, false, t0);
+    await service.get(connectionId, undefined, false, ADMIN, t0);
 
     // Um segundo antes do TTL: ainda fresco, em cache.
-    const before = await service.get(connectionId, undefined, false, t0 + 5 * 60_000 - 1_000);
+    const before = await service.get(connectionId, undefined, false, ADMIN, t0 + 5 * 60_000 - 1_000);
     expect(before.ok && before.value.cached).toBe(true);
     expect(pools.calls()).toBe(1);
   });
@@ -89,10 +97,10 @@ describe("SchemaService — cache", () => {
     const service = new SchemaService({ repository, pools: pools.manager });
     const t0 = Date.now();
 
-    await service.get(connectionId, undefined, false, t0);
+    await service.get(connectionId, undefined, false, ADMIN, t0);
 
     // Entrada vencida: serve o valor velho (cached) SEM bloquear a resposta.
-    const stale = await service.get(connectionId, undefined, false, t0 + 5 * 60_000 + 1_000);
+    const stale = await service.get(connectionId, undefined, false, ADMIN, t0 + 5 * 60_000 + 1_000);
     expect(stale.ok && stale.value.cached).toBe(true);
 
     // ...e a revalidação em background já foi disparada — sem esperar por ela.
@@ -101,7 +109,7 @@ describe("SchemaService — cache", () => {
 
     // O cache foi renovado (TTL a partir de agora): o próximo acesso serve do
     // cache fresco, sem voltar ao banco.
-    const next = await service.get(connectionId, undefined, false);
+    const next = await service.get(connectionId, undefined, false, ADMIN);
     expect(next.ok && next.value.cached).toBe(true);
     expect(pools.calls()).toBe(2);
   });
@@ -110,12 +118,12 @@ describe("SchemaService — cache", () => {
     const pools = fakePools();
     const service = new SchemaService({ repository, pools: pools.manager });
 
-    await service.get(connectionId, "um", false);
-    await service.get(connectionId, "dois", false);
+    await service.get(connectionId, "um", false, ADMIN);
+    await service.get(connectionId, "dois", false, ADMIN);
     expect(pools.calls()).toBe(2);
     expect(service.cacheSize).toBe(2);
 
-    const again = await service.get(connectionId, "um", false);
+    const again = await service.get(connectionId, "um", false, ADMIN);
     expect(again.ok && again.value.database).toBe("um");
     expect(pools.calls()).toBe(2);
   });
@@ -124,7 +132,7 @@ describe("SchemaService — cache", () => {
     const pools = fakePools();
     const service = new SchemaService({ repository, pools: pools.manager });
 
-    const result = await service.get(connectionId, undefined, false);
+    const result = await service.get(connectionId, undefined, false, ADMIN);
     expect(result.ok && result.value.database).toBe("app");
   });
 
@@ -132,8 +140,8 @@ describe("SchemaService — cache", () => {
     const pools = fakePools();
     const service = new SchemaService({ repository, pools: pools.manager });
 
-    await service.get(connectionId, "um", false);
-    await service.get(connectionId, "dois", false);
+    await service.get(connectionId, "um", false, ADMIN);
+    await service.get(connectionId, "dois", false, ADMIN);
     expect(service.cacheSize).toBe(2);
 
     service.evict("outra-conexao");
@@ -149,7 +157,7 @@ describe("SchemaService — falhas", () => {
     const pools = fakePools();
     const service = new SchemaService({ repository, pools: pools.manager });
 
-    const result = await service.get("nao-existe", undefined, false);
+    const result = await service.get("nao-existe", undefined, false, ADMIN);
     expect(result.ok).toBe(false);
     expect(!result.ok && result.failure).toBe("not_found");
     expect(pools.calls()).toBe(0);
@@ -159,7 +167,7 @@ describe("SchemaService — falhas", () => {
     const pools = fakePools({ fail: true });
     const service = new SchemaService({ repository, pools: pools.manager });
 
-    const result = await service.get(connectionId, undefined, false);
+    const result = await service.get(connectionId, undefined, false, ADMIN);
     expect(result.ok).toBe(false);
     expect(!result.ok && result.failure).toBe("upstream_error");
     expect(!result.ok && result.detail).toContain("connection refused");
@@ -169,8 +177,8 @@ describe("SchemaService — falhas", () => {
     const pools = fakePools({ fail: true });
     const service = new SchemaService({ repository, pools: pools.manager });
 
-    await service.get(connectionId, undefined, false);
-    await service.get(connectionId, undefined, false);
+    await service.get(connectionId, undefined, false, ADMIN);
+    await service.get(connectionId, undefined, false, ADMIN);
 
     expect(service.cacheSize).toBe(0);
     expect(pools.calls()).toBe(2); // tentou de novo, não serviu erro do cache
@@ -184,7 +192,7 @@ describe("SchemaService — falhas", () => {
     });
     const service = new SchemaService({ repository: outraChave, pools: pools.manager });
 
-    const result = await service.get(connectionId, undefined, false);
+    const result = await service.get(connectionId, undefined, false, ADMIN);
     expect(!result.ok && result.failure).toBe("decryption_failed");
     expect(pools.calls()).toBe(0);
   });

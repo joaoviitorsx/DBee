@@ -6,6 +6,7 @@ import {
   type CreateTableRequest,
 } from "@dbee/shared";
 
+import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { PoolManager } from "../pg/pool";
@@ -19,7 +20,7 @@ import type { PoolManager } from "../pg/pool";
  *    `write_enabled`, recusa — e a recusa vai ao `query_log`, porque tentativa
  *    barrada é o evento que uma auditoria existe para registrar.
  * 2. **O comando é montado no servidor.** O cliente manda campos, nunca SQL.
- * 3. **Tudo cai no `query_log`** com o `actor`, o comando literal e o
+ * 3. **Tudo cai no `query_log`** com o `ator`, o comando literal e o
  *    resultado.
  */
 
@@ -67,9 +68,9 @@ export class DdlService {
   async criarTabela(
     connectionId: string,
     pedido: CreateTableRequest,
-    actor: string,
+    ator: Ator,
   ): Promise<ResultadoDdl> {
-    return await this.#executar(connectionId, pedido.database, actor, {
+    return await this.#executar(connectionId, pedido.database, ator, {
       montar: () => montarCreateTable(pedido),
       rodar: async (connection, sql) => {
         await this.#pools.withTransaction(
@@ -92,9 +93,9 @@ export class DdlService {
   async criarDatabase(
     connectionId: string,
     pedido: CreateDatabaseRequest,
-    actor: string,
+    ator: Ator,
   ): Promise<ResultadoDdl> {
-    return await this.#executar(connectionId, DATABASE_DE_CONTROLE, actor, {
+    return await this.#executar(connectionId, DATABASE_DE_CONTROLE, ator, {
       montar: () => montarCreateDatabase(pedido),
       rodar: async (connection, sql) => {
         await this.#pools.withAutocommit(connection, DATABASE_DE_CONTROLE, async (client) =>
@@ -114,7 +115,7 @@ export class DdlService {
   async #executar(
     connectionId: string,
     database: string,
-    actor: string,
+    ator: Ator,
     passos: {
       readonly montar: () => string;
       readonly rodar: (connection: ResolvedConnection, sql: string) => Promise<void>;
@@ -124,7 +125,7 @@ export class DdlService {
 
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return { ok: false, sql: "", failure: "decryption_failed" };
     }
@@ -143,19 +144,19 @@ export class DdlService {
     }
 
     if (!connection.writeEnabled) {
-      this.#registrar(connectionId, database, sql, "error", "escrita negada: write_enabled desligado na conexão", inicio, actor);
+      this.#registrar(connectionId, database, sql, "error", "escrita negada: write_enabled desligado na conexão", inicio, ator);
       return { ok: false, sql, failure: "write_forbidden" };
     }
 
     try {
       await passos.rodar(connection, sql);
-      this.#registrar(connectionId, database, sql, "ok", null, inicio, actor);
+      this.#registrar(connectionId, database, sql, "ok", null, inicio, ator);
       return { ok: true, sql };
     } catch (err: unknown) {
       // O erro do Postgres vai inteiro para a UI: "already exists", "permission
       // denied", "invalid locale" são informação útil, não ruído (CLAUDE.md).
       const message = err instanceof Error ? err.message : "erro desconhecido";
-      this.#registrar(connectionId, database, sql, "error", message, inicio, actor);
+      this.#registrar(connectionId, database, sql, "error", message, inicio, ator);
       return { ok: false, sql, failure: "upstream_error", message };
     }
   }
@@ -167,7 +168,7 @@ export class DdlService {
     status: "ok" | "error",
     error: string | null,
     inicio: number,
-    actor: string,
+    ator: Ator,
   ): void {
     this.#log.record({
       connectionId,
@@ -178,7 +179,7 @@ export class DdlService {
       rowCount: null,
       durationMs: Math.round(performance.now() - inicio),
       readOnly: false,
-      actor,
+      actor: ator.id,
     });
   }
 }

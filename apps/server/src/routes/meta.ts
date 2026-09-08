@@ -67,7 +67,7 @@ export const metaRoutes = (service: UpdateService, users: UsersRepository) =>
       "/update",
       async ({ status, sessao }) => {
         try {
-          await service.dispararUpdate(exigirAtor(sessao));
+          await service.dispararUpdate(exigirAtor(sessao).id);
         } catch (erro) {
           if (erro instanceof UpdateError) {
             return status(STATUS_POR_FALHA[erro.codigo], {

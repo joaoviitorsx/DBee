@@ -2,6 +2,7 @@ import initial from "./001_initial.sql" with { type: "text" };
 import users from "./002_users.sql" with { type: "text" };
 import userLocale from "./003_user_locale.sql" with { type: "text" };
 import userRoles from "./004_user_roles.sql" with { type: "text" };
+import connectionAccess from "./005_connection_access.sql" with { type: "text" };
 
 export interface Migration {
   readonly version: number;
@@ -19,6 +20,7 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 2, name: "002_users", sql: users },
   { version: 3, name: "003_user_locale", sql: userLocale },
   { version: 4, name: "004_user_roles", sql: userRoles },
+  { version: 5, name: "005_connection_access", sql: connectionAccess },
 ];
 
 /**
@@ -30,4 +32,4 @@ export const MIGRATIONS: readonly Migration[] = [
  * duas vezes, e uma se disfarçou de erro de conexão na UI — erro alto no boot é
  * mais barato que diagnóstico errado na tela.
  */
-export const EXPECTED_SCHEMA = 4;
+export const EXPECTED_SCHEMA = 5;

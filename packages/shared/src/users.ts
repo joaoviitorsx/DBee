@@ -69,3 +69,32 @@ export type ResetPasswordRequest = Static<typeof ResetPasswordRequest>;
 
 export const DeleteUserResponse = t.Object({ ok: t.Literal(true) });
 export type DeleteUserResponse = Static<typeof DeleteUserResponse>;
+
+/**
+ * Permissão por conexão (migração 005).
+ *
+ * **Escrita exige as duas pontas.** `Connection.writeEnabled` continua sendo
+ * "esta conexão pode ser escrita"; `canWrite` aqui é "esta pessoa pode escrever
+ * nela". Nenhum dos dois sozinho basta — é o que mantém produção gravável para
+ * quem precisa sem virar gravável para todo mundo que recebeu leitura.
+ *
+ * Não existe registro de "sem acesso": a **ausência** de concessão é a negação.
+ * Um campo `granted: false` criaria um segundo jeito de dizer a mesma coisa, e
+ * um deles seria lido errado algum dia.
+ */
+export const ConnectionGrant = t.Object({
+  userId: t.String(),
+  username: t.String(),
+  canWrite: t.Boolean(),
+});
+export type ConnectionGrant = Static<typeof ConnectionGrant>;
+
+export const ConnectionGrantList = t.Array(ConnectionGrant);
+export type ConnectionGrantList = Static<typeof ConnectionGrantList>;
+
+/** Concede ou atualiza. Sem `default` no `canWrite` — ADR 004. */
+export const GrantAccessRequest = t.Object({
+  userId: t.String({ minLength: 1, maxLength: 64 }),
+  canWrite: t.Boolean(),
+});
+export type GrantAccessRequest = Static<typeof GrantAccessRequest>;

@@ -1,5 +1,6 @@
 import type { RowsRequest, RowsResponse } from "@dbee/shared";
 
+import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { PoolManager } from "../pg/pool";
@@ -52,11 +53,11 @@ export class RowsService {
      * ninguém notar. Sem sessão a requisição nem chega ao serviço — o guard barra
      * antes.
      */
-    actor: string,
+    ator: Ator,
   ): Promise<ServiceResult<RowsResponse>> {
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return fail("decryption_failed");
     }
@@ -65,7 +66,7 @@ export class RowsService {
     const database = request.database ?? connection.database;
 
     // A árvore do catálogo é a fonte da verdade sobre o que existe.
-    const arvore = await this.#schema.get(connectionId, database, false);
+    const arvore = await this.#schema.get(connectionId, database, false, ator);
     if (!arvore.ok) return arvore;
 
     const relation = arvore.value.schemas
@@ -96,7 +97,7 @@ export class RowsService {
         rowCount: parcial.rows.length,
         durationMs,
         readOnly: true,
-        actor,
+        actor: ator.id,
       });
 
       return ok({ ...parcial, durationMs });
@@ -112,7 +113,7 @@ export class RowsService {
         rowCount: null,
         durationMs: Math.round(performance.now() - inicio),
         readOnly: true,
-        actor,
+        actor: ator.id,
       });
 
       // Coluna inexistente ou cursor inválido é erro de entrada, não do banco.

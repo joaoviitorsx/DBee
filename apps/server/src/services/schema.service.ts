@@ -6,6 +6,7 @@ import type {
   DatabasesOverview,
 } from "@dbee/shared";
 
+import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import { introspect, introspectTree, listActivity, listDatabases, overviewDatabases } from "../pg/introspect";
 import type { PoolManager } from "../pg/pool";
@@ -64,11 +65,12 @@ export class SchemaService {
     connectionId: string,
     database: string | undefined,
     refresh: boolean,
+    ator: Ator,
     now = Date.now(),
   ): Promise<ServiceResult<DatabaseSchema>> {
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return fail("decryption_failed");
     }
@@ -130,11 +132,12 @@ export class SchemaService {
     connectionId: string,
     database: string | undefined,
     refresh: boolean,
+    ator: Ator,
     now = Date.now(),
   ): Promise<ServiceResult<DatabaseTree>> {
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return fail("decryption_failed");
     }
@@ -213,10 +216,10 @@ export class SchemaService {
    * primeiro nível que o usuário expande — servir um valor velho aqui esconde
    * um database recém-criado justo quando ele é procurado.
    */
-  async databases(connectionId: string): Promise<ServiceResult<DatabaseInfo[]>> {
+  async databases(connectionId: string, ator: Ator): Promise<ServiceResult<DatabaseInfo[]>> {
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return fail("decryption_failed");
     }
@@ -238,10 +241,10 @@ export class SchemaService {
    * como a lista de databases — é um instantâneo, e servir tamanho velho seria
    * enganar quem está justamente olhando quanto o banco cresceu.
    */
-  async databasesOverview(connectionId: string): Promise<ServiceResult<DatabasesOverview>> {
+  async databasesOverview(connectionId: string, ator: Ator): Promise<ServiceResult<DatabasesOverview>> {
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return fail("decryption_failed");
     }
@@ -264,10 +267,10 @@ export class SchemaService {
    * O que está rodando no servidor agora (`pg_stat_activity`). Um instantâneo,
    * relido a cada chamada — o front decide se atualiza sozinho.
    */
-  async activity(connectionId: string): Promise<ServiceResult<ActivityList>> {
+  async activity(connectionId: string, ator: Ator): Promise<ServiceResult<ActivityList>> {
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return fail("decryption_failed");
     }

@@ -1,5 +1,6 @@
 import type { CancelResponse, QueryRequest, QueryResponse } from "@dbee/shared";
 
+import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import { execute } from "../pg/executor";
@@ -70,11 +71,11 @@ export class QueryService {
      * ninguém notar. Sem sessão a requisição nem chega ao serviço — o guard barra
      * antes.
      */
-    actor: string,
+    ator: Ator,
   ): Promise<ServiceResult<QueryResponse>> {
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return fail("decryption_failed");
     }
@@ -122,7 +123,7 @@ export class QueryService {
         rowCount: outcome.error === null ? linhas : null,
         durationMs: totalDurationMs,
         readOnly,
-        actor,
+        actor: ator.id,
       });
 
       return ok({ ...outcome, totalDurationMs, readOnly });
@@ -141,7 +142,7 @@ export class QueryService {
         rowCount: null,
         durationMs: Math.round(performance.now() - inicio),
         readOnly,
-        actor,
+        actor: ator.id,
       });
 
       return fail("upstream_error", message);

@@ -9,6 +9,7 @@ import {
   type SqlConstruido,
 } from "@dbee/shared";
 
+import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { PoolManager } from "../pg/pool";
@@ -47,7 +48,7 @@ export interface MutationServiceDeps {
  *    de 1 lança e reverte — nada é gravado.
  *
  * E **toda** aplicação, com sucesso ou aborto, vai ao `query_log` com o SQL
- * literal, os valores (que estão no próprio SQL) e o actor.
+ * literal, os valores (que estão no próprio SQL) e o ator.
  */
 export class MutationService {
   readonly #repository: ConnectionsRepository;
@@ -63,40 +64,40 @@ export class MutationService {
   update(
     connectionId: string,
     request: RowUpdateRequest,
-    actor: string,
+    ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
-    return this.#aplicar(connectionId, request.database, actor, construirUpdate(request));
+    return this.#aplicar(connectionId, request.database, ator, construirUpdate(request));
   }
 
   delete(
     connectionId: string,
     request: RowDeleteRequest,
-    actor: string,
+    ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
-    return this.#aplicar(connectionId, request.database, actor, construirDelete(request));
+    return this.#aplicar(connectionId, request.database, ator, construirDelete(request));
   }
 
   insert(
     connectionId: string,
     request: RowInsertRequest,
-    actor: string,
+    ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
     // Reusa #aplicar: um INSERT de uma linha afeta exatamente 1 (ou o Postgres
     // recusa por constraint, e o erro vai inteiro para a tela).
-    return this.#aplicar(connectionId, request.database, actor, construirInsert(request));
+    return this.#aplicar(connectionId, request.database, ator, construirInsert(request));
   }
 
   async #aplicar(
     connectionId: string,
     database: string,
-    actor: string,
+    ator: Ator,
     construido: SqlConstruido,
   ): Promise<MutationResult<RowMutationResult>> {
     const inicio = performance.now();
 
     let connection;
     try {
-      connection = this.#repository.resolve(connectionId);
+      connection = this.#repository.resolve(connectionId, ator);
     } catch {
       return mutFail("decryption_failed");
     }
@@ -114,7 +115,7 @@ export class MutationService {
         "escrita negada: write_enabled desligado na conexão",
         null,
         inicio,
-        actor,
+        ator,
       );
       return mutFail("write_forbidden");
     }
@@ -132,7 +133,7 @@ export class MutationService {
         },
       );
 
-      this.#registrar(connectionId, database, construido.literal, "ok", null, rowCount, inicio, actor);
+      this.#registrar(connectionId, database, construido.literal, "ok", null, rowCount, inicio, ator);
       return mutOk({ rowCount, sql: construido.literal });
     } catch (err: unknown) {
       if (err instanceof CardinalidadeError) {
@@ -151,13 +152,13 @@ export class MutationService {
           mensagem,
           err.rowCount,
           inicio,
-          actor,
+          ator,
         );
         return mutFail(failure, mensagem);
       }
 
       const message = err instanceof Error ? err.message : "erro desconhecido";
-      this.#registrar(connectionId, database, construido.literal, "error", message, null, inicio, actor);
+      this.#registrar(connectionId, database, construido.literal, "error", message, null, inicio, ator);
       return mutFail("upstream_error", message);
     }
   }
@@ -170,7 +171,7 @@ export class MutationService {
     error: string | null,
     rowCount: number | null,
     inicio: number,
-    actor: string,
+    ator: Ator,
   ): void {
     this.#log.record({
       connectionId,
@@ -181,7 +182,7 @@ export class MutationService {
       rowCount,
       durationMs: Math.round(performance.now() - inicio),
       readOnly: false,
-      actor,
+      actor: ator.id,
     });
   }
 }

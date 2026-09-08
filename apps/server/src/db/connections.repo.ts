@@ -2,6 +2,7 @@ import type { Database, Statement } from "bun:sqlite";
 
 import type { Connection, CreateConnection, SslMode, UpdateConnection } from "@dbee/shared";
 
+import type { Ator } from "../lib/ator";
 import { decrypt, encrypt, type EncryptionKey } from "../lib/crypto";
 import { nanoid } from "../lib/ids";
 
@@ -15,6 +16,20 @@ const PUBLIC_COLUMNS = `
   ssl_mode AS sslMode, write_enabled AS writeEnabled,
   statement_timeout_ms AS statementTimeoutMs, timezone,
   created_at AS createdAt, updated_at AS updatedAt
+`;
+
+/**
+ * As mesmas colunas qualificadas por `c`, para o `JOIN` com `connection_access`.
+ *
+ * Lista separada em vez de prefixo genérico: `created_at` e `updated_at`
+ * existem nas duas tabelas em espírito, e sem prefixo o SQLite resolveria a
+ * ambiguidade pela ordem do `FROM`, não pela intenção de quem escreveu.
+ */
+const PUBLIC_COLUMNS_C = `
+  c.id, c.name, c.color, c.host, c.port, c.database, c.username,
+  c.ssl_mode AS sslMode, c.write_enabled AS writeEnabled,
+  c.statement_timeout_ms AS statementTimeoutMs, c.timezone,
+  c.created_at AS createdAt, c.updated_at AS updatedAt
 `;
 
 /** Linha crua: SQLite não tem boolean, `write_enabled` volta 0 ou 1. */
@@ -49,7 +64,9 @@ export class ConnectionsRepository {
 
   // Statements preparados uma vez (CLAUDE.md, "Ao escrever código").
   readonly #list: Statement<ConnectionRow, []>;
+  readonly #listParaUsuario: Statement<ConnectionRow & { canWrite: number }, [string]>;
   readonly #byId: Statement<ConnectionRow, [string]>;
+  readonly #byIdParaUsuario: Statement<ConnectionRow & { canWrite: number }, [string, string]>;
   readonly #secretById: Statement<{ password_enc: string }, [string]>;
   readonly #delete: Statement<unknown, [string]>;
 
@@ -59,8 +76,20 @@ export class ConnectionsRepository {
     this.#list = db.query<ConnectionRow, []>(
       `SELECT ${PUBLIC_COLUMNS} FROM connections ORDER BY name`,
     );
+    this.#listParaUsuario = db.query<ConnectionRow & { canWrite: number }, [string]>(
+      `SELECT ${PUBLIC_COLUMNS_C}, a.can_write AS canWrite
+         FROM connections c
+         JOIN connection_access a ON a.connection_id = c.id AND a.user_id = ?
+        ORDER BY c.name`,
+    );
     this.#byId = db.query<ConnectionRow, [string]>(
       `SELECT ${PUBLIC_COLUMNS} FROM connections WHERE id = ?`,
+    );
+    this.#byIdParaUsuario = db.query<ConnectionRow & { canWrite: number }, [string, string]>(
+      `SELECT ${PUBLIC_COLUMNS_C}, a.can_write AS canWrite
+         FROM connections c
+         JOIN connection_access a ON a.connection_id = c.id AND a.user_id = ?
+        WHERE c.id = ?`,
     );
     this.#secretById = db.query<{ password_enc: string }, [string]>(
       "SELECT password_enc FROM connections WHERE id = ?",
@@ -68,21 +97,74 @@ export class ConnectionsRepository {
     this.#delete = db.query<unknown, [string]>("DELETE FROM connections WHERE id = ?");
   }
 
-  list(): Connection[] {
-    return this.#list.all().map(toConnection);
+  /**
+   * As conexões que **este** ator enxerga (migração 005).
+   *
+   * `admin` vê tudo, porque é quem administra as conexões. `member` vê só o que
+   * tem concessão. Filtrar aqui é metade do controle — a outra metade, e a que
+   * de fato importa, é o `resolve` abaixo: filtrar a listagem sem provar acesso
+   * por id deixaria qualquer um usar um id que conhecesse.
+   */
+  list(ator: Ator): Connection[] {
+    if (ator.role === "admin") return this.#list.all().map(toConnection);
+    // O `writeEnabled` da lista é o **efetivo**, igual ao do `find`. Devolver o
+    // da conexão faria a UI desenhar a tarja de escrita para quem o servidor
+    // recusaria — a tela afirmando o contrário do que o sistema faz.
+    return this.#listParaUsuario.all(ator.id).map((row) => {
+      const conexao = toConnection(row);
+      return { ...conexao, writeEnabled: conexao.writeEnabled && row.canWrite === 1 };
+    });
   }
 
-  find(id: string): Connection | null {
+  /**
+   * A conexão como **este** ator a enxerga, ou `null`.
+   *
+   * `null` cobre os dois casos de propósito: não existe, e existe mas não é
+   * dele. Todo chamador já tratava `null` como 404, e não distinguir os dois
+   * evita responder "esta conexão existe, mas não é sua" — que confirmaria a
+   * existência de um id a quem não deveria saber.
+   *
+   * O `writeEnabled` devolvido é o **efetivo**: `write_enabled` da conexão E
+   * `can_write` da concessão. Quem consome não precisa saber que a regra mudou
+   * — `connection.writeEnabled` continua significando exatamente "esta
+   * requisição pode gravar?", e as três portas de escrita seguem lendo esse
+   * mesmo campo.
+   */
+  /**
+   * A linha sem filtro de acesso. **Privada de propósito.**
+   *
+   * Serve a `create` e `update`, que são operações administrativas: a rota já
+   * exigiu admin antes de chegar aqui, e devolver "não encontrada" para o
+   * próprio admin que acabou de criar a conexão seria absurdo. Toda leitura que
+   * atende usuário passa pelo `find` público, que exige ator.
+   */
+  #linhaCrua(id: string): Connection | null {
     const row = this.#byId.get(id);
     return row === null ? null : toConnection(row);
+  }
+
+  find(id: string, ator: Ator): Connection | null {
+    if (ator.role === "admin") {
+      const row = this.#byId.get(id);
+      return row === null ? null : toConnection(row);
+    }
+    const row = this.#byIdParaUsuario.get(ator.id, id);
+    if (row === null) return null;
+    const conexao = toConnection(row);
+    return { ...conexao, writeEnabled: conexao.writeEnabled && row.canWrite === 1 };
   }
 
   /**
    * Conexão com a senha decifrada. Só para abrir conexão no Postgres — nunca
    * serializar o retorno disto numa resposta HTTP.
+   *
+   * O `ator` é **obrigatório**, e é o que garante que nenhum caminho escape:
+   * são doze chamadores espalhados por sete serviços, e o `typecheck` aponta
+   * todos. Um parâmetro opcional deixaria um deles para trás em silêncio, que
+   * é exatamente a falha que esta migração existe para impedir.
    */
-  resolve(id: string): ResolvedConnection | null {
-    const connection = this.find(id);
+  resolve(id: string, ator: Ator): ResolvedConnection | null {
+    const connection = this.find(id, ator);
     if (connection === null) return null;
 
     const row = this.#secretById.get(id);
@@ -91,6 +173,39 @@ export class ConnectionsRepository {
     // O id entra como AAD: um password_enc movido para outra conexão não
     // decifra (ADR 005).
     return { ...connection, password: decrypt(this.#key, id, row.password_enc) };
+  }
+
+  // --- concessões -----------------------------------------------------------
+
+  /** Quem tem acesso a esta conexão. Só a tela de administração consome. */
+  acessos(connectionId: string): { userId: string; canWrite: boolean }[] {
+    return this.#db
+      .query<{ userId: string; canWrite: number }, [string]>(
+        `SELECT user_id AS userId, can_write AS canWrite
+           FROM connection_access WHERE connection_id = ? ORDER BY user_id`,
+      )
+      .all(connectionId)
+      .map((r) => ({ userId: r.userId, canWrite: r.canWrite === 1 }));
+  }
+
+  /** Concede ou atualiza. `INSERT … ON CONFLICT` porque a PK é o par. */
+  conceder(connectionId: string, userId: string, canWrite: boolean, por: string): void {
+    this.#db
+      .query<unknown, [string, string, number, string, string, number]>(
+        `INSERT INTO connection_access (connection_id, user_id, can_write, granted_at, granted_by)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (connection_id, user_id) DO UPDATE SET can_write = ?`,
+      )
+      .run(connectionId, userId, canWrite ? 1 : 0, new Date().toISOString(), por, canWrite ? 1 : 0);
+  }
+
+  /** Revoga. Ausência de linha É a negação — não existe `granted = 0`. */
+  revogar(connectionId: string, userId: string): void {
+    this.#db
+      .query<unknown, [string, string]>(
+        "DELETE FROM connection_access WHERE connection_id = ? AND user_id = ?",
+      )
+      .run(connectionId, userId);
   }
 
   create(input: CreateConnection): Connection {
@@ -122,14 +237,14 @@ export class ConnectionsRepository {
         now,
       );
 
-    const created = this.find(id);
+    const created = this.#linhaCrua(id);
     if (created === null) throw new Error("conexão sumiu logo após ser criada");
     return created;
   }
 
   /** `password` ausente no patch significa "não mexe na senha". */
   update(id: string, patch: UpdateConnection): Connection | null {
-    if (this.find(id) === null) return null;
+    if (this.#linhaCrua(id) === null) return null;
 
     const sets: string[] = [];
     const values: (string | number | null)[] = [];
@@ -162,7 +277,7 @@ export class ConnectionsRepository {
         .run(...values, id);
     }
 
-    return this.find(id);
+    return this.#linhaCrua(id);
   }
 
   delete(id: string): boolean {

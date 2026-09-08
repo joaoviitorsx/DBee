@@ -3,6 +3,7 @@ import { Elysia } from "elysia";
 import { SESSION_COOKIE, type SessionUser } from "@dbee/shared";
 
 import type { UsersRepository } from "../db/users.repo";
+import type { Ator } from "../lib/ator";
 import { AUTH_FAILURES } from "./failures";
 
 /**
@@ -187,9 +188,12 @@ export function exigirAdmin(sessao: Sessao | null): { ok: true; atorId: string }
   return { ok: true, atorId: sessao.user.id };
 }
 
-export function exigirAtor(sessao: Sessao | null): string {
+export function exigirAtor(sessao: Sessao | null): Ator {
   if (sessao === null) {
     throw new Error("rota de execução sem sessão: o guard foi contornado");
   }
-  return sessao.user.id;
+  // O papel vem junto desde a permissão por conexão (migração 005): quem
+  // resolve a conexão precisa saber se é admin, e buscar o usuário de novo lá
+  // embaixo seria uma segunda consulta para um dado que já está aqui.
+  return { id: sessao.user.id, role: sessao.user.role };
 }
