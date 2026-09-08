@@ -21,6 +21,22 @@ const PORTA = 15551;
 const CONTAINER = "dbee-ddl-test";
 const SENHA = "teste-ddl";
 
+/**
+ * Sem Docker, a suíte inteira deste arquivo é pulada em vez de falhar —
+ * mesma postura dos demais testes de integração.
+ *
+ * O `try` não é decoração: `Bun.spawnSync` **lança** `ENOENT` quando o binário
+ * não está no PATH, em vez de devolver exit code. Sem ele, "não tem Docker"
+ * viraria erro não tratado entre testes — o oposto de pular.
+ */
+const temDocker = ((): boolean => {
+  try {
+    return Bun.spawnSync(["docker", "version"]).exitCode === 0;
+  } catch {
+    return false;
+  }
+})();
+
 let store: Store;
 let app: ReturnType<typeof createApp>;
 let cookie = "";
@@ -57,6 +73,8 @@ const chamar = (path: string, body: unknown): Promise<Response> =>
   );
 
 beforeAll(async () => {
+  if (!temDocker) return;
+
   Bun.spawnSync(["docker", "rm", "-f", CONTAINER]);
   Bun.spawnSync([
     "docker", "run", "-d", "--rm", "--name", CONTAINER,
@@ -75,13 +93,14 @@ beforeAll(async () => {
   store = openTestStore();
   app = createApp({ store, caCert: undefined });
   ({ cookie } = await autenticar(store));
-});
+}, 180_000);
 
 afterAll(() => {
+  if (!temDocker) return;
   Bun.spawnSync(["docker", "rm", "-f", CONTAINER]);
-});
+}, 60_000);
 
-describe("criar tabela", () => {
+describe.if(temDocker)("criar tabela", () => {
   it("cria de verdade, e a tabela existe depois", async () => {
     const id = await criarConexao(true);
     const res = await chamar(`/api/connections/${id}/ddl/table`, {
@@ -182,7 +201,7 @@ describe("criar tabela", () => {
   });
 });
 
-describe("criar database", () => {
+describe.if(temDocker)("criar database", () => {
   /**
    * A razão de existir o `withAutocommit`. Trocar por `withTransaction` faz
    * este teste falhar com a mensagem do próprio Postgres.

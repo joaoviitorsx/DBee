@@ -16,6 +16,22 @@ const PORTA = 15552;
 const ORIGEM = "dbee-bundle-origem";
 const SENHA = "teste-bundle";
 
+/**
+ * Sem Docker, a suíte inteira deste arquivo é pulada em vez de falhar —
+ * mesma postura dos demais testes de integração.
+ *
+ * O `try` não é decoração: `Bun.spawnSync` **lança** `ENOENT` quando o binário
+ * não está no PATH, em vez de devolver exit code. Sem ele, "não tem Docker"
+ * viraria erro não tratado entre testes — o oposto de pular.
+ */
+const temDocker = ((): boolean => {
+  try {
+    return Bun.spawnSync(["docker", "version"]).exitCode === 0;
+  } catch {
+    return false;
+  }
+})();
+
 let store: Store;
 let app: ReturnType<typeof createApp>;
 let cookie = "";
@@ -37,6 +53,8 @@ async function baixarBundle(corpo: unknown): Promise<Response> {
 }
 
 beforeAll(async () => {
+  if (!temDocker) return;
+
   Bun.spawnSync(["docker", "rm", "-f", ORIGEM]);
   Bun.spawnSync([
     "docker", "run", "-d", "--rm", "--name", ORIGEM,
@@ -83,13 +101,14 @@ linha', 0);
     }),
   );
   connectionId = ((await res.json()) as { id: string }).id;
-});
+}, 180_000);
 
 afterAll(() => {
+  if (!temDocker) return;
   Bun.spawnSync(["docker", "rm", "-f", ORIGEM]);
-});
+}, 60_000);
 
-describe("dump de várias tabelas", () => {
+describe.if(temDocker)("dump de várias tabelas", () => {
   it("traz estrutura e dados das duas tabelas num arquivo só", async () => {
     const res = await baixarBundle({
       tables: [
