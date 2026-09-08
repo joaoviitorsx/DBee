@@ -82,9 +82,13 @@ beforeAll(async () => {
     "-p", `${String(PORTA)}:5432`, "postgres:16",
   ]);
 
-  const limite = Date.now() + 60_000;
+  // Query real, não `pg_isready`: ele responde OK ao servidor temporário que o
+  // entrypoint sobe para inicializar o cluster, e que reinicia logo depois.
+  const limite = Date.now() + 90_000;
   for (;;) {
-    const pronto = Bun.spawnSync(["docker", "exec", CONTAINER, "pg_isready", "-U", "postgres"]);
+    const pronto = Bun.spawnSync([
+      "docker", "exec", CONTAINER, "psql", "-U", "postgres", "-tAc", "SELECT 1",
+    ]);
     if (pronto.exitCode === 0) break;
     if (Date.now() > limite) throw new Error("Postgres de teste não subiu");
     await Bun.sleep(500);

@@ -52,6 +52,24 @@ async function baixarBundle(corpo: unknown): Promise<Response> {
   );
 }
 
+/**
+ * Espera o Postgres **de verdade**.
+ *
+ * `pg_isready` responde OK ao servidor temporário que o entrypoint da imagem
+ * sobe para inicializar o cluster — e logo depois ele reinicia. Uma query real
+ * só passa no servidor definitivo. Local a corrida era ganha; no runner do CI,
+ * não: o seed rodava contra o servidor que ia morrer, sumia, e seis testes
+ * falhavam com "public.clientes não existe" em vez de dizer o que houve.
+ */
+async function esperarPostgres(): Promise<void> {
+  const limite = Date.now() + 90_000;
+  for (;;) {
+    if (psql(["-tAc", "SELECT 1"]).codigo === 0) return;
+    if (Date.now() > limite) throw new Error("Postgres de teste não subiu");
+    await Bun.sleep(500);
+  }
+}
+
 beforeAll(async () => {
   if (!temDocker) return;
 
@@ -61,16 +79,11 @@ beforeAll(async () => {
     "-e", `POSTGRES_PASSWORD=${SENHA}`,
     "-p", `${String(PORTA)}:5432`, "postgres:16",
   ]);
-  const limite = Date.now() + 60_000;
-  for (;;) {
-    if (Bun.spawnSync(["docker", "exec", ORIGEM, "pg_isready", "-U", "postgres"]).exitCode === 0) break;
-    if (Date.now() > limite) throw new Error("Postgres de teste não subiu");
-    await Bun.sleep(500);
-  }
+  await esperarPostgres();
 
   // Dados com o que costuma quebrar um dump: aspas simples, acento, NULL,
   // numeric com casas, e uma segunda tabela para provar o multi-tabela.
-  psql(["-c", `
+  const seed = psql(["-v", "ON_ERROR_STOP=1", "-c", `
     CREATE TABLE clientes (
       id serial PRIMARY KEY,
       nome text NOT NULL,
@@ -85,6 +98,9 @@ linha', 0);
     CREATE TABLE notas (id serial PRIMARY KEY, cliente_id int NOT NULL, valor numeric(10,2));
     INSERT INTO notas (cliente_id, valor) VALUES (1, 10.00), (2, 20.50);
   `]);
+  // Sem esta linha, um seed que falha vira seis testes falhando por
+  // "tabela não existe" — o sintoma longe da causa.
+  if (seed.codigo !== 0) throw new Error(`seed falhou: ${seed.erro}`);
 
   store = openTestStore();
   app = createApp({ store, caCert: undefined });
