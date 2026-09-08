@@ -14,6 +14,7 @@ import { PoolManager } from "./pg/pool";
 import { auditRoutes } from "./routes/audit";
 import { authRoutes } from "./routes/auth";
 import { connectionsRoutes } from "./routes/connections";
+import { ddlRoutes } from "./routes/ddl";
 import { errorHandler } from "./routes/errors";
 import { exportRoutes } from "./routes/export";
 import { sessionGuard } from "./routes/guard";
@@ -28,6 +29,7 @@ import { ConnectionsService } from "./services/connections.service";
 import { ExportService } from "./services/export.service";
 import { QueryService } from "./services/query.service";
 import { RowsService } from "./services/rows.service";
+import { DdlService } from "./services/ddl.service";
 import { SchemaService } from "./services/schema.service";
 import { UpdateService, versaoDoBinario } from "./services/update.service";
 
@@ -72,6 +74,7 @@ export function createApp({
   const mutation = new MutationService({ repository, pools, log });
   const rows = new RowsService({ repository, pools, schema, log });
   const exportar = new ExportService({ repository, pools, schema, log });
+  const ddl = new DdlService({ repository, pools, log });
   const update = new UpdateService({
     settings: new SettingsRepository(store.db, store.key),
     current: versaoDoBinario(),
@@ -118,6 +121,7 @@ export function createApp({
       .use(mutationRoutes(mutation, users))
       .use(exportRoutes(exportar, users))
       .use(auditRoutes(audit))
+      .use(ddlRoutes(ddl, users))
       .use(savedQueriesRoutes(savedQueries))
       .use(metaRoutes(update, users))
   );

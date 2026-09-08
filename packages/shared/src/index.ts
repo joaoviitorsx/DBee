@@ -4,6 +4,7 @@ export * from "./audit";
 export * from "./auth";
 export * from "./eden";
 export * from "./connections";
+export * from "./ddl";
 export * from "./export";
 export * from "./meta";
 export * from "./mutation";

@@ -89,7 +89,21 @@ export interface ClusterTab {
   readonly connectionId: string;
 }
 
-export type Tab = TableTab | QueryTab | DiagramTab | ClusterTab;
+/**
+ * Export de várias tabelas — aba própria, não modal.
+ *
+ * É trabalho de escolher, não de confirmar: cem tabelas com contagem de linhas
+ * não cabem num diálogo, e a pessoa precisa poder ir olhar a árvore no meio da
+ * seleção. Uma por conexão e database, como o diagrama.
+ */
+export interface ExportTab {
+  readonly kind: "export";
+  readonly id: string;
+  readonly connectionId: string;
+  readonly database: string;
+}
+
+export type Tab = TableTab | QueryTab | DiagramTab | ClusterTab | ExportTab;
 
 export interface Workspace {
   readonly tabs: readonly Tab[];
@@ -199,6 +213,13 @@ export function openDiagram(ws: Workspace, connectionId: string, database: strin
   return { ...ws, tabs: [...ws.tabs, tab], activeTabId: id };
 }
 
+export function openExport(ws: Workspace, connectionId: string, database: string): Workspace {
+  const id = `export:${connectionId}:${database}`;
+  if (ws.tabs.some((tab) => tab.id === id)) return { ...ws, activeTabId: id };
+  const tab: ExportTab = { kind: "export", id, connectionId, database };
+  return { ...ws, tabs: [...ws.tabs, tab], activeTabId: id };
+}
+
 export function openQuery(
   ws: Workspace,
   connectionId: string,
@@ -305,6 +326,8 @@ export function tabTitle(tab: Tab, t: Tradutor): string {
       return `${tab.target.schema}.${tab.target.relation}`;
     case "diagram":
       return t("aba.tituloDiagrama", { db: tab.database });
+    case "export":
+      return t("aba.tituloExport", { db: tab.database });
     case "overview":
       return t("aba.tituloDatabases");
     case "activity":

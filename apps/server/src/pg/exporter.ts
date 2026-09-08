@@ -12,6 +12,7 @@ import {
 } from "@dbee/shared";
 
 import { resolveColumns } from "./columns";
+import { TUDO_TEXTO } from "./tipos";
 
 /**
  * Export em stream (DBee.md §5, §6).
@@ -29,10 +30,6 @@ import { resolveColumns } from "./columns";
 
 type Cell = string | null;
 
-interface TextTypesConfig {
-  getTypeParser: () => (value: string) => string;
-}
-const TUDO_TEXTO: TextTypesConfig = { getTypeParser: () => (v) => v };
 
 export interface ExportPlan {
   /** SQL do usuário, ou o montado a partir da relação. */

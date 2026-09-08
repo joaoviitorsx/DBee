@@ -15,6 +15,9 @@ import { AuditTab } from "../features/overview/AuditTab";
 import { DatabasesOverviewTab } from "../features/overview/DatabasesOverview";
 import { DiagramTabContent } from "../features/diagram/DiagramTabContent";
 import { DiagramView } from "../features/diagram/DiagramView";
+import { CreateDatabaseDialog } from "../features/ddl/CreateDatabaseDialog";
+import { CreateTableDialog } from "../features/ddl/CreateTableDialog";
+import { ExportTabContent } from "../features/export/ExportTabContent";
 import { QueryTabContent } from "../features/query/QueryTabContent";
 import { UserChip } from "../features/auth/UserChip";
 import { Trabalhando } from "../features/motion/Trabalhando";
@@ -38,6 +41,7 @@ import {
   focusTab,
   openCluster,
   openDiagram,
+  openExport,
   openQuery,
   openTable,
   openTableFiltered,
@@ -65,7 +69,15 @@ export interface AppShellProps {
     connection: Connection,
   ) => Omit<
     TreeMenuActions,
-    "onOpenRelation" | "onRefreshSchema" | "onNewQuery" | "onOpenDiagram" | "onOpenCluster"
+    | "onOpenRelation"
+    | "onRefreshSchema"
+    | "onNewQuery"
+    | "onOpenDiagram"
+    | "onOpenCluster"
+    // Abrem aba ou diálogo — quem sabe disso é o shell, não a página de conexões.
+    | "onCreateTable"
+    | "onCreateDatabase"
+    | "onOpenExport"
   >;
   readonly onRefreshSchema: (connectionId: string, database: string) => void;
 }
@@ -92,6 +104,9 @@ export function AppShell({
   // Botão direito no vazio da árvore: a única ação que cabe ali é acrescentar.
   const [menuFundo, setMenuFundo] = useState<MenuAnchor | null>(null);
   const [arvoreAberta, setArvoreAberta] = useState(false);
+  // Diálogos de DDL — abertos pelo menu da árvore, fechados por si mesmos.
+  const [criandoTabela, setCriandoTabela] = useState<{ connectionId: string; database: string; schema: string } | null>(null);
+  const [criandoDatabase, setCriandoDatabase] = useState<string | null>(null);
   const largo = useLayoutLargo();
   const tree = useTreeExpansion();
   const t = useT();
@@ -143,6 +158,21 @@ export function AppShell({
     [connections],
   );
 
+  const abrirExport = useCallback((connectionId: string, database: string) => {
+    setWs((atual) => openExport(atual, connectionId, database));
+  }, []);
+
+  const abrirCriarTabela = useCallback(
+    (connectionId: string, database: string, schema: string) => {
+      setCriandoTabela({ connectionId, database, schema });
+    },
+    [],
+  );
+
+  const abrirCriarDatabase = useCallback((connectionId: string) => {
+    setCriandoDatabase(connectionId);
+  }, []);
+
   const abrirDiagrama = useCallback((connectionId: string, database: string) => {
     setWs((atual) => openDiagram(atual, connectionId, database));
   }, []);
@@ -185,6 +215,7 @@ export function AppShell({
   const abaTabela: TableTab | null = aba?.kind === "table" ? aba : null;
   const abaQuery: QueryTab | null = aba?.kind === "query" ? aba : null;
   const abaDiagrama = aba?.kind === "diagram" ? aba : null;
+  const abaExport = aba?.kind === "export" ? aba : null;
   const abaCluster =
     aba?.kind === "overview" || aba?.kind === "activity" || aba?.kind === "audit" ? aba : null;
 
@@ -289,6 +320,12 @@ export function AppShell({
                 connections={connections}
               />
             )
+          ) : abaExport !== null ? (
+            <ExportTabContent
+              key={abaExport.id}
+              connectionId={abaExport.connectionId}
+              database={abaExport.database}
+            />
           ) : abaDiagrama !== null ? (
             <DiagramTabContent
               key={abaDiagrama.id}
@@ -362,8 +399,27 @@ export function AppShell({
             onNewQuery: novaConsulta,
             onOpenDiagram: abrirDiagrama,
             onOpenCluster: abrirCluster,
+            onCreateTable: abrirCriarTabela,
+            onCreateDatabase: abrirCriarDatabase,
+            onOpenExport: abrirExport,
           }, t)}
           onClose={() => { setMenu(null); }}
+        />
+      ) : null}
+
+      {criandoTabela !== null ? (
+        <CreateTableDialog
+          connectionId={criandoTabela.connectionId}
+          database={criandoTabela.database}
+          schema={criandoTabela.schema}
+          onClose={() => { setCriandoTabela(null); }}
+        />
+      ) : null}
+
+      {criandoDatabase !== null ? (
+        <CreateDatabaseDialog
+          connectionId={criandoDatabase}
+          onClose={() => { setCriandoDatabase(null); }}
         />
       ) : null}
 

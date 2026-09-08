@@ -4,6 +4,7 @@ import type { PoolClient } from "pg";
 import { splitStatements, type QueryError, type StatementResult } from "@dbee/shared";
 
 import { resolveColumns } from "./columns";
+import { TUDO_TEXTO } from "./tipos";
 
 /**
  * Execução de query do usuário (DBee.md §6).
@@ -27,10 +28,6 @@ type Cell = string | null;
  * Postgres. Evita a classe inteira de bug "o número apareceu diferente na
  * tela" (§6).
  */
-interface TextTypesConfig {
-  getTypeParser: () => (value: string) => string;
-}
-const TUDO_TEXTO: TextTypesConfig = { getTypeParser: () => (v) => v };
 
 /** Nome de cursor gerado, nunca entrada do usuário. */
 const nomeCursor = (): string => `dbee_${randomBytes(8).toString("hex")}`;
