@@ -170,15 +170,25 @@ export function sqlValue(valor: string | null): string {
   return `'${valor.replaceAll("'", "''")}'`;
 }
 
-/** Uma linha de `INSERT INTO … VALUES (…);` já montada. */
+/**
+ * Uma linha de `INSERT INTO … VALUES (…);` já montada.
+ *
+ * `sufixo` entra antes do `;` — é onde `ON CONFLICT DO NOTHING` cabe, para
+ * recarregar por cima de dado que já existe sem estourar na chave primária.
+ * Fica como parâmetro, e não como concatenação de quem chama, porque o `;` é
+ * montado aqui: emendar depois produziria `…);` seguido do sufixo, que é
+ * sintaxe inválida.
+ */
 export function sqlInsertLine(
   tabelaQualificada: string,
   colunas: readonly string[],
   valores: readonly (string | null)[],
+  sufixo = "",
 ): string {
   const cols = colunas.map(sqlIdent).join(", ");
   const vals = valores.map(sqlValue).join(", ");
-  return `INSERT INTO ${tabelaQualificada} (${cols}) VALUES (${vals});\n`;
+  const fim = sufixo === "" ? "" : ` ${sufixo}`;
+  return `INSERT INTO ${tabelaQualificada} (${cols}) VALUES (${vals})${fim};\n`;
 }
 
 /**
@@ -197,18 +207,113 @@ export const BundleTable = t.Object({
 export type BundleTable = Static<typeof BundleTable>;
 
 /**
- * Dump `.sql` de várias tabelas num arquivo.
+ * Formato do export de várias tabelas.
  *
- * Só `.sql`: CSV de várias tabelas precisaria de um zip (vários arquivos) ou de
- * concatenar planilhas num arquivo só, que nenhum leitor de CSV entende. Para
- * CSV de **uma** tabela, a rota é a de sempre.
+ * `sql` sai num arquivo só. Os demais saem **um arquivo por tabela dentro de um
+ * `.zip`**: CSVs concatenados num arquivo só não são lidos por ferramenta
+ * nenhuma (o Adminer faz isso e o resultado não abre no Excel).
+ */
+export const BundleFormat = t.Union([
+  t.Literal("sql"),
+  /** `;` — o separador que o Excel em português espera. */
+  t.Literal("csv"),
+  /** `,` — o do padrão, para quem consome por script. */
+  t.Literal("csv-comma"),
+  t.Literal("tsv"),
+  /** Um array JSON por tabela. */
+  t.Literal("json"),
+  /** Um objeto por linha — o que ferramenta de log e stream espera. */
+  t.Literal("ndjson"),
+]);
+export type BundleFormat = Static<typeof BundleFormat>;
+
+/**
+ * O que fazer com o resultado.
+ *
+ * `preview` abre na tela em vez de baixar, com teto de bytes — o ponto é
+ * conferir o começo do arquivo antes de gerar um de 2 GB.
+ */
+export const BundleOutput = t.Union([
+  t.Literal("download"),
+  t.Literal("gzip"),
+  t.Literal("preview"),
+]);
+export type BundleOutput = Static<typeof BundleOutput>;
+
+/**
+ * Estrutura no dump `.sql`.
+ *
+ * `drop-create` emite `DROP TABLE IF EXISTS … CASCADE` antes do `CREATE`.
+ * O Adminer chama de "DROP+CREATE"; aqui o nome diz o que faz.
+ */
+export const BundleStructure = t.Union([
+  t.Literal("none"),
+  t.Literal("create"),
+  t.Literal("drop-create"),
+]);
+export type BundleStructure = Static<typeof BundleStructure>;
+
+/**
+ * Como os dados saem no `.sql`.
+ *
+ * - `insert` — um `INSERT` por linha. Legível, lento de recarregar.
+ * - `insert-conflict` — com `ON CONFLICT DO NOTHING`, para recarregar por cima
+ *   de dado que já existe sem estourar na chave.
+ * - `copy` — `COPY … FROM stdin`, **muito** mais rápido de recarregar num banco
+ *   grande. É o que o `pg_dump` usa por padrão, e o motivo de existir aqui.
+ *
+ * Nos formatos que não são SQL, isto é ignorado: CSV não tem "modo de INSERT".
+ */
+export const BundleData = t.Union([
+  t.Literal("none"),
+  t.Literal("insert"),
+  t.Literal("insert-conflict"),
+  t.Literal("copy"),
+]);
+export type BundleData = Static<typeof BundleData>;
+
+/** Teto do `preview`. Acima disso o corpo é cortado e a UI avisa. */
+export const PREVIEW_MAX_BYTES = 256 * 1024;
+
+/**
+ * Export de várias tabelas.
+ *
+ * As opções espelham o painel do Adminer, **traduzidas para o Postgres**. Ficam
+ * de fora as que são só do MySQL: `USE` (o Postgres não tem) e "Incremento
+ * Automático" (o equivalente é `serial`/`identity`, que já sai na estrutura).
  */
 export const ExportBundleRequest = t.Object({
   database: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
   tables: t.Array(BundleTable, { minItems: 1, maxItems: 500 }),
-  /** `DROP TABLE IF EXISTS` antes de cada `CREATE`. */
-  dropFirst: t.Optional(t.Boolean()),
-  /** Comprime com gzip pelo `CompressionStream` — sem binário externo. */
-  gzip: t.Optional(t.Boolean()),
+  format: t.Optional(BundleFormat),
+  output: t.Optional(BundleOutput),
+  structure: t.Optional(BundleStructure),
+  data: t.Optional(BundleData),
+  /** `CREATE INDEX` dos índices que não são a PK (`pg_get_indexdef`). */
+  indexes: t.Optional(t.Boolean()),
+  /** `CREATE TRIGGER` (`pg_get_triggerdef`). */
+  triggers: t.Optional(t.Boolean()),
+  /** Funções e procedures do schema (`pg_get_functiondef`). */
+  routines: t.Optional(t.Boolean()),
 });
 export type ExportBundleRequest = Static<typeof ExportBundleRequest>;
+
+/** Extensão de cada arquivo dentro do zip, por formato. */
+export const EXTENSAO_BUNDLE: Readonly<Record<BundleFormat, string>> = {
+  sql: "sql",
+  csv: "csv",
+  "csv-comma": "csv",
+  tsv: "tsv",
+  json: "json",
+  ndjson: "ndjson",
+};
+
+/** Separador de cada formato tabular. `sql`/`json`/`ndjson` não usam. */
+export const SEPARADOR_BUNDLE: Readonly<Record<BundleFormat, string>> = {
+  sql: "",
+  csv: ";",
+  "csv-comma": ",",
+  tsv: "\t",
+  json: "",
+  ndjson: "",
+};

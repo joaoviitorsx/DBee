@@ -17,8 +17,20 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 - **O comando fica à vista enquanto o formulário é preenchido**, montado pelo
   mesmo código do servidor: o que se lê é literalmente o que vai rodar.
 - **Export de várias tabelas em aba própria**, no estilo do Adminer: filtro,
-  contagem de linhas por tabela, marcação separada de estrutura e dados,
-  `DROP + CREATE` e saída comprimida (`.sql.gz`).
+  contagem de linhas por tabela e marcação separada de estrutura e dados.
+- **Painel de opções completo no export**: saída (baixar / comprimido / ver na
+  tela), formato (SQL, CSV `;`, CSV `,`, TSV, JSON, NDJSON), estrutura
+  (`none`/`CREATE`/`DROP+CREATE`), dados (`INSERT`, `INSERT + ON CONFLICT`,
+  `COPY`) e inclusão de índices, triggers e funções.
+  - Formato tabular de **várias** tabelas sai como **um arquivo por tabela num
+    `.zip`**, escrito à mão (`apps/server/src/lib/zip.ts`) — validado contra o
+    `unzip` do sistema e o `zipfile` do Python.
+  - `COPY … FROM stdin` recarrega muito mais rápido que `INSERT` em tabela
+    grande; é o que o `pg_dump` usa por padrão.
+  - As opções `USE` e "Incremento Automático" do Adminer **não** existem aqui:
+    são MySQL. Copiá-las seria cargo cult.
+- **Criar database mudou de lugar**: sai do menu do database e vai para o da
+  **conexão**. Um database nasce no cluster, não dentro de outro database.
 - **Selo "Atualizar" no cabeçalho**, só quando há versão maior publicada. Vira
   ícone abaixo de `md`; sem ponto colorido, porque verde já significa "conexão
   viva" na árvore e a mesma forma diria outra coisa.

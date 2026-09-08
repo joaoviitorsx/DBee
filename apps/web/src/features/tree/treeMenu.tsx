@@ -99,6 +99,21 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
             },
           ],
         },
+        // O database é criado no cluster, então o lugar dele é a conexão.
+        ...(target.connection.writeEnabled
+          ? [
+              {
+                items: [
+                  {
+                    id: "create-database",
+                    label: t("menu.criarDatabase"),
+                    icon: <DatabaseZap aria-hidden className={icone} />,
+                    onSelect: () => { actions.onCreateDatabase(target.connection.id); },
+                  },
+                ],
+              },
+            ]
+          : []),
         {
           items: [
             {
@@ -143,6 +158,10 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
          * (`write_forbidden`, ADR 010). É honestidade de menu: oferecer uma
          * ação que vai falhar treina a pessoa a ignorar o menu, e o §5 do
          * design-system pede o contrário.
+         *
+         * **Criar database não está aqui**, e sim no nó da conexão: um database
+         * nasce no cluster, não dentro de outro database. Oferecê-lo aqui
+         * sugeria um aninhamento que não existe.
          */
         ...(target.connection.writeEnabled
           ? [
@@ -155,12 +174,6 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
                     onSelect: () => {
                       actions.onCreateTable(target.connection.id, target.database, "public");
                     },
-                  },
-                  {
-                    id: "create-database",
-                    label: t("menu.criarDatabase"),
-                    icon: <DatabaseZap aria-hidden className={icone} />,
-                    onSelect: () => { actions.onCreateDatabase(target.connection.id); },
                   },
                 ],
               },

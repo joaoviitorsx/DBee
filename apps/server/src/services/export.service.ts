@@ -1,6 +1,7 @@
 import {
   CONTENT_TYPE,
   exportFilename,
+  PREVIEW_MAX_BYTES,
   splitStatements,
   sqlIdent,
   type ExportBundleRequest,
@@ -9,9 +10,9 @@ import {
   type RowsRequest,
 } from "@dbee/shared";
 
-import type { ConnectionsRepository } from "../db/connections.repo";
+import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
-import { streamBundle, type BundleTablePlan } from "../pg/bundle";
+import { streamBundle, type BundleOptions, type BundleTablePlan } from "../pg/bundle";
 import { streamExport } from "../pg/exporter";
 import type { PoolManager } from "../pg/pool";
 import { RowsError, planRows } from "../pg/rows";
@@ -270,10 +271,18 @@ export class ExportService {
     if (connection === null) return fail("not_found");
 
     const database = request.database ?? connection.database;
+    const format = request.format ?? "sql";
+    const structure = request.structure ?? "create";
+    const dataMode = request.data ?? "insert";
+    const output = request.output ?? "download";
+    const ehSql = format === "sql";
+
     const arvore = await this.#schema.get(connectionId, database, false);
     if (!arvore.ok) return arvore;
 
     const planos: BundleTablePlan[] = [];
+    const schemasUsados = new Set<string>();
+
     for (const escolha of request.tables) {
       // Uma tabela sem estrutura nem dados não é erro — é uma linha desmarcada
       // que veio junto. Pular é o que a UI espera.
@@ -286,29 +295,44 @@ export class ExportService {
         return fail("not_found", `${escolha.schema}.${escolha.table} não existe neste database`);
       }
 
+      schemasUsados.add(escolha.schema);
       const qualified = tabelaQualificada(escolha.schema, escolha.table);
       const colunas = relation.columns.map((c) => c.name);
+
+      // Estrutura só faz sentido em SQL: um CSV não carrega DDL.
+      const querEstrutura = ehSql && escolha.structure && structure !== "none";
+      const querDados = escolha.data && dataMode !== "none";
+
       planos.push({
         schema: escolha.schema,
         table: escolha.table,
         qualified,
-        ddl: escolha.structure ? montarCreateTable(escolha.schema, escolha.table, relation) : null,
-        // Colunas nomeadas, não `SELECT *`: a ordem do `INSERT` tem que casar
-        // com a lista de colunas que o cabeçalho escreveu.
-        selectSql: escolha.data
+        ddl: querEstrutura ? montarCreateTable(escolha.schema, escolha.table, relation) : null,
+        extras: querEstrutura
+          ? await this.#extrasDaTabela(connection, database, escolha.schema, escolha.table, request)
+          : [],
+        // Colunas nomeadas, não `SELECT *`: a ordem das linhas tem que casar
+        // com a lista de colunas do cabeçalho.
+        selectSql: querDados
           ? `SELECT ${colunas.map(sqlIdent).join(", ")} FROM ${qualified}`
           : null,
         columns: colunas,
-        // A opção é do dump inteiro (como no Adminer), não por tabela.
-        dropFirst: request.dropFirst === true && escolha.structure,
+        dropFirst: structure === "drop-create" && querEstrutura,
       });
     }
 
     if (planos.length === 0) return fail("bad_request", "nenhuma tabela selecionada");
 
+    const routines =
+      ehSql && request.routines === true
+        ? await this.#rotinas(connection, database, [...schemasUsados])
+        : [];
+
+    const opcoes: BundleOptions = { format, data: ehSql ? dataMode : "none", routines };
+
     const inicio = performance.now();
     const resumo = planos.map((p) => `${p.schema}.${p.table}`).join(", ");
-    const sqlDoLog = `-- export de ${String(planos.length)} tabela(s): ${resumo}`;
+    const sqlDoLog = `-- export ${format} de ${String(planos.length)} tabela(s): ${resumo}`;
 
     try {
       const stream = await this.#pools.withStreamingTransaction(
@@ -316,7 +340,7 @@ export class ExportService {
         database,
         (client, encerrar) =>
           Promise.resolve(
-            streamBundle(client, planos, (resultado, erro) => {
+            streamBundle(client, planos, opcoes, (resultado, erro) => {
               this.#log.record({
                 connectionId,
                 database,
@@ -334,20 +358,7 @@ export class ExportService {
         "repeatable-read",
       );
 
-      const comprimir = request.gzip === true;
-      // O `CompressionStream` da lib da plataforma declara `WritableStream<BufferSource>`;
-      // o nosso stream é de `Uint8Array`, que É um BufferSource. A conversão é
-      // só de tipagem da borda, não de dado.
-      const gzip = new CompressionStream("gzip") as unknown as ReadableWritablePair<
-        Uint8Array,
-        Uint8Array
-      >;
-      const nome = exportFilename(`${database}_dump`, "sql");
-      return ok({
-        stream: comprimir ? stream.pipeThrough(gzip) : stream,
-        contentType: comprimir ? "application/gzip" : CONTENT_TYPE.sql,
-        filename: comprimir ? `${nome}.gz` : nome,
-      });
+      return ok(this.#embrulhar(stream, database, format, output));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "erro desconhecido";
       this.#log.record({
@@ -358,4 +369,156 @@ export class ExportService {
       return fail("upstream_error", message);
     }
   }
+
+  /**
+   * Decide o invólucro do stream: arquivo, arquivo comprimido, ou prévia.
+   *
+   * A prévia é cortada em `PREVIEW_MAX_BYTES`. O ponto dela é conferir o começo
+   * do arquivo antes de gerar um de 2 GB — mandar o dump inteiro para a aba
+   * derrubaria o navegador, que é o oposto do que ela existe para evitar.
+   */
+  #embrulhar(
+    stream: ReadableStream<Uint8Array>,
+    database: string,
+    format: ExportBundleRequest["format"] & string,
+    output: NonNullable<ExportBundleRequest["output"]>,
+  ): ExportStream {
+    const ehSql = format === "sql";
+    const base = `${database}_dump`;
+    const extensao = ehSql ? "sql" : "zip";
+    const nome = `${exportFilename(base, "sql").replace(/\.sql$/, "")}.${extensao}`;
+
+    if (output === "preview") {
+      return {
+        stream: cortar(stream, PREVIEW_MAX_BYTES),
+        // Prévia é para LER na tela: texto puro, mesmo quando o conteúdo é SQL.
+        // `application/sql` faria o navegador oferecer download de novo.
+        contentType: "text/plain; charset=utf-8",
+        filename: nome,
+      };
+    }
+
+    if (output === "gzip") {
+      // O `CompressionStream` da plataforma declara `WritableStream<BufferSource>`;
+      // o nosso stream é de `Uint8Array`, que É um BufferSource. Conversão de
+      // borda de tipagem, não de dado.
+      const gzip = new CompressionStream("gzip") as unknown as ReadableWritablePair<
+        Uint8Array,
+        Uint8Array
+      >;
+      return {
+        stream: stream.pipeThrough(gzip),
+        contentType: "application/gzip",
+        filename: `${nome}.gz`,
+      };
+    }
+
+    return {
+      stream,
+      contentType: ehSql ? CONTENT_TYPE.sql : "application/zip",
+      filename: nome,
+    };
+  }
+
+  /**
+   * Índices (fora a PK, que já está no CREATE) e triggers da tabela.
+   *
+   * `pg_get_indexdef`/`pg_get_triggerdef` devolvem o comando pronto — é o mesmo
+   * que o `pg_dump` usa, e é SELECT em catálogo, dentro da fronteira (ADR 006).
+   */
+  async #extrasDaTabela(
+    connection: ResolvedConnection,
+    database: string,
+    schema: string,
+    table: string,
+    request: ExportBundleRequest,
+  ): Promise<string[]> {
+    if (request.indexes !== true && request.triggers !== true) return [];
+
+    return await this.#pools.withTransaction(connection, database, true, async (client) => {
+      const saida: string[] = [];
+
+      if (request.indexes === true) {
+        const r = await client.query<{ def: string }>(
+          `SELECT pg_get_indexdef(i.indexrelid) AS def
+             FROM pg_index i
+             JOIN pg_class c ON c.oid = i.indrelid
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $1 AND c.relname = $2 AND NOT i.indisprimary
+            ORDER BY 1`,
+          [schema, table],
+        );
+        saida.push(...r.rows.map((row) => row.def));
+      }
+
+      if (request.triggers === true) {
+        const r = await client.query<{ def: string }>(
+          `SELECT pg_get_triggerdef(t.oid) AS def
+             FROM pg_trigger t
+             JOIN pg_class c ON c.oid = t.tgrelid
+             JOIN pg_namespace n ON n.oid = c.relnamespace
+            WHERE n.nspname = $1 AND c.relname = $2 AND NOT t.tgisinternal
+            ORDER BY 1`,
+          [schema, table],
+        );
+        saida.push(...r.rows.map((row) => row.def));
+      }
+
+      return saida;
+    });
+  }
+
+  /** Funções e procedures dos schemas envolvidos. */
+  async #rotinas(
+    connection: ResolvedConnection,
+    database: string,
+    schemas: readonly string[],
+  ): Promise<string[]> {
+    if (schemas.length === 0) return [];
+    return await this.#pools.withTransaction(connection, database, true, async (client) => {
+      const r = await client.query<{ def: string }>(
+        `SELECT pg_get_functiondef(p.oid) AS def
+           FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = ANY($1)
+            AND p.prokind IN ('f', 'p')
+          ORDER BY p.proname`,
+        [schemas],
+      );
+      return r.rows.map((row) => row.def);
+    });
+  }
+}
+
+/**
+ * Corta o stream em N bytes.
+ *
+ * Cancela a origem ao atingir o teto — é o que solta a transação do outro lado
+ * em vez de deixá-la percorrendo uma tabela cujo resultado ninguém vai ler.
+ */
+function cortar(origem: ReadableStream<Uint8Array>, teto: number): ReadableStream<Uint8Array> {
+  const leitor = origem.getReader();
+  let enviados = 0;
+
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (enviados >= teto) {
+        await leitor.cancel();
+        controller.close();
+        return;
+      }
+      const { done, value } = await leitor.read();
+      if (done) {
+        controller.close();
+        return;
+      }
+      const resta = teto - enviados;
+      const pedaco = value.length > resta ? value.subarray(0, resta) : value;
+      enviados += pedaco.length;
+      controller.enqueue(pedaco);
+    },
+    async cancel() {
+      await leitor.cancel();
+    },
+  });
 }

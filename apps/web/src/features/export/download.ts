@@ -36,14 +36,15 @@ const picker = (): SaveFilePicker | null => {
 };
 
 /** `gzip` não é um `ExportFormat`: é a saída comprimida do dump de várias. */
-type FormatoDeArquivo = ExportRequest["format"] | "gzip";
+type FormatoDeArquivo = ExportRequest["format"] | "gzip" | "zip";
 
 const ACEITA: Record<FormatoDeArquivo, { descricao: string; mime: string; ext: string }> = {
   csv: { descricao: "CSV", mime: "text/csv", ext: ".csv" },
   json: { descricao: "JSON", mime: "application/json", ext: ".json" },
   ndjson: { descricao: "NDJSON", mime: "application/x-ndjson", ext: ".ndjson" },
   sql: { descricao: "SQL", mime: "application/sql", ext: ".sql" },
-  gzip: { descricao: "SQL comprimido", mime: "application/gzip", ext: ".sql.gz" },
+  gzip: { descricao: "Comprimido", mime: "application/gzip", ext: ".gz" },
+  zip: { descricao: "ZIP", mime: "application/zip", ext: ".zip" },
 };
 
 export interface Progresso {
@@ -106,7 +107,9 @@ export async function baixarBundle(
   return await baixar(
     `/api/connections/${connectionId}/export/bundle`,
     pedido,
-    pedido.gzip === true ? "gzip" : "sql",
+    // O invólucro define a extensão sugerida: zip para formato tabular,
+    // .sql.gz quando comprimido, .sql no resto.
+    pedido.output === "gzip" ? "gzip" : (pedido.format ?? "sql") === "sql" ? "sql" : "zip",
     onProgress,
     signal,
   );
@@ -188,3 +191,23 @@ async function baixar(
 
 /** Escreve no disco em stream, sem passar pela memória da aba. */
 export const salvaEmStream = (): boolean => picker() !== null;
+
+/**
+ * Prévia do dump — texto na tela, não arquivo no disco.
+ *
+ * O servidor já corta em `PREVIEW_MAX_BYTES`; aqui o corpo pode ser lido de uma
+ * vez justamente porque o teto existe. Sem ele isto seria carregar um dump
+ * inteiro na memória da aba, que é o que a prévia existe para evitar.
+ */
+export async function verPrevia(
+  connectionId: string,
+  pedido: ExportBundleRequest,
+): Promise<string> {
+  const res = await fetch(`/api/connections/${connectionId}/export/bundle`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ...pedido, output: "preview" }),
+  });
+  if (!res.ok) throw new Error(await mensagemDeErro(res));
+  return await res.text();
+}

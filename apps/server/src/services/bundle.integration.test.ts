@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { createApp } from "../app";
 import { openTestStore, type Store } from "../db/client";
@@ -147,6 +150,8 @@ describe.if(temDocker)("dump de várias tabelas", () => {
     expect(texto).toContain("NULL");
     // O cabeçalho diz o que o arquivo NÃO é.
     expect(texto).toContain("NÃO é um pg_dump");
+    // O cabeçalho lista o que de fato entrou nesta geração.
+    expect(texto).toContain("Entra: colunas, defaults, NOT NULL, PRIMARY KEY");
   });
 
   /**
@@ -209,10 +214,10 @@ describe.if(temDocker)("dump de várias tabelas", () => {
     expect(soDados).toContain("INSERT INTO");
   });
 
-  it("DROP+CREATE emite o DROP antes de cada CREATE", async () => {
+  it("structure drop-create emite o DROP antes de cada CREATE", async () => {
     const texto = await (
       await baixarBundle({
-        dropFirst: true,
+        structure: "drop-create",
         tables: [{ schema: "public", table: "clientes", structure: true, data: false }],
       })
     ).text();
@@ -221,10 +226,10 @@ describe.if(temDocker)("dump de várias tabelas", () => {
   });
 
   /** `dropFirst` sem estrutura apagaria a tabela e não a recriaria. */
-  it("DROP não sai quando a estrutura não foi pedida", async () => {
+  it("DROP não sai quando a tabela não pediu estrutura", async () => {
     const texto = await (
       await baixarBundle({
-        dropFirst: true,
+        structure: "drop-create",
         tables: [{ schema: "public", table: "clientes", structure: false, data: true }],
       })
     ).text();
@@ -233,7 +238,7 @@ describe.if(temDocker)("dump de várias tabelas", () => {
 
   it("gzip devolve gzip de verdade, e descomprime no mesmo conteúdo", async () => {
     const res = await baixarBundle({
-      gzip: true,
+      output: "gzip",
       tables: [{ schema: "public", table: "clientes", structure: true, data: true }],
     });
     expect(res.headers.get("content-type")).toBe("application/gzip");
@@ -278,5 +283,162 @@ describe.if(temDocker)("dump de várias tabelas", () => {
     expect(linha?.sql).toContain("public.notas");
     expect(linha?.row_count).toBe(2);
     expect(linha?.read_only).toBe(1);
+  });
+});
+
+describe.if(temDocker)("formatos", () => {
+  const soClientes = { schema: "public", table: "clientes", structure: false, data: true };
+
+  /**
+   * A prova do container: um `unzip` de verdade tem que aceitar, e cada tabela
+   * tem que virar um arquivo separado com o conteúdo certo.
+   */
+  it("csv de várias tabelas vira um zip com um arquivo por tabela", async () => {
+    const res = await baixarBundle({
+      format: "csv",
+      tables: [
+        { schema: "public", table: "clientes", structure: false, data: true },
+        { schema: "public", table: "notas", structure: false, data: true },
+      ],
+    });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("application/zip");
+    expect(res.headers.get("content-disposition")).toContain(".zip");
+
+    const dir = mkdtempSync(join(tmpdir(), "dbee-bundle-"));
+    const caminho = join(dir, "d.zip");
+    await Bun.write(caminho, new Uint8Array(await res.arrayBuffer()));
+
+    expect(Bun.spawnSync(["unzip", "-t", caminho]).stdout.toString()).toContain(
+      "No errors detected",
+    );
+    Bun.spawnSync(["unzip", "-o", "-q", caminho, "-d", dir]);
+
+    const clientes = await Bun.file(join(dir, "public.clientes.csv")).text();
+    // Cabeçalho de coluna, separador `;` (padrão Excel pt-BR) e aspas no valor
+    // que contém o separador.
+    expect(clientes.split("\r\n")[0]).toBe("id;nome;apelido;saldo");
+    expect(clientes).toContain("O'Brien & Cia");
+    expect(await Bun.file(join(dir, "public.notas.csv")).text()).toContain("id;cliente_id;valor");
+  });
+
+  it("csv-comma usa vírgula; tsv usa tabulação", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dbee-bundle-"));
+
+    for (const [format, ext, esperado] of [
+      ["csv-comma", "csv", "id,nome,apelido,saldo"],
+      ["tsv", "tsv", "id\tnome\tapelido\tsaldo"],
+    ] as const) {
+      const res = await baixarBundle({ format, tables: [soClientes] });
+      const caminho = join(dir, `${format}.zip`);
+      await Bun.write(caminho, new Uint8Array(await res.arrayBuffer()));
+      Bun.spawnSync(["unzip", "-o", "-q", caminho, "-d", join(dir, format)]);
+      const texto = await Bun.file(join(dir, format, `public.clientes.${ext}`)).text();
+      expect(texto.split("\r\n")[0]).toBe(esperado);
+    }
+  });
+
+  it("json é um array válido; ndjson é um objeto por linha", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "dbee-bundle-"));
+
+    const jsonRes = await baixarBundle({ format: "json", tables: [soClientes] });
+    await Bun.write(join(dir, "j.zip"), new Uint8Array(await jsonRes.arrayBuffer()));
+    Bun.spawnSync(["unzip", "-o", "-q", join(dir, "j.zip"), "-d", join(dir, "j")]);
+    const bruto = await Bun.file(join(dir, "j", "public.clientes.json")).text();
+    const linhas = JSON.parse(bruto) as { nome: string }[];
+    expect(linhas).toHaveLength(3);
+    expect(linhas[0]?.nome).toBe("O'Brien & Cia");
+
+    const ndRes = await baixarBundle({ format: "ndjson", tables: [soClientes] });
+    await Bun.write(join(dir, "n.zip"), new Uint8Array(await ndRes.arrayBuffer()));
+    Bun.spawnSync(["unzip", "-o", "-q", join(dir, "n.zip"), "-d", join(dir, "n")]);
+    const nd = (await Bun.file(join(dir, "n", "public.clientes.ndjson")).text()).trim().split("\n");
+    expect(nd).toHaveLength(3);
+    expect((JSON.parse(nd[1] ?? "{}") as { nome: string }).nome).toBe("Produção Ltda");
+  });
+
+  /**
+   * `COPY` existe porque recarregar milhões de linhas por `INSERT` é lento. Só
+   * vale se o arquivo de fato recarregar — é isso que este teste mede.
+   */
+  it("data=copy gera COPY … FROM stdin, e o arquivo recarrega", async () => {
+    const dump = await (
+      await baixarBundle({
+        data: "copy",
+        tables: [{ schema: "public", table: "clientes", structure: true, data: true }],
+      })
+    ).text();
+
+    expect(dump).toContain("COPY \"public\".\"clientes\" (");
+    expect(dump).toContain("FROM stdin;");
+    // O terminador do COPY. Sem ele o psql não fecha o bloco.
+    expect(dump).toContain("\\.");
+    expect(dump).not.toContain("INSERT INTO");
+
+    psql(["-c", "DROP DATABASE IF EXISTS via_copy"]);
+    psql(["-c", "CREATE DATABASE via_copy"]);
+    const caminho = `/tmp/copy-${String(Date.now())}.sql`;
+    await Bun.write(caminho, dump);
+    Bun.spawnSync(["docker", "cp", caminho, `${ORIGEM}:/tmp/copy.sql`]);
+
+    const carga = Bun.spawnSync([
+      "docker", "exec", ORIGEM, "psql", "-U", "postgres", "-d", "via_copy",
+      "-v", "ON_ERROR_STOP=1", "-f", "/tmp/copy.sql",
+    ]);
+    expect(carga.stderr.toString()).not.toContain("ERROR");
+
+    const conferir = Bun.spawnSync([
+      "docker", "exec", ORIGEM, "psql", "-U", "postgres", "-d", "via_copy", "-tAc",
+      "SELECT nome || '|' || saldo FROM clientes ORDER BY id LIMIT 1",
+    ]);
+    expect(conferir.stdout.toString().trim()).toBe("O'Brien & Cia|1234.56");
+  });
+
+  it("data=insert-conflict acrescenta ON CONFLICT DO NOTHING", async () => {
+    const dump = await (
+      await baixarBundle({ data: "insert-conflict", tables: [soClientes] })
+    ).text();
+    expect(dump).toContain("ON CONFLICT DO NOTHING");
+  });
+
+  it("índices e triggers saem quando pedidos", async () => {
+    psql(["-c", "CREATE INDEX IF NOT EXISTS idx_clientes_nome ON clientes (nome)"]);
+    const dump = await (
+      await baixarBundle({
+        indexes: true,
+        tables: [{ schema: "public", table: "clientes", structure: true, data: false }],
+      })
+    ).text();
+    expect(dump).toContain("CREATE INDEX idx_clientes_nome");
+
+    const sem = await (
+      await baixarBundle({
+        tables: [{ schema: "public", table: "clientes", structure: true, data: false }],
+      })
+    ).text();
+    expect(sem).not.toContain("idx_clientes_nome");
+  });
+
+  it("funções saem quando pedidas", async () => {
+    psql(["-c", "CREATE OR REPLACE FUNCTION dobro(x int) RETURNS int LANGUAGE sql AS 'SELECT x*2'"]);
+    const dump = await (
+      await baixarBundle({
+        routines: true,
+        tables: [{ schema: "public", table: "clientes", structure: true, data: false }],
+      })
+    ).text();
+    expect(dump).toContain("FUNCTION public.dobro");
+  });
+
+  /** A prévia existe para conferir o começo sem gerar um arquivo de 2 GB. */
+  it("preview volta como texto e é cortada no teto", async () => {
+    const res = await baixarBundle({
+      output: "preview",
+      tables: [{ schema: "public", table: "clientes", structure: true, data: true }],
+    });
+    expect(res.headers.get("content-type")).toContain("text/plain");
+    const texto = await res.text();
+    expect(texto).toContain("CREATE TABLE");
+    expect(texto.length).toBeLessThanOrEqual(256 * 1024);
   });
 });

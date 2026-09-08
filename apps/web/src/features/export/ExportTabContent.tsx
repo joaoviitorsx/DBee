@@ -1,5 +1,12 @@
-import type { BundleTable } from "@dbee/shared";
-import { Download, Info, Search } from "lucide-react";
+import type {
+  BundleData,
+  BundleFormat,
+  BundleOutput,
+  BundleStructure,
+  BundleTable,
+} from "@dbee/shared";
+import { PREVIEW_MAX_BYTES } from "@dbee/shared";
+import { Download, Info, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Button, Input } from "../../components/ui";
@@ -7,7 +14,7 @@ import { useIdioma } from "../../i18n";
 import { cn } from "../../lib/cn";
 import { Trabalhando } from "../motion/Trabalhando";
 import { useSchema } from "../tree/useTree";
-import { baixarBundle, ExportCancelado } from "./download";
+import { baixarBundle, ExportCancelado, verPrevia } from "./download";
 
 /**
  * Export de várias tabelas — aba própria (§5).
@@ -50,8 +57,14 @@ export function ExportTabContent({
   const arvore = useSchema(connectionId, database, true);
 
   const [filtro, setFiltro] = useState("");
-  const [dropFirst, setDropFirst] = useState(false);
-  const [gzip, setGzip] = useState(false);
+  const [format, setFormat] = useState<BundleFormat>("sql");
+  const [output, setOutput] = useState<BundleOutput>("download");
+  const [structure, setStructure] = useState<BundleStructure>("create");
+  const [dataMode, setDataMode] = useState<BundleData>("insert");
+  const [indexes, setIndexes] = useState(false);
+  const [triggers, setTriggers] = useState(false);
+  const [routines, setRoutines] = useState(false);
+  const [previa, setPrevia] = useState<string | null>(null);
   const [escolhas, setEscolhas] = useState<Readonly<Record<string, Escolha>>>({});
   const [baixando, setBaixando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -108,13 +121,31 @@ export function ExportTabContent({
     setErro(null);
     setPronto(null);
     setBaixando(true);
-    void baixarBundle(connectionId, {
+    const pedido = {
       database,
       tables: selecionadas,
-      ...(dropFirst ? { dropFirst: true } : {}),
-      ...(gzip ? { gzip: true } : {}),
-    })
-      .then(({ filename }) => { setPronto(filename); })
+      format,
+      output,
+      structure,
+      data: dataMode,
+      ...(indexes ? { indexes: true } : {}),
+      ...(triggers ? { triggers: true } : {}),
+      ...(routines ? { routines: true } : {}),
+    };
+
+    // A prévia é para LER: vai à tela, não ao disco.
+    if (output === "preview") {
+      void verPrevia(connectionId, pedido)
+        .then((texto) => { setPrevia(texto); })
+        .catch((e: unknown) => {
+          setErro(e instanceof Error ? e.message : t("erro.bad_request"));
+        })
+        .finally(() => { setBaixando(false); });
+      return;
+    }
+
+    void baixarBundle(connectionId, pedido)
+      .then(({ filename }) => { setPronto(t("exp.baixado", { nome: filename })); })
       .catch((e: unknown) => {
         // Fechar o seletor de arquivo é decisão, não falha.
         if (e instanceof ExportCancelado) return;
@@ -129,45 +160,121 @@ export function ExportTabContent({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      {/* Opções do dump: uma linha, densa, no topo — como no Adminer. */}
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-b border-line bg-sunken px-4 py-2.5">
-        <span className="text-xs font-semibold text-ink">
-          {t("exp.titulo", { db: database })}
-        </span>
-        <label className="flex items-center gap-2 text-xs text-muted">
-          <input
-            type="checkbox"
-            checked={gzip}
-            onChange={(e) => { setGzip(e.target.checked); }}
-            className="h-4 w-4 accent-[var(--color-muted)]"
+      {/*
+        Painel de opções — o do Adminer, traduzido para o Postgres.
+        Ficam de fora as opções que só existem no MySQL: `USE` (o Postgres não
+        tem) e "Incremento Automático" (aqui é `serial`, que já sai na
+        estrutura). Copiá-las seria cargo cult.
+      */}
+      <div className="grid shrink-0 grid-cols-1 gap-x-6 gap-y-3 border-b border-line bg-sunken px-4 py-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Campo rotulo={t("exp.saida")}>
+          <Escolha
+            valor={output}
+            onEscolher={setOutput}
+            opcoes={[
+              { valor: "download", rotulo: t("exp.saidaBaixar") },
+              { valor: "gzip", rotulo: t("exp.saidaGzip") },
+              { valor: "preview", rotulo: t("exp.saidaPreview") },
+            ]}
           />
-          {t("exp.gzip")}
-        </label>
-        <label className="flex items-center gap-2 text-xs text-muted" title={t("exp.dropCreateAjuda")}>
-          <input
-            type="checkbox"
-            checked={dropFirst}
-            onChange={(e) => { setDropFirst(e.target.checked); }}
-            className="h-4 w-4 accent-[var(--color-muted)]"
-          />
-          {t("exp.dropCreate")}
-        </label>
+        </Campo>
 
-        <div className="ml-auto flex items-center gap-2">
-          <span className="hidden text-2xs text-subtle sm:inline">
-            {t("exp.selecionadas", { n: selecionadas.length, total: tabelas.length })}
+        <Campo
+          rotulo={t("exp.formato")}
+          ajuda={format === "sql" ? undefined : t("exp.umArquivoPorTabela")}
+        >
+          <Escolha
+            valor={format}
+            onEscolher={setFormat}
+            opcoes={[
+              { valor: "sql", rotulo: t("exp.fmtSql") },
+              { valor: "csv", rotulo: t("exp.fmtCsv") },
+              { valor: "csv-comma", rotulo: t("exp.fmtCsvComma") },
+              { valor: "tsv", rotulo: t("exp.fmtTsv") },
+              { valor: "json", rotulo: t("exp.fmtJson") },
+              { valor: "ndjson", rotulo: t("exp.fmtNdjson") },
+            ]}
+          />
+        </Campo>
+
+        {/*
+          Estrutura e modo de dados só existem em SQL — um CSV não carrega DDL
+          nem "modo de INSERT". Desabilitar em vez de esconder mantém o painel
+          estável: campo que some ao trocar o formato faz o resto pular de lugar.
+        */}
+        <Campo rotulo={t("exp.estruturaModo")} ajuda={format === "sql" ? undefined : t("exp.soSql")}>
+          <Escolha
+            valor={structure}
+            onEscolher={setStructure}
+            desabilitado={format !== "sql"}
+            opcoes={[
+              { valor: "none", rotulo: t("exp.estNada") },
+              { valor: "create", rotulo: t("exp.estCreate") },
+              { valor: "drop-create", rotulo: t("exp.estDropCreate") },
+            ]}
+          />
+        </Campo>
+
+        <Campo rotulo={t("exp.dadosModo")} ajuda={format === "sql" ? undefined : t("exp.soSql")}>
+          <Escolha
+            valor={dataMode}
+            onEscolher={setDataMode}
+            desabilitado={format !== "sql"}
+            opcoes={[
+              { valor: "none", rotulo: t("exp.dadNada") },
+              { valor: "insert", rotulo: t("exp.dadInsert") },
+              { valor: "insert-conflict", rotulo: t("exp.dadInsertConflict") },
+              { valor: "copy", rotulo: t("exp.dadCopy") },
+            ]}
+          />
+        </Campo>
+
+        <div className="sm:col-span-2 lg:col-span-4">
+          <span className="text-2xs font-semibold uppercase tracking-wide text-subtle">
+            {t("exp.incluir")}
           </span>
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={selecionadas.length === 0}
-            loading={baixando}
-            loadingLabel={t("exp.exportando")}
-            onClick={exportar}
-          >
-            <Download aria-hidden className="h-3.5 w-3.5" />
-            {t("exp.exportar")}
-          </Button>
+          <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-1.5">
+            {(
+              [
+                [t("exp.indices"), indexes, setIndexes],
+                [t("exp.triggers"), triggers, setTriggers],
+                [t("exp.rotinas"), routines, setRoutines],
+              ] as const
+            ).map(([rotulo, ligado, alternar]) => (
+              <label
+                key={rotulo}
+                className={cn(
+                  "flex items-center gap-2 text-xs",
+                  format === "sql" ? "text-muted" : "cursor-not-allowed text-subtle opacity-50",
+                )}
+              >
+                <input
+                  type="checkbox"
+                  checked={ligado && format === "sql"}
+                  disabled={format !== "sql"}
+                  onChange={(e) => { alternar(e.target.checked); }}
+                  className="h-4 w-4 accent-[var(--color-muted)]"
+                />
+                {rotulo}
+              </label>
+            ))}
+            <span className="ml-auto flex items-center gap-3">
+              <span className="text-2xs text-subtle">
+                {t("exp.selecionadas", { n: selecionadas.length, total: tabelas.length })}
+              </span>
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={selecionadas.length === 0}
+                loading={baixando}
+                loadingLabel={t("exp.exportando")}
+                onClick={exportar}
+              >
+                <Download aria-hidden className="h-3.5 w-3.5" />
+                {t("exp.exportar")}
+              </Button>
+            </span>
+          </div>
         </div>
       </div>
 
@@ -254,6 +361,28 @@ export function ExportTabContent({
         )}
       </div>
 
+      {previa !== null ? (
+        <div className="flex max-h-[45%] min-h-0 shrink-0 flex-col border-t border-line">
+          <div className="flex items-center justify-between gap-2 bg-sunken px-4 py-1.5">
+            <span className="text-2xs font-semibold text-subtle">
+              {t("exp.previewTitulo", { kb: Math.round(PREVIEW_MAX_BYTES / 1024) })}
+            </span>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-6 w-6"
+              aria-label={t("exp.previewFechar")}
+              onClick={() => { setPrevia(null); }}
+            >
+              <X aria-hidden className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+          <pre className="min-h-0 flex-1 overflow-auto bg-sunken px-4 py-2 font-mono text-2xs leading-relaxed text-muted">
+            {previa}
+          </pre>
+        </div>
+      ) : null}
+
       <footer className="space-y-1.5 border-t border-line px-4 py-2.5">
         {erro !== null ? (
           <p role="alert" className="rounded-[4px] border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
@@ -271,5 +400,60 @@ export function ExportTabContent({
         </p>
       </footer>
     </div>
+  );
+}
+
+/** Rótulo + controle, com uma linha de ajuda opcional. */
+function Campo({
+  rotulo,
+  ajuda,
+  children,
+}: {
+  readonly rotulo: string;
+  readonly ajuda?: string | undefined;
+  readonly children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <span className="text-2xs font-semibold uppercase tracking-wide text-subtle">{rotulo}</span>
+      <div className="mt-1">{children}</div>
+      {ajuda === undefined ? null : <p className="mt-1 text-2xs text-subtle">{ajuda}</p>}
+    </div>
+  );
+}
+
+/**
+ * Escolha única em `<select>`, não em rádios.
+ *
+ * O Adminer usa rádio para Saída e Formato, e some com dez controles numa
+ * linha. Com seis formatos e quatro modos de dados, rádio empurraria a tabela —
+ * que é o conteúdo principal — para fora da primeira tela.
+ */
+function Escolha<T extends string>({
+  valor,
+  onEscolher,
+  opcoes,
+  desabilitado = false,
+}: {
+  readonly valor: T;
+  readonly onEscolher: (v: T) => void;
+  readonly opcoes: readonly { valor: T; rotulo: string }[];
+  readonly desabilitado?: boolean;
+}) {
+  return (
+    <select
+      value={valor}
+      disabled={desabilitado}
+      onChange={(e) => { onEscolher(e.target.value as T); }}
+      className={cn(
+        "h-8 w-full rounded-[4px] border border-line bg-sunken px-2 text-xs text-ink",
+        "transition-colors duration-150 hover:border-line-strong",
+        "disabled:cursor-not-allowed disabled:opacity-45",
+      )}
+    >
+      {opcoes.map((o) => (
+        <option key={o.valor} value={o.valor}>{o.rotulo}</option>
+      ))}
+    </select>
   );
 }
