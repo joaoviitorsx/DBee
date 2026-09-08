@@ -48,6 +48,15 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   imagem. Sem isso, `releases/latest` devolve 404 mesmo com a tag publicada e o
   selo nunca acenderia (§11.27c).
 
+### Alterado
+- **Estado vazio enxugado.** Eram 45 palavras em três blocos — título,
+  parágrafo e uma terceira linha que repetia o título — para dizer "abra uma
+  conexão". Agora são o título e uma frase, e o mascote encolheu de 96 para
+  64 px e perdeu o halo difuso: ele aparece toda vez que uma aba fecha, e o
+  que é bonito no login vira insistente repetido o dia inteiro. O texto que
+  explicava o carregamento sob demanda da árvore saiu: era nota de
+  implementação, não instrução.
+
 ### Corrigido
 - **O `.sql` exportado não recarregava quando a tabela tinha coluna `serial`.**
   Ela saía como `integer DEFAULT nextval('t_id_seq')` — o que ela é —, e o

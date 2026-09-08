@@ -848,39 +848,45 @@ function TelaVazia({
         size={17}
       />
 
-      <div className="relative z-10 mx-auto max-w-sm px-6 text-center">
-        {/* Halo âmbar difuso atrás do mascote, como no login. */}
-        <div className="relative mx-auto h-24 w-24">
-          <div
-            aria-hidden
-            className="absolute inset-0 -z-10 scale-150 rounded-full opacity-50 blur-2xl"
-            style={{
-              background:
-                "radial-gradient(circle, color-mix(in oklab, var(--color-amber) 30%, transparent), transparent 70%)",
-            }}
-          />
-          <Mascote humor={temConexoes ? "feliz" : "laptop"} float className="h-24 w-24" />
-        </div>
+      {/*
+        Estado vazio: uma frase e uma saída.
 
-        <h2 className="mt-4 text-base font-medium text-ink">
+        Tinha título + parágrafo de 27 palavras + terceira linha que repetia o
+        título — 45 palavras para dizer "abra uma conexão". Tela vazia é convite
+        para agir, não lugar de explicar como a árvore funciona por dentro ("a
+        árvore só consulta o banco quando você abre o nó" era nota de
+        implementação, não instrução).
+
+        O mascote encolheu de 96 para 64 px e perdeu o halo difuso: ele aparece
+        toda vez que uma aba fecha, e o que é bonito na tela de login vira
+        insistente quando se repete o dia inteiro.
+      */}
+      <div className="relative z-10 mx-auto max-w-xs px-6 text-center">
+        <Mascote
+          humor={temConexoes ? "feliz" : "laptop"}
+          float
+          className="mx-auto h-16 w-16"
+        />
+
+        <h2 className="mt-3 text-base font-medium text-ink">
           {temConexoes ? t("vazio.titulo") : t("vazio.semConexao")}
         </h2>
-        <p className="mt-1.5 text-sm leading-relaxed text-muted">
+        <p className="mt-1 text-sm text-muted">
           {temConexoes ? t("vazio.dica") : t("vazio.dicaSemConexao")}
         </p>
 
-        {/* Estado vazio como convite: as ações possíveis daqui, não só um aviso. */}
-        {temConexoes ? (
-          <div className="mt-5 flex flex-col items-center gap-2">
-            {onNovaConsulta !== null ? (
-              <Button variant="primary" size="sm" onClick={onNovaConsulta}>
-                <Code2 aria-hidden className="h-3.5 w-3.5" />
-                {t("aba.novaConsulta")}
-              </Button>
-            ) : null}
-            <p className="text-2xs text-subtle">
-              {onNovaConsulta === null ? t("vazio.abrirTabela") : t("vazio.atalhos")}
-            </p>
+        {/*
+          O botão e o lembrete de atalho só aparecem quando há uma conexão
+          ativa — sem ela o Cmd+T não faz nada, e ensinar um atalho morto é
+          pior que não ensinar.
+        */}
+        {temConexoes && onNovaConsulta !== null ? (
+          <div className="mt-4 flex flex-col items-center gap-1.5">
+            <Button variant="primary" size="sm" onClick={onNovaConsulta}>
+              <Code2 aria-hidden className="h-3.5 w-3.5" />
+              {t("aba.novaConsulta")}
+            </Button>
+            <p className="text-2xs text-subtle">{t("vazio.atalhos")}</p>
           </div>
         ) : null}
       </div>
