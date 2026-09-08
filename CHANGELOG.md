@@ -61,6 +61,16 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
     tem expiração absoluta de 12 h, sem modo prolongado. Controle que não faz
     nada é pior que a ausência dele.
   - Dez chaves de i18n ficaram órfãs com a vitrine antiga e foram removidas.
+  - **Dois rótulos sobre a ilustração** — uma frase no canto superior esquerdo e
+    uma linha versalete no inferior direito, cada uma com um traço âmbar. Sobre
+    a arte crua o branco media **1,03:1** (nuvem e pedra claras): o véu diagonal
+    que os acompanha leva o pior caso a **4,77:1** e **6,31:1**, medido em seis
+    larguras entre 1024 e 2560, porque o recorte muda com a janela. Só a partir
+    de `lg` — abaixo disso a ilustração é uma faixa de 160 px, e frase ali é
+    entulho.
+  - **O favo do lado do formulário virou dois acentos de canto**, sem a
+    tesselação que cobria a coluna inteira: ela virava textura sob os campos e,
+    no tema claro, competia com eles.
 - **Estado vazio enxugado.** Eram 45 palavras em três blocos — título,
   parágrafo e uma terceira linha que repetia o título — para dizer "abra uma
   conexão". Agora são o título e uma frase, e o mascote encolheu de 96 para

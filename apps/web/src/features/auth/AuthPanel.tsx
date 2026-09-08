@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
 import vitrine from "../../assets/vitrine-login.webp";
-import { Honeycomb } from "../../components/Honeycomb";
 import { HoneycombCluster } from "../../components/HoneycombCluster";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
@@ -107,20 +106,77 @@ export function AuthPanel({
         enquadramento no alto, que é onde estão o céu e a abelha.
       */}
       <div className="order-1 h-40 p-4 sm:h-52 lg:h-auto lg:p-6">
-        <img
-          src={vitrine}
-          alt=""
-          aria-hidden
-          width={1200}
-          height={1600}
-          // Sem animação contínua: o próprio CSS do projeto diz que nada anima
-          // só por decoração. O estado de carregando vive no botão.
-          // `object-cover` de volta: `contain` mostrava a cena inteira mas
-          // deixava tarjas vazias dos dois lados da coluna, e a tela lia como
-          // desalinhada. O `object-position` em 20% da altura é o que mantém a
-          // abelha enquadrada mesmo com o corte.
-          className="h-full w-full rounded-2xl object-cover object-[50%_20%]"
-        />
+        {/*
+          A moldura arredondada saiu do `img` e virou este contêiner: os
+          rótulos são irmãos da imagem, e sem um pai que recorte eles vazariam
+          pelos cantos quadrados.
+        */}
+        <figure className="relative h-full w-full overflow-hidden rounded-2xl">
+          <img
+            src={vitrine}
+            alt=""
+            aria-hidden
+            width={1200}
+            height={1600}
+            // Sem animação contínua: o próprio CSS do projeto diz que nada anima
+            // só por decoração. O estado de carregando vive no botão.
+            // `object-cover` de volta: `contain` mostrava a cena inteira mas
+            // deixava tarjas vazias dos dois lados da coluna, e a tela lia como
+            // desalinhada. O `object-position` em 20% da altura é o que mantém a
+            // abelha enquadrada mesmo com o corte.
+            className="h-full w-full object-cover object-[50%_20%]"
+          />
+
+          {/*
+            Véu nos dois cantos que recebem texto, e só neles.
+
+            Sem ele, os rótulos caem sobre nuvem branca e pedra clara: medido
+            em 1920, o pior pixel sob o texto dá **1,03:1** — invisível, não
+            "pouco legível". O véu é diagonal em vez de uma cortina inteira
+            porque escurecer a cena toda para dois rótulos apagaria justamente
+            o que a imagem tem de bom.
+
+            Com ele, o pior caso varrendo 1024/1280/1440/1680/1920/2560 é
+            **4,77:1** no rótulo de cima (em 1440, onde a frase alcança o céu
+            mais claro) e **6,31:1** no de baixo (em 1920, onde a pedra clara
+            sobe até o canto). Ambos passam o 4,5:1. O recorte muda com a
+            largura, então medir num tamanho só não valeria.
+          */}
+          <div
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-0 hidden lg:block",
+              "bg-[linear-gradient(150deg,rgba(20,18,16,0.86)_0%,rgba(20,18,16,0.34)_34%,rgba(20,18,16,0)_54%),linear-gradient(330deg,rgba(20,18,16,0.90)_0%,rgba(20,18,16,0.42)_26%,rgba(20,18,16,0)_50%)]",
+            )}
+          />
+
+          {/*
+            Rótulos só a partir de `lg`. Abaixo disso a ilustração é uma faixa
+            de 160px: um par de frases ali não é enquadramento, é entulho.
+          */}
+          <figcaption className="absolute inset-0 hidden flex-col justify-between p-8 lg:flex xl:p-10">
+            <div>
+              <p className="max-w-[15ch] text-[1.75rem] font-semibold leading-[1.15] tracking-[-0.02em] text-bone xl:text-[2rem]">
+                {t("login.vitrineLinha1")}
+                <br />
+                {t("login.vitrineLinha2")}
+              </p>
+              {/*
+                `--color-amber` (o âmbar de preenchimento), não `--color-accent`:
+                o accent escurece no tema claro para ficar legível sobre creme, e
+                aqui o fundo é a ilustração, que não muda com o tema.
+              */}
+              <span aria-hidden className="mt-4 block h-[3px] w-14 rounded-full bg-amber" />
+            </div>
+
+            <div className="self-end text-right">
+              <span aria-hidden className="mb-3 ml-auto block h-[2px] w-9 rounded-full bg-amber" />
+              <p className="ml-auto max-w-[26ch] text-[0.75rem] font-semibold uppercase leading-[1.6] tracking-[0.2em] text-bone">
+                {t("login.vitrineRodape")}
+              </p>
+            </div>
+          </figcaption>
+        </figure>
       </div>
 
       {/* Formulário. */}
@@ -140,33 +196,31 @@ export function AuthPanel({
         )}
       >
         {/*
-          Favo do lado do formulário, em **dois desenhos diferentes**: a
-          tesselação contínua do `Honeycomb` como campo de fundo, e um cacho
-          finito do `HoneycombCluster` como acento de canto. Dois modelos em vez
-          de dois cachos iguais — repetir o mesmo desenho espelhado lê como erro
-          de montagem.
+          Favo só nos **dois cantos opostos**, não como campo de fundo.
 
-          A camada é `absolute inset-0 overflow-hidden`: os elementos têm
-          deslocamento negativo de propósito (para o favo sair pela borda em vez
-          de flutuar), e soltos dentro da coluna que rola eles criavam barra de
+          Antes havia também uma tesselação contínua cobrindo a coluna inteira.
+          Ela virava textura sobre a qual o formulário flutuava, e num tema
+          claro competia com os campos; dois acentos em cantos opostos dão o
+          mesmo pertencimento de marca sem disputar a leitura. Os desenhos são
+          espelhados um do outro de propósito — é o mesmo objeto visto do outro
+          canto, não duas peças diferentes mal-encaixadas.
+
+          A camada é `absolute inset-0 overflow-hidden`: os cachos têm
+          deslocamento negativo de propósito (para sair pela borda em vez de
+          flutuar), e soltos dentro da coluna que rola eles criavam barra de
           rolagem nos dois eixos.
+
+          O peso vem de `--favo-cacho`, definido POR TEMA no `index.css`: o
+          mesmo âmbar salta sobre o fundo escuro e quase some sobre o creme,
+          então um número fixo erraria num dos dois.
         */}
         <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          {/*
-            Opacidades baixas de propósito, e menores no mobile.
-
-            O mesmo âmbar pesa **muito** mais sobre o fundo escuro do que sobre
-            o creme do tema claro: a 0.13 o cacho virava uma mancha disputando
-            atenção com o campo de usuário em 375px. Aqui é assinatura de canto,
-            não papel de parede.
-          */}
-          <Honeycomb className="absolute inset-0 text-accent" size={30} opacity={0.035} />
           <HoneycombCluster
-            className="absolute -right-10 -top-12 h-36 w-36 text-accent opacity-[0.07] sm:h-52 sm:w-52 lg:h-72 lg:w-72"
+            className="absolute -right-10 -top-12 h-36 w-36 text-accent opacity-[var(--favo-cacho)] sm:h-52 sm:w-52 lg:h-72 lg:w-72"
             size={22}
           />
           <HoneycombCluster
-            className="absolute -bottom-14 -left-12 h-28 w-28 rotate-180 text-accent opacity-[0.05] sm:h-40 sm:w-40 lg:h-56 lg:w-56"
+            className="absolute -bottom-14 -left-12 h-28 w-28 rotate-180 text-accent opacity-[var(--favo-cacho)] sm:h-40 sm:w-40 lg:h-56 lg:w-56"
             size={16}
           />
         </div>

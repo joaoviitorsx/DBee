@@ -48,6 +48,16 @@
 @theme {
   /* --- marca (assets/README.txt) --- */
   --color-amber: #f5a623;
+
+  /*
+   * Peso do favo na tela de entrada.
+   *
+   * Por tema porque o mesmo âmbar **não pesa igual** nos dois: sobre o escuro
+   * ele salta, sobre o creme ele quase some. Um número único deixaria o favo
+   * invisível num tema ou virando mancha no outro — foi o que aconteceu quando
+   * era fixo.
+   */
+  --favo-cacho: 0.115;
   --color-graphite: #1c1917;
   --color-bone: #f7f3ec;
 
@@ -148,6 +158,9 @@
  * contra as mesmas regras.
  */
 :root[data-theme="light"] {
+  /* Sobre creme o âmbar rende menos: precisa de quase o dobro. */
+  --favo-cacho: 0.22;
+
   /*
    * Elevação sobe para o **branco**, não para o creme escuro.
    *
