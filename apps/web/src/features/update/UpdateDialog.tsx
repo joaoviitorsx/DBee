@@ -58,6 +58,10 @@ export function UpdateDialog({
   const [erro, setErro] = useState<string | null>(null);
   const [aguardando, setAguardando] = useState(false);
   const [naoVoltou, setNaoVoltou] = useState(false);
+  // Remover pede confirmação porque a URL **não volta**: ela é gravada cifrada
+  // e nunca é devolvida pela API (é credencial), então quem apagar por engano
+  // precisa buscá-la no Dokploy de novo.
+  const [confirmandoRemocao, setConfirmandoRemocao] = useState(false);
 
   const salvar = useSalvarAjustes();
   const verificar = useVerificarAgora();
@@ -70,7 +74,7 @@ export function UpdateDialog({
     salvar.mutate(
       { webhookUrl: limpa },
       {
-        onSuccess: () => { setEditandoUrl(false); setUrl(""); },
+        onSuccess: () => { setEditandoUrl(false); setUrl(""); setConfirmandoRemocao(false); },
         onError: (e) => {
           setErro(
             e instanceof FalhaDeUpdate && e.codigo === "update_not_configured"
@@ -78,6 +82,24 @@ export function UpdateDialog({
               : t("update.erroSalvar"),
           );
         },
+      },
+    );
+  };
+
+  /**
+   * Apaga a URL guardada. `null` no `webhookUrl` é o que o schema define como
+   * "desconfigura" — diferente de ausente, que é "não mexe" (ver
+   * `UpdateSettingsRequest`). Depois de apagar, o formulário volta sozinho:
+   * ficar numa tela sem URL e sem campo para colar outra seria o mesmo beco
+   * que esta mudança está corrigindo.
+   */
+  const removerUrl = (): void => {
+    setErro(null);
+    salvar.mutate(
+      { webhookUrl: null },
+      {
+        onSuccess: () => { setConfirmandoRemocao(false); setEditandoUrl(true); setUrl(""); },
+        onError: () => { setErro(t("update.erroSalvar")); },
       },
     );
   };
@@ -179,6 +201,26 @@ export function UpdateDialog({
                 onUrl={setUrl}
                 onSalvar={salvarUrl}
                 salvando={salvar.isPending}
+                // Só dá para desistir se existe uma URL guardada para voltar.
+                // Na primeira configuração, "cancelar" levaria a uma tela sem
+                // saída nenhuma.
+                onCancelar={
+                  estado.webhookConfigured
+                    ? () => { setEditandoUrl(false); setUrl(""); setErro(null); }
+                    : undefined
+                }
+              />
+            ) : null}
+
+            {estado.webhookConfigured && !editandoUrl && !aguardando ? (
+              <WebhookConfigurado
+                t={t}
+                confirmando={confirmandoRemocao}
+                salvando={salvar.isPending}
+                onTrocar={() => { setUrl(""); setErro(null); setEditandoUrl(true); }}
+                onPedirRemocao={() => { setConfirmandoRemocao(true); }}
+                onCancelarRemocao={() => { setConfirmandoRemocao(false); }}
+                onRemover={removerUrl}
               />
             ) : null}
 
@@ -294,16 +336,22 @@ function ConfigDoDeploy({
   onUrl,
   onSalvar,
   salvando,
+  onCancelar,
 }: {
   readonly t: Tradutor;
   readonly url: string;
   readonly onUrl: (v: string) => void;
   readonly onSalvar: () => void;
   readonly salvando: boolean;
+  /** Ausente na primeira configuração: não há para onde voltar. */
+  readonly onCancelar?: (() => void) | undefined;
 }) {
+  const trocando = onCancelar !== undefined;
   return (
     <div className="rounded-[6px] border border-line bg-raised px-3 py-3">
-      <p className="text-xs font-medium text-ink">{t("update.configTitulo")}</p>
+      <p className="text-xs font-medium text-ink">
+        {trocando ? t("update.trocarUrl") : t("update.configTitulo")}
+      </p>
       <p className="mt-1 text-2xs leading-relaxed text-subtle">{t("update.configAjuda")}</p>
       <p className="mt-1.5 font-mono text-2xs text-muted">{t("update.configOnde")}</p>
       <div className="mt-2.5 flex flex-col gap-2 sm:flex-row">
@@ -320,18 +368,126 @@ function ConfigDoDeploy({
           spellCheck={false}
           className="h-9 flex-1 text-xs"
         />
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          className="h-9 shrink-0"
-          disabled={url.trim() === ""}
-          loading={salvando}
-          onClick={onSalvar}
-        >
-          {t("comum.salvar")}
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="h-9"
+            disabled={url.trim() === ""}
+            loading={salvando}
+            onClick={onSalvar}
+          >
+            {t("comum.salvar")}
+          </Button>
+          {onCancelar !== undefined ? (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-9"
+              disabled={salvando}
+              onClick={onCancelar}
+            >
+              {t("comum.cancelar")}
+            </Button>
+          ) : null}
+        </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * O que a tela mostra quando já existe uma URL guardada.
+ *
+ * Antes não mostrava nada: `editandoUrl` nascia `false` com a URL configurada
+ * e **nenhum caminho no código ligava ele de volta**. Quem colou a URL errada
+ * ficava sem saída pela interface — o botão de atualizar aparecia e falhava
+ * contra o endereço errado para sempre.
+ *
+ * A URL não é exibida de volta de propósito: é credencial, e a API só devolve
+ * o booleano `webhookConfigured` (CLAUDE.md regra 5). Por isso "trocar" é
+ * colar de novo, não editar um campo preenchido — e por isso "remover" pede
+ * confirmação: o valor apagado não tem como ser recuperado daqui.
+ */
+function WebhookConfigurado({
+  t,
+  confirmando,
+  salvando,
+  onTrocar,
+  onPedirRemocao,
+  onCancelarRemocao,
+  onRemover,
+}: {
+  readonly t: Tradutor;
+  readonly confirmando: boolean;
+  readonly salvando: boolean;
+  readonly onTrocar: () => void;
+  readonly onPedirRemocao: () => void;
+  readonly onCancelarRemocao: () => void;
+  readonly onRemover: () => void;
+}) {
+  return (
+    <div className="rounded-[6px] border border-line bg-raised px-3 py-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-ink">{t("update.webhookConfigurado")}</p>
+          <p className="mt-0.5 text-2xs leading-relaxed text-subtle">
+            {t("update.webhookOculta")}
+          </p>
+        </div>
+        {!confirmando ? (
+          <div className="flex shrink-0 gap-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={salvando}
+              onClick={onTrocar}
+              // O rótulo é curto; o texto longo já está no título do bloco.
+              aria-label={t("update.trocarUrl")}
+            >
+              {t("update.trocar")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={salvando}
+              onClick={onPedirRemocao}
+            >
+              {t("comum.remover")}
+            </Button>
+          </div>
+        ) : null}
+      </div>
+
+      {confirmando ? (
+        <div className="mt-2.5 rounded-[4px] border border-danger/30 bg-danger/10 px-3 py-2">
+          <p className="text-2xs leading-relaxed text-danger">{t("update.removerConfirma")}</p>
+          <div className="mt-2 flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="danger"
+              loading={salvando}
+              onClick={onRemover}
+            >
+              {t("comum.remover")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              disabled={salvando}
+              onClick={onCancelarRemocao}
+            >
+              {t("comum.cancelar")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

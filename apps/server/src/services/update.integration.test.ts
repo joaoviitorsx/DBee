@@ -215,6 +215,39 @@ describe("URL de deploy", () => {
     expect(validarWebhook("http://100.101.102.103/api/deploy/abc")).toContain("100.101.102.103");
   });
 
+  /**
+   * O caso de quem colou a URL errada. Salvar de novo **substitui**, não
+   * acumula nem é ignorado — é o que a UI passou a oferecer com o botão
+   * "Trocar", que antes não existia: `editandoUrl` nascia `false` com a URL
+   * configurada e nenhum caminho no código o ligava de volta.
+   */
+  it("salvar outra URL substitui a anterior", () => {
+    const svc = servico();
+    svc.salvarAjustes({ webhookUrl: "https://dokploy.exemplo/api/deploy/errada" });
+    expect(settings.webhookUrl()).toBe("https://dokploy.exemplo/api/deploy/errada");
+
+    svc.salvarAjustes({ webhookUrl: "https://dokploy.exemplo/api/deploy/certa" });
+    expect(settings.webhookUrl()).toBe("https://dokploy.exemplo/api/deploy/certa");
+
+    // Uma linha só no banco: substituição, não uma segunda entrada que a
+    // leitura pudesse pegar pela ordem errada.
+    const linhas = store.db
+      .query<{ n: number }, []>("SELECT count(*) AS n FROM app_meta WHERE key = 'update_webhook_enc'")
+      .get();
+    expect(linhas?.n).toBe(1);
+  });
+
+  /** Depois de apagar, dá para configurar de novo — o estado não fica preso. */
+  it("apagar e configurar de novo funciona", () => {
+    const svc = servico();
+    svc.salvarAjustes({ webhookUrl: URL_WEBHOOK });
+    svc.salvarAjustes({ webhookUrl: null });
+    expect(settings.webhookUrl()).toBeNull();
+
+    svc.salvarAjustes({ webhookUrl: URL_WEBHOOK });
+    expect(settings.webhookUrl()).toBe(URL_WEBHOOK);
+  });
+
   it("guardada cifrada — a URL não aparece em claro no SQLite", () => {
     settings.definirWebhookUrl("https://dokploy.exemplo/api/deploy/token-secreto");
     const bruto = store.db

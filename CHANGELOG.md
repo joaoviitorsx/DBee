@@ -4,6 +4,21 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+### Corrigido
+- **A URL de deploy podia ser trocada ou removida — mas não pela interface.**
+  O `PATCH /api/meta/update-settings` sempre aceitou outra URL (substitui) e
+  `null` (apaga); o diálogo é que nunca ligou o caminho de volta:
+  `editandoUrl` nascia `false` quando já havia URL e **nenhuma linha do código
+  chamava `setEditandoUrl(true)`**. Quem colava a URL errada ficava com o botão
+  "Atualizar servidor" disparando para o endereço errado, para sempre. Entram
+  os botões **Trocar** e **Remover**, mais o **Cancelar** ao trocar — sem ele o
+  beco só mudava de lugar. A chave de i18n `update.trocarUrl` já existia,
+  órfã, desde a implementação original.
+  - Remover pede confirmação: a URL é gravada cifrada e **nunca é devolvida**
+    pela API (é credencial), então apagar por engano obriga a buscá-la no
+    Dokploy de novo.
+
+
 ## [0.2.1] — 2026-09-08
 
 > **Aviso de versão nova e botão de atualizar, dentro do app.** O cabeçalho
