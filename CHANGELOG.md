@@ -4,6 +4,8 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.2.2] — 2026-09-08
+
 ### Corrigido
 - **A URL de deploy podia ser trocada ou removida — mas não pela interface.**
   O `PATCH /api/meta/update-settings` sempre aceitou outra URL (substitui) e
