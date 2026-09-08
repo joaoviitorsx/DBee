@@ -7,6 +7,13 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [0.2.2] — 2026-09-08
 
 ### Corrigido
+- **Dois testes de integração derrubavam o Postgres com o pool ainda aberto.**
+  `bundle` e `ddl` removiam o container no `afterAll` sem chamar
+  `pools.shutdown()` antes — os outros dez arquivos de integração já faziam. As
+  conexões ociosas recebiam `FATAL 57P01 terminating connection due to
+  unexpected postmaster exit` **depois** de os testes terem passado, e como
+  ninguém esperava por elas o `bun test` contava `1 error` e saía com código 1
+  com `0 fail`. Suíte verde, release vermelha.
 - **A URL de deploy podia ser trocada ou removida — mas não pela interface.**
   O `PATCH /api/meta/update-settings` sempre aceitou outra URL (substitui) e
   `null` (apaga); o diálogo é que nunca ligou o caminho de volta:

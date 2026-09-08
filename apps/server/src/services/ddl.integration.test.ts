@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
 import { createApp } from "../app";
+import { PoolManager } from "../pg/pool";
 import { openTestStore, type Store } from "../db/client";
 import { autenticar } from "../test/sessao";
 
@@ -39,6 +40,7 @@ const temDocker = ((): boolean => {
 
 let store: Store;
 let app: ReturnType<typeof createApp>;
+let pools: PoolManager | undefined;
 let cookie = "";
 
 /** Cria a conexão pelo próprio CRUD, para o teste usar o caminho de produção. */
@@ -99,12 +101,24 @@ beforeAll(async () => {
   }
 
   store = openTestStore();
-  app = createApp({ store, caCert: undefined });
+  pools = new PoolManager(undefined);
+  app = createApp({ store, caCert: undefined, pools });
   ({ cookie } = await autenticar(store));
 }, 180_000);
 
-afterAll(() => {
+/**
+ * Fecha os pools **antes** de derrubar o container.
+ *
+ * Ao contrário, as conexões ociosas do pool recebem um `FATAL 57P01
+ * terminating connection due to unexpected postmaster exit` depois que os
+ * testes deste arquivo já reportaram sucesso. Como ninguém está esperando
+ * por elas, o erro não pertence a teste nenhum: o `bun test` o conta como
+ * `1 error` e sai com código 1 mesmo com `0 fail` — foi assim que a release
+ * da v0.2.2 quebrou no CI, com a suíte inteira verde.
+ */
+afterAll(async () => {
   if (!temDocker) return;
+  await pools?.shutdown();
   Bun.spawnSync(["docker", "rm", "-f", CONTAINER]);
 }, 60_000);
 

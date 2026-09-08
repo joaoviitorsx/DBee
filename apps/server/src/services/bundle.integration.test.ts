@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createApp } from "../app";
+import { PoolManager } from "../pg/pool";
 import { openTestStore, type Store } from "../db/client";
 import { autenticar } from "../test/sessao";
 
@@ -37,6 +38,7 @@ const temDocker = ((): boolean => {
 
 let store: Store;
 let app: ReturnType<typeof createApp>;
+let pools: PoolManager | undefined;
 let cookie = "";
 let connectionId = "";
 
@@ -110,7 +112,8 @@ linha', 0);
   if (seed.codigo !== 0) throw new Error(`seed falhou: ${seed.erro}`);
 
   store = openTestStore();
-  app = createApp({ store, caCert: undefined });
+  pools = new PoolManager(undefined);
+  app = createApp({ store, caCert: undefined, pools });
   ({ cookie } = await autenticar(store));
 
   const res = await app.handle(
@@ -126,8 +129,19 @@ linha', 0);
   connectionId = ((await res.json()) as { id: string }).id;
 }, 180_000);
 
-afterAll(() => {
+/**
+ * Fecha os pools **antes** de derrubar o container.
+ *
+ * Ao contrário, as conexões ociosas do pool recebem um `FATAL 57P01
+ * terminating connection due to unexpected postmaster exit` depois que os
+ * testes deste arquivo já reportaram sucesso. Como ninguém está esperando
+ * por elas, o erro não pertence a teste nenhum: o `bun test` o conta como
+ * `1 error` e sai com código 1 mesmo com `0 fail` — foi assim que a release
+ * da v0.2.2 quebrou no CI, com a suíte inteira verde.
+ */
+afterAll(async () => {
   if (!temDocker) return;
+  await pools?.shutdown();
   Bun.spawnSync(["docker", "rm", "-f", ORIGEM]);
 }, 60_000);
 
