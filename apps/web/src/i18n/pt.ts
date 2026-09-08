@@ -410,6 +410,13 @@ export const pt = {
   "userchip.sair": "Sair da conta {user}",
 
   // --- atualização (DBee.md §8) ---
+  "acesso.titulo": "Quem alcança esta conexão",
+  "acesso.ajuda": "Administradores enxergam todas as conexões. Membros só o que você marcar aqui — e a mudança vale no ato, sem esperar o Salvar.",
+  "acesso.carregando": "Carregando…",
+  "acesso.semMembros": "Ainda não há contas de membro. Crie uma em Contas, no cabeçalho.",
+  "acesso.podeGravar": "pode gravar",
+  "acesso.soLeitura": "só leitura",
+  "acesso.erro": "Não foi possível mudar o acesso.",
   "usuarios.titulo": "Contas",
   "usuarios.abrir": "Administrar contas",
   "usuarios.descricao": "Cada pessoa entra com a própria conta. É o nome dela que fica gravado no histórico de cada query.",

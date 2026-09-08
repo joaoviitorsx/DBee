@@ -5,6 +5,7 @@ import { Plug, X } from "lucide-react";
 import { useState, type ComponentProps } from "react";
 
 import { Button, Field, Input } from "../../components/ui";
+import { AcessoDaConexao } from "../../features/usuarios/AcessoDaConexao";
 import { useT } from "../../i18n";
 import type { ChaveI18n } from "../../i18n/pt";
 import { cn } from "../../lib/cn";
@@ -292,6 +293,23 @@ export function ConnectionForm({
                   <Switch.Thumb className="block h-4 w-4 translate-x-1 rounded-full bg-muted transition-transform duration-150 data-[state=checked]:translate-x-6 data-[state=checked]:bg-accent-ink" />
                 </Switch.Root>
               </div>
+
+              {/*
+                Acesso só existe para conexão que já existe: uma conexão nova
+                não tem id para conceder contra. Depois de salvar, o painel
+                aparece na edição.
+
+                E ele usa o `writeEnabled` **em edição**, não o do rascunho: o
+                interruptor de escrita acima ainda não foi salvo, e oferecer
+                "pode gravar" apoiado num valor que pode ser descartado no
+                Cancelar prometeria o que o servidor não cumpriria.
+              */}
+              {editing !== null ? (
+                <AcessoDaConexao
+                  connectionId={editing.id}
+                  writeEnabled={editing.writeEnabled}
+                />
+              ) : null}
 
               {error !== null ? (
                 <p role="alert" className="rounded-[4px] border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">

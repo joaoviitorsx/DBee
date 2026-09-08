@@ -410,6 +410,13 @@ export const en: Record<ChaveI18n, string> = {
   "userchip.sair": "Sign out of {user}",
 
   // --- update (DBee.md §8) ---
+  "acesso.titulo": "Who reaches this connection",
+  "acesso.ajuda": "Administrators see every connection. Members see only what you check here — and the change takes effect at once, without waiting for Save.",
+  "acesso.carregando": "Loading…",
+  "acesso.semMembros": "No member accounts yet. Create one under Accounts, in the header.",
+  "acesso.podeGravar": "can write",
+  "acesso.soLeitura": "read only",
+  "acesso.erro": "Could not change the access.",
   "usuarios.titulo": "Accounts",
   "usuarios.abrir": "Manage accounts",
   "usuarios.descricao": "Each person signs in with their own account. It is their name that lands in the history of every query.",

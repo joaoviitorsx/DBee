@@ -35,7 +35,13 @@ if (saida === undefined) {
   process.exit(1);
 }
 
-const CDP = "http://localhost:9223";
+/**
+ * Porta do Chrome headless. `DBEE_SHOT_CDP` existe porque mais de um processo
+ * pode estar fotografando ao mesmo tempo — dois agentes disputando as abas da
+ * mesma instância navegam a aba um do outro no meio da captura, e o resultado é
+ * um screenshot da tela errada sem erro nenhum.
+ */
+const CDP = process.env["DBEE_SHOT_CDP"] ?? "http://localhost:9223";
 
 /**
  * TRAVA DE DEV. Este utilitário cria uma sessão **válida sem senha** — é o poder

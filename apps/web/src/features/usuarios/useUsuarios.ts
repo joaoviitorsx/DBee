@@ -1,4 +1,4 @@
-import type { Role, UserSummary } from "@dbee/shared";
+import type { ConnectionGrant, Role, UserSummary } from "@dbee/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../../lib/api";
@@ -96,5 +96,67 @@ export function useRemoverUsuario() {
       if (error !== null) throw erroDaResposta(error, "não foi possível remover a conta");
     },
     onSuccess: invalidar,
+  });
+}
+
+/** Concessões de uma conexão (migração 005). Só admin lê. */
+const chaveAcesso = (connectionId: string): readonly unknown[] => ["acesso", connectionId];
+
+export function useAcessos(connectionId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: chaveAcesso(connectionId ?? ""),
+    queryFn: async (): Promise<ConnectionGrant[]> => {
+      if (connectionId === null) return [];
+      const { data, error } = await api.api.connections({ id: connectionId }).access.get();
+      if (error !== null) throw erroDaResposta(error, "não foi possível ler os acessos");
+      return data;
+    },
+    enabled: enabled && connectionId !== null,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * Conceder e revogar aplicam **na hora**, não no submit do formulário.
+ *
+ * Revogar acesso é ação de segurança: adiar até alguém lembrar de salvar é o
+ * caminho para a permissão ficar aberta por engano. As duas rotas devolvem a
+ * lista já atualizada, então o cache é escrito com a resposta em vez de pedir
+ * de novo.
+ */
+export function useConcederAcesso(connectionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ userId, canWrite }: { userId: string; canWrite: boolean }) => {
+      const { data, error } = await api.api
+        .connections({ id: connectionId })
+        .access.put({ userId, canWrite });
+      if (error !== null) throw erroDaResposta(error, "não foi possível conceder o acesso");
+      return data;
+    },
+    onSuccess: (lista) => {
+      qc.setQueryData(chaveAcesso(connectionId), lista);
+      // A conexão pode ter mudado de visibilidade ou de escrita efetiva para
+      // quem está com a tela aberta.
+      void qc.invalidateQueries({ queryKey: ["connections"] });
+    },
+  });
+}
+
+export function useRevogarAcesso(connectionId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (userId: string) => {
+      const { data, error } = await api.api
+        .connections({ id: connectionId })
+        .access({ userId })
+        .delete();
+      if (error !== null) throw erroDaResposta(error, "não foi possível revogar o acesso");
+      return data;
+    },
+    onSuccess: (lista) => {
+      qc.setQueryData(chaveAcesso(connectionId), lista);
+      void qc.invalidateQueries({ queryKey: ["connections"] });
+    },
   });
 }
