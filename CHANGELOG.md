@@ -4,6 +4,35 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+### Corrigido
+- **Diagrama virava tela vazia em schema grande.** Duas causas, ambas medidas
+  contra Postgres real com 124 tabelas:
+  - `enquadrar()` calculava a escala com `min(w/largura, h/altura, 1)` **sem
+    piso**, enquanto o zoom pela roda já clampava em `0,15`. Num schema de 80
+    tabelas ligadas à mesma dimensão (formato estrela, comum em contábil) isso
+    dá escala `0,075`: a caixa de 220 px vira 16 px, sem texto nem borda
+    legível. O piso passou a ser compartilhado pelos dois caminhos, e quando o
+    desenho não cabe a vista ancora no canto em vez de centralizar — centralizar
+    deixava a origem (onde ficam as tabelas raiz) fora da tela.
+  - Dagre põe **todo nó sem aresta no mesmo posto**, e um posto é uma linha
+    única: 150 tabelas sem FK viravam uma coluna de 13.240 px. Schema legado
+    frequentemente não declara FK nenhuma. As tabelas soltas passaram a assentar
+    numa grade quadrada abaixo do grafo ligado — 150 delas saíram de uma caixa
+    renderizada de 12 px para 70 px.
+  - O teste que deveria ter pego isso usava **cinco** tabelas e um teto de
+    4000 px; passava com o layout quebrado. Agora trava a proporção e a escala
+    de enquadramento com 150 tabelas.
+- **O ponto de status da conexão só refletia o botão "Testar".** Quem testou uma
+  vez com a senha errada, corrigiu e passou a usar a conexão continuava vendo
+  vermelho para sempre — abrir a conexão, listar databases e rodar query nunca
+  atualizavam nada. Carregar os databases **é** conectar, então essa evidência
+  agora vence o resultado do teste, que é mais antigo por definição.
+- **Os rótulos de status da árvore eram texto fixo em português** num app
+  bilíngue: "conectada", "erro na última tentativa", "não testada" apareciam
+  assim também em inglês. Passaram por `t()`, e o ponto ganhou `title` — antes o
+  rótulo existia só para leitor de tela.
+
+
 ## [0.2.3] — 2026-09-08
 
 > A tag `v0.2.2` existe mas **não gerou release**: o CI falhou no `verify`

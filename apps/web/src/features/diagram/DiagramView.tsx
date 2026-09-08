@@ -21,6 +21,22 @@ import { calcularLayout, DIAGRAM_CONST, type NodeBox } from "./layout";
 
 const { ALTURA_CABECALHO, ALTURA_LINHA, MAX_COLUNAS } = DIAGRAM_CONST;
 
+/**
+ * Limites de zoom, **compartilhados pela roda e pelo enquadramento**.
+ *
+ * O piso não era compartilhado, e é aí que a tela ficava vazia: a roda já
+ * clampava em `0,15`, mas `enquadrar()` fazia `min(w/largura, h/altura, 1)`
+ * sem piso nenhum. Num schema grande — 80 tabelas ligadas à mesma dimensão,
+ * o formato estrela comum em contábil — isso dá escala `0,075`, e uma caixa de
+ * 220 px vira **16 px**: sem texto legível, sem borda perceptível. A pessoa vê
+ * um quadro cinza e conclui que o diagrama quebrou.
+ *
+ * Com o piso, o desenho abre grande demais para a janela — e isso é honesto:
+ * ele **é** grande demais. Dá para ler e dá para arrastar.
+ */
+const ESCALA_MIN = 0.15;
+const ESCALA_MAX = 2.5;
+
 interface Vista {
   x: number;
   y: number;
@@ -73,7 +89,7 @@ export function DiagramView({
     e.preventDefault();
     const fator = e.deltaY < 0 ? 1.1 : 1 / 1.1;
     setVista((v) => {
-      const escala = Math.min(2.5, Math.max(0.15, v.escala * fator));
+      const escala = Math.min(ESCALA_MAX, Math.max(ESCALA_MIN, v.escala * fator));
       // Zoom em direção ao ponteiro: o ponto sob o cursor não escorrega.
       const rect = svgRef.current?.getBoundingClientRect();
       const cx = rect === undefined ? 0 : e.clientX - rect.left;
@@ -117,11 +133,24 @@ export function DiagramView({
   const enquadrar = (): void => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (rect === undefined || rect.width === 0) return;
-    const escala = Math.min(rect.width / layout.width, rect.height / layout.height, 1) * 0.92;
+    const cabe = Math.min(rect.width / layout.width, rect.height / layout.height, 1) * 0.92;
+    const escala = Math.max(ESCALA_MIN, cabe);
+
+    /*
+     * Centraliza quando cabe; ancora no canto quando não cabe.
+     *
+     * Centralizar um desenho maior que a janela deixa a origem fora da tela, e
+     * a origem é justamente onde o `rankdir: "LR"` põe as tabelas raiz — a
+     * pessoa abriria o diagrama no meio do nada e teria de arrastar para trás
+     * para achar o começo.
+     */
+    const posicao = (janela: number, conteudo: number): number =>
+      conteudo * escala <= janela ? (janela - conteudo * escala) / 2 : 0;
+
     setVista({
       escala,
-      x: (rect.width - layout.width * escala) / 2,
-      y: (rect.height - layout.height * escala) / 2,
+      x: posicao(rect.width, layout.width),
+      y: posicao(rect.height, layout.height),
     });
   };
 

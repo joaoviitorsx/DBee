@@ -281,11 +281,37 @@ const HEALTH_DOT: Readonly<Record<ConnectionHealth, string>> = {
   untested: "bg-line-strong",
 };
 
-const HEALTH_LABEL: Readonly<Record<ConnectionHealth, string>> = {
-  ok: "conectada",
-  error: "erro na última tentativa",
-  untested: "não testada",
+/**
+ * O estado **de agora**, não o do último clique em "Testar".
+ *
+ * O ponto vinha só do botão de testar, e isso o deixava mentindo do jeito mais
+ * incômodo: quem testou uma vez com a senha errada, corrigiu e passou a usar a
+ * conexão normalmente continuava vendo o ponto vermelho para sempre — abrir a
+ * conexão, listar databases e rodar query nunca atualizavam nada. Um indicador
+ * que não acompanha o que a pessoa acabou de fazer é pior que indicador nenhum.
+ *
+ * Carregar os databases **é** conectar: se voltou lista, a conexão está de pé
+ * neste instante; se falhou, não está. Essa evidência vence o resultado do
+ * teste, que é mais antigo por definição. Sem nenhuma das duas, o estado
+ * honesto é "não testada".
+ */
+/** Chave de i18n por estado — o rótulo era string fixa em português. */
+const HEALTH_LABEL: Readonly<
+  Record<ConnectionHealth, "arvore.statusOk" | "arvore.statusErro" | "arvore.statusNaoTestada">
+> = {
+  ok: "arvore.statusOk",
+  error: "arvore.statusErro",
+  untested: "arvore.statusNaoTestada",
 };
+
+function saudeVigente(
+  doTeste: ConnectionHealth,
+  databases: { isSuccess: boolean; isError: boolean },
+): ConnectionHealth {
+  if (databases.isSuccess) return "ok";
+  if (databases.isError) return "error";
+  return doTeste;
+}
 
 function ConnectionBranch({
   connection,
@@ -313,6 +339,10 @@ function ConnectionBranch({
 
   // Só busca quando expandida (ver plan.ts).
   const databases = useDatabases(connection.id, expanded);
+
+  // Carregar os databases é a prova de que a conexão está de pé agora; o
+  // resultado do botão "Testar" é o que sobra quando ela nunca foi aberta.
+  const saude = saudeVigente(health, databases);
 
   // `?? []` cru criaria um array novo a cada render, o memo abaixo nunca
   // memoizaria e o `useQueries` receberia uma lista nova toda vez — assinatura
@@ -377,11 +407,12 @@ function ConnectionBranch({
       >
         <span
           aria-hidden
-          className={cn("h-1.5 w-1.5 shrink-0 rounded-full", HEALTH_DOT[health])}
+          className={cn("h-1.5 w-1.5 shrink-0 rounded-full", HEALTH_DOT[saude])}
+          title={t(HEALTH_LABEL[saude])}
         />
         <Plug aria-hidden className={cn("h-3.5 w-3.5 shrink-0", perigo ? "text-danger-ink" : "text-muted")} />
         <span className="truncate text-sm font-medium text-ink">{connection.name}</span>
-        <span className="sr-only">{HEALTH_LABEL[health]}</span>
+        <span className="sr-only">{t(HEALTH_LABEL[saude])}</span>
         {/*
           * O nome é o identificador; o selo é qualificador. Numa barra de
           * 260px o selo com a palavra inteira comia metade do nome

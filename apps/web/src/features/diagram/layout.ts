@@ -135,39 +135,114 @@ const rotuloFk = (fk: ForeignKey): string =>
  * então a tabela pai fica num posto à esquerda da filha — a direção natural de
  * "esta depende daquela".
  */
+/** Folga entre caixas na grade das tabelas soltas. */
+const GRADE_GAP = 40;
+const MARGEM = 40;
+
+/**
+ * Assenta em grade as tabelas que **não participam de nenhuma FK**.
+ *
+ * Dagre coloca todo nó sem aresta no mesmo posto, e um posto é uma **linha
+ * única**: 150 tabelas soltas viravam uma coluna de 13.240 px de altura. Não é
+ * teórico — schema contábil legado frequentemente não declara FK nenhuma, e é
+ * assim que o diagrama virava tela vazia (o enquadramento cabia tudo numa
+ * escala de 0,057, e uma caixa de 220 px virava 12 px).
+ *
+ * A grade é quadrada por número de colunas, o que mantém a proporção perto de
+ * 1:1 e o enquadramento numa escala legível.
+ */
+function assentarEmGrade(
+  soltos: readonly NodeBox[],
+  x0: number,
+  y0: number,
+): { largura: number; altura: number } {
+  if (soltos.length === 0) return { largura: 0, altura: 0 };
+
+  const colunas = Math.max(1, Math.ceil(Math.sqrt(soltos.length)));
+  const alturaLinha: number[] = [];
+  for (const [i, no] of soltos.entries()) {
+    const linha = Math.floor(i / colunas);
+    alturaLinha[linha] = Math.max(alturaLinha[linha] ?? 0, no.height);
+  }
+
+  let topo = y0;
+  let larguraMax = 0;
+  for (const [i, no] of soltos.entries()) {
+    const coluna = i % colunas;
+    const linha = Math.floor(i / colunas);
+    if (coluna === 0 && linha > 0) topo += (alturaLinha[linha - 1] ?? 0) + GRADE_GAP;
+    no.x = x0 + coluna * (LARGURA + GRADE_GAP);
+    no.y = topo;
+    larguraMax = Math.max(larguraMax, no.x + no.width);
+  }
+  const ultima = Math.floor((soltos.length - 1) / colunas);
+  return { largura: larguraMax - x0, altura: topo + (alturaLinha[ultima] ?? 0) - y0 };
+}
+
 export function calcularLayout(schema: DatabaseSchema): DiagramLayout {
   const { nodes, edges } = construirGrafo(schema);
   if (nodes.length === 0) return { nodes, edges, width: 400, height: 300 };
 
-  const g = new Graph({ multigraph: true });
-  g.setGraph({ rankdir: "LR", nodesep: 40, ranksep: 90, marginx: 40, marginy: 40 });
-  g.setDefaultEdgeLabel(() => ({}));
-
   const porId = new Map(nodes.map((no) => [no.id, no]));
-  for (const no of nodes) {
-    g.setNode(no.id, { width: no.width, height: no.height });
-  }
+
+  // Só vai para o dagre quem participa de alguma FK. O resto não tem posto a
+  // respeitar — mandá-lo junto só produz a linha única descrita acima.
+  const ligados = new Set<string>();
   for (const e of edges) {
-    // Só liga o que dagre conhece; `to → from` deixa o pai à esquerda.
-    if (porId.has(e.from) && porId.has(e.to)) g.setEdge(e.to, e.from, {}, e.id);
+    if (porId.has(e.from) && porId.has(e.to)) {
+      ligados.add(e.from);
+      ligados.add(e.to);
+    }
+  }
+  const conectados = nodes.filter((n) => ligados.has(n.id));
+  const soltos = nodes.filter((n) => !ligados.has(n.id));
+
+  let larguraGrafo = 0;
+  let alturaGrafo = 0;
+
+  if (conectados.length > 0) {
+    const g = new Graph({ multigraph: true });
+    g.setGraph({ rankdir: "LR", nodesep: 40, ranksep: 90, marginx: MARGEM, marginy: MARGEM });
+    g.setDefaultEdgeLabel(() => ({}));
+
+    for (const no of conectados) g.setNode(no.id, { width: no.width, height: no.height });
+    for (const e of edges) {
+      // Só liga o que dagre conhece; `to → from` deixa o pai à esquerda.
+      if (ligados.has(e.from) && ligados.has(e.to)) g.setEdge(e.to, e.from, {}, e.id);
+    }
+
+    dagreLayout(g);
+
+    // dagre devolve o CENTRO de cada nó; o resto do código usa o canto.
+    for (const no of conectados) {
+      const dn = g.node(no.id) as { x: number; y: number } | undefined;
+      if (dn === undefined) continue;
+      no.x = dn.x - no.width / 2;
+      no.y = dn.y - no.height / 2;
+    }
+
+    const graph = g.graph() as { width?: number; height?: number };
+    larguraGrafo = graph.width ?? 0;
+    alturaGrafo = graph.height ?? 0;
   }
 
-  dagreLayout(g);
+  // As soltas vão **abaixo** do grafo ligado: em cima fica o que tem estrutura
+  // para ler, embaixo o inventário do resto.
+  const grade = assentarEmGrade(
+    soltos,
+    MARGEM,
+    conectados.length > 0 ? alturaGrafo + GRADE_GAP : MARGEM,
+  );
 
-  // dagre devolve o CENTRO de cada nó; o resto do código usa o canto.
-  for (const no of nodes) {
-    const dn = g.node(no.id) as { x: number; y: number } | undefined;
-    if (dn === undefined) continue;
-    no.x = dn.x - no.width / 2;
-    no.y = dn.y - no.height / 2;
-  }
-
-  const graph = g.graph() as { width?: number; height?: number };
   return {
     nodes,
     edges,
-    width: graph.width ?? 400,
-    height: graph.height ?? 300,
+    width: Math.max(larguraGrafo, grade.largura + MARGEM * 2, 400),
+    height: Math.max(
+      conectados.length > 0 ? alturaGrafo : 0,
+      (conectados.length > 0 ? alturaGrafo + GRADE_GAP : 0) + grade.altura + MARGEM,
+      300,
+    ),
   };
 }
 
