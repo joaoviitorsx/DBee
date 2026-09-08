@@ -53,18 +53,22 @@ async function baixarBundle(corpo: unknown): Promise<Response> {
 }
 
 /**
- * Espera o Postgres **de verdade**.
+ * Espera o Postgres **definitivo**, por TCP.
  *
- * `pg_isready` responde OK ao servidor temporário que o entrypoint da imagem
- * sobe para inicializar o cluster — e logo depois ele reinicia. Uma query real
- * só passa no servidor definitivo. Local a corrida era ganha; no runner do CI,
- * não: o seed rodava contra o servidor que ia morrer, sumia, e seis testes
- * falhavam com "public.clientes não existe" em vez de dizer o que houve.
+ * Medido, não suposto: o entrypoint da imagem sobe um servidor temporário para
+ * inicializar o cluster e **reinicia** depois (o log traz "ready to accept
+ * connections" duas vezes). Esse temporário roda com `listen_addresses=''` —
+ * atende o socket unix, não TCP. Numa medição: socket respondeu em 1492 ms,
+ * TCP em 1780 ms, e nessa janela de ~290 ms o seed morria com
+ * `FATAL: the database system is shutting down`.
+ *
+ * `pg_isready` e `psql` pelo socket passam cedo demais. `-h 127.0.0.1` força
+ * TCP, que só existe no servidor que vai ficar de pé.
  */
 async function esperarPostgres(): Promise<void> {
   const limite = Date.now() + 90_000;
   for (;;) {
-    if (psql(["-tAc", "SELECT 1"]).codigo === 0) return;
+    if (psql(["-h", "127.0.0.1", "-tAc", "SELECT 1"]).codigo === 0) return;
     if (Date.now() > limite) throw new Error("Postgres de teste não subiu");
     await Bun.sleep(500);
   }

@@ -82,12 +82,16 @@ beforeAll(async () => {
     "-p", `${String(PORTA)}:5432`, "postgres:16",
   ]);
 
-  // Query real, não `pg_isready`: ele responde OK ao servidor temporário que o
-  // entrypoint sobe para inicializar o cluster, e que reinicia logo depois.
+  /*
+   * Espera por TCP, não pelo socket unix. Medido: o entrypoint sobe um servidor
+   * temporário com `listen_addresses=''` para inicializar o cluster e reinicia
+   * depois; o socket responde ~290 ms antes do TCP, e nessa janela um comando
+   * morre com `FATAL: the database system is shutting down`.
+   */
   const limite = Date.now() + 90_000;
   for (;;) {
     const pronto = Bun.spawnSync([
-      "docker", "exec", CONTAINER, "psql", "-U", "postgres", "-tAc", "SELECT 1",
+      "docker", "exec", CONTAINER, "psql", "-h", "127.0.0.1", "-U", "postgres", "-tAc", "SELECT 1",
     ]);
     if (pronto.exitCode === 0) break;
     if (Date.now() > limite) throw new Error("Postgres de teste não subiu");
