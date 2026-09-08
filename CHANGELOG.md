@@ -4,7 +4,11 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
-## [0.2.2] — 2026-09-08
+## [0.2.3] — 2026-09-08
+
+> A tag `v0.2.2` existe mas **não gerou release**: o CI falhou no `verify`
+> por causa do vazamento de pool corrigido abaixo, antes de qualquer push de
+> imagem. Nada foi publicado sob ela.
 
 ### Corrigido
 - **Dois testes de integração derrubavam o Postgres com o pool ainda aberto.**
