@@ -116,8 +116,8 @@ export function AuthPanel({
             src={vitrine}
             alt=""
             aria-hidden
-            width={1200}
-            height={1600}
+            width={1800}
+            height={2249}
             // Sem animação contínua: o próprio CSS do projeto diz que nada anima
             // só por decoração. O estado de carregando vive no botão.
             // `object-cover` de volta: `contain` mostrava a cena inteira mas
@@ -131,16 +131,16 @@ export function AuthPanel({
             Véu nos dois cantos que recebem texto, e só neles.
 
             Sem ele, os rótulos caem sobre nuvem branca e pedra clara: medido
-            em 1920, o pior pixel sob o texto dá **1,03:1** — invisível, não
-            "pouco legível". O véu é diagonal em vez de uma cortina inteira
-            porque escurecer a cena toda para dois rótulos apagaria justamente
-            o que a imagem tem de bom.
+            em 1920, o pior pixel sob o texto dá **1,01:1** em cima e
+            **1,09:1** embaixo — invisível, não "pouco legível". O véu é
+            diagonal em vez de uma cortina inteira porque escurecer a cena toda
+            para dois rótulos apagaria justamente o que a imagem tem de bom.
 
             Com ele, o pior caso varrendo 1024/1280/1440/1680/1920/2560 é
-            **4,77:1** no rótulo de cima (em 1440, onde a frase alcança o céu
-            mais claro) e **6,31:1** no de baixo (em 1920, onde a pedra clara
-            sobe até o canto). Ambos passam o 4,5:1. O recorte muda com a
-            largura, então medir num tamanho só não valeria.
+            **5,06:1** no rótulo de cima (em 2560) e **5,90:1** no de baixo (em
+            1440). Ambos passam o 4,5:1. O recorte muda com a largura, então
+            medir num tamanho só não valeria — e trocar a ilustração invalida a
+            medição, porque o que está sob o texto muda junto.
           */}
           <div
             aria-hidden
