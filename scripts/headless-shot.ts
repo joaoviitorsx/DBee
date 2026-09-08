@@ -70,7 +70,18 @@ function bancoDev(): string {
 /** Minta um token de sessão para o primeiro usuário, direto na tabela. */
 function mintarSessao(): string {
   const db = new Database(bancoDev());
-  const user = db.query<{ id: string }, []>("SELECT id FROM users LIMIT 1").get();
+  /*
+   * Prefere uma conta **sem troca de senha pendente**.
+   *
+   * `LIMIT 1` sem ordem pegava qualquer uma, e desde que existe administração
+   * de contas isso passou a cair numa conta recém-criada — que o guard prende
+   * na tela de trocar senha. Todo screenshot virava aquela tela, sem aviso.
+   */
+  const user = db
+    .query<{ id: string }, []>(
+      "SELECT id FROM users ORDER BY must_change_password, created_at LIMIT 1",
+    )
+    .get();
   if (user === null) throw new Error(`sem usuário em ${DATA_DIR}/dbee.sqlite`);
   const token = randomBytes(32).toString("base64url");
   const hash = createHash("sha256").update(token, "utf8").digest("hex");

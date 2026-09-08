@@ -4,7 +4,40 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+### Adicionado
+- **Contas para o time (fase 1 do multi-usuário).** Até aqui o DBee era travado
+  em **uma** conta: `POST /auth/setup` recusa quando já existe usuário, e
+  nenhuma outra rota criava conta. Distribuir só era possível compartilhando o
+  login, o que quebra o `actor` do `query_log`.
+  - Migração 004 acrescenta `users.role` (`admin`/`member`) e promove quem já
+    existe — quando ela roda há no máximo uma conta, a do setup.
+  - Rotas `/users` (listar, criar, trocar papel, resetar senha, remover), todas
+    verificadas por `exigirAdmin` **no servidor**. O botão da tela só aparece
+    para admin, mas isso é conveniência: quem recusa é a API, e há teste
+    varrendo as cinco rotas com uma conta `member`.
+  - A senha provisória é **digitada pelo admin**, não gerada — §7 é explícito
+    sobre não produzir senha que precise ser exibida ou transportada. Ela nasce
+    com `must_change_password`, que o guard já aplicava desde a v0.1 e que
+    estava no schema sem uso.
+  - Resetar senha e remover conta derrubam as sessões da pessoa. O `query_log`
+    **não** é tocado: `actor` guarda o id, não uma FK, para a auditoria
+    sobreviver à saída de quem executou.
+- **Teste de paridade dos dicionários pt/en.** Chave nova entra à mão nos dois
+  arquivos, e esquecer um não quebra build, typecheck nem lint — o `t()` devolve
+  a própria chave e a tela mostra o identificador, só para quem usa aquele
+  idioma. Cobre chaves faltando, valor vazio e parâmetros de interpolação
+  divergentes entre os lados.
+
 ### Corrigido
+- **A tela de troca de senha dizia que a senha tinha vindo do log do
+  container.** Isso deixou de ser verdade quando a §7 removeu a senha gerada e
+  impressa; desde a administração de contas, a provisória é escolhida por quem
+  criou a conta e entregue por fora. O texto ficou para trás e passou a
+  desinformar sobre a origem da própria credencial, nos dois idiomas.
+- **`scripts/headless-shot.ts` escolhia qualquer usuário** (`LIMIT 1` sem
+  ordem). Com contas novas no banco isso passou a cair numa que o guard prende
+  na tela de trocar senha, e **todo screenshot virava aquela tela** sem aviso.
+  Agora prefere uma conta sem troca pendente.
 - **Diagrama virava tela vazia em schema grande.** Duas causas, ambas medidas
   contra Postgres real com 124 tabelas:
   - `enquadrar()` calculava a escala com `min(w/largura, h/altura, 1)` **sem

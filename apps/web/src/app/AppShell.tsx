@@ -27,6 +27,7 @@ import { useT } from "../i18n";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
 import { UpdateBadge } from "../features/update/UpdateBadge";
 import { VersaoChip } from "../features/update/VersaoChip";
+import { UsuariosBotao } from "../features/usuarios/UsuariosBotao";
 import { DataTab } from "../features/tabs/DataTab";
 import { IndexesTab } from "../features/tabs/IndexesTab";
 import { StructureTab } from "../features/tabs/StructureTab";
@@ -600,6 +601,9 @@ function TopBar({
         <UpdateBadge />
         <IdiomaToggle />
         <ThemeToggle />
+        {/* Administração de contas — só para admin, e só por conveniência: o
+            controle é o `exigirAdmin` no servidor. */}
+        <UsuariosBotao />
         {/* Quem está logado é o `actor` do query_log — informação, não perfil. */}
         <UserChip />
       </div>
