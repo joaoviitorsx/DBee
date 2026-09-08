@@ -81,7 +81,7 @@ export function AuthPanel({
       inteira, e o favo do canto direito ficava cortado por ela em vez de sangrar
       na borda da janela. O recuo da ilustração é dela própria.
     */
-    <main className="h-dvh overflow-hidden bg-surface">
+    <main className="h-dvh overflow-hidden bg-sunken">
       {/*
         Teto na composição.
 
@@ -112,13 +112,13 @@ export function AuthPanel({
           alt=""
           aria-hidden
           width={1200}
-          height={1499}
+          height={1600}
           // Sem animação contínua: o próprio CSS do projeto diz que nada anima
           // só por decoração. O estado de carregando vive no botão.
-          // `object-position` em 20% da altura, não `top`: na faixa larga e baixa
-          // do empilhado, alinhar pelo topo corta a abelha ao meio. Na coluna
-          // alta do desktop a proporção quase casa com a da arte, e o
-          // enquadramento não muda nada.
+          // `object-cover` de volta: `contain` mostrava a cena inteira mas
+          // deixava tarjas vazias dos dois lados da coluna, e a tela lia como
+          // desalinhada. O `object-position` em 20% da altura é o que mantém a
+          // abelha enquadrada mesmo com o corte.
           className="h-full w-full rounded-2xl object-cover object-[50%_20%]"
         />
       </div>
@@ -211,7 +211,21 @@ export function AuthPanel({
             {tituloDestaque === undefined ? null : (
               <>
                 {" "}
-                <span className="text-accent">{tituloDestaque}</span>
+                {/*
+                  `text-amber` (vibrante), a pedido do autor, para casar com o
+                  "Bee" do lockup.
+
+                  **É uma exceção consciente de contraste, não um descuido.**
+                  Medido com o `contrast.ts` do projeto: sobre o fundo claro o
+                  amber dá 1,62:1, contra 4,5:1 do AA para texto normal e 3:1
+                  para texto grande — reprova nos dois. No "Bee" o mesmo amarelo
+                  é legítimo porque a WCAG isenta logotipo; aqui é cabeçalho, e
+                  não é. No tema escuro a cor é a mesma e dá 8,90:1.
+
+                  Quem quiser reverter: trocar por `text-accent` (4,61:1) devolve
+                  a conformidade sem mexer em mais nada.
+                */}
+                <span className="text-amber">{tituloDestaque}</span>
               </>
             )}
           </h1>
@@ -306,7 +320,9 @@ export function CampoCredencial({
           className={cn(
             // Cápsula alta, como na referência: alvo generoso para a mão pesada
             // de quem já errou a senha duas vezes.
-            "h-12 w-full rounded-full border bg-sunken/70 px-4 font-mono text-sm text-ink",
+            // Mais claro que a página, não mais escuro: com o fundo em `sunken`, um
+            // campo `sunken` sumiria. `surface` é o passo acima nos dois temas.
+            "h-12 w-full rounded-full border bg-surface px-4 font-mono text-sm text-ink",
             "transition-[color,border-color,box-shadow] duration-150 placeholder:text-subtle",
             "focus:outline-none focus:ring-4 focus:ring-accent/15",
             icone === undefined ? "" : "pl-11",

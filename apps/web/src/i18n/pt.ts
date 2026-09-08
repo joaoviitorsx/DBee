@@ -43,7 +43,6 @@ export const pt = {
   "login.mostrarSenha": "Mostrar senha",
   "login.ocultarSenha": "Ocultar senha",
   "login.capsLock": "Caps Lock está ligado.",
-  "login.rodape": "A sessão dura 12 horas. Perdeu a senha? Ela é redefinida no servidor — o DBee não manda e-mail.",
   "setup.titulo": "Primeiro acesso",
   "setup.descricao": "Crie a conta inicial do DBee.",
   "setup.token": "Token",

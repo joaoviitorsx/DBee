@@ -54,7 +54,6 @@ export function LoginScreen() {
       tituloDestaque={t("login.tituloDestaque")}
       descricao={t("login.descricao")}
       recusado={login.isError}
-      rodape={t("login.rodape")}
     >
       <form
         ref={formulario}

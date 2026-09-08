@@ -43,7 +43,6 @@ export const en: Record<ChaveI18n, string> = {
   "login.mostrarSenha": "Show password",
   "login.ocultarSenha": "Hide password",
   "login.capsLock": "Caps Lock is on.",
-  "login.rodape": "Sessions last 12 hours. Lost your password? It’s reset on the server — DBee sends no email.",
   "setup.titulo": "First-time setup",
   "setup.descricao": "Create the initial DBee account.",
   "setup.token": "Token",
