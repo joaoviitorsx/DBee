@@ -22,6 +22,8 @@ import { Mascote } from "../features/mascote";
 import { IdiomaToggle } from "../features/idioma/IdiomaToggle";
 import { useT } from "../i18n";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
+import { UpdateBadge } from "../features/update/UpdateBadge";
+import { VersaoChip } from "../features/update/VersaoChip";
 import { DataTab } from "../features/tabs/DataTab";
 import { IndexesTab } from "../features/tabs/IndexesTab";
 import { StructureTab } from "../features/tabs/StructureTab";
@@ -538,7 +540,8 @@ function TopBar({
       ) : null}
 
       <div className={cn("relative flex shrink-0 items-center gap-2", perigo ? "" : "ml-auto")}>
-        <span className="hidden text-2xs text-subtle sm:inline">v{__APP_VERSION__}</span>
+        <VersaoChip />
+        <UpdateBadge />
         <IdiomaToggle />
         <ThemeToggle />
         {/* Quem está logado é o `actor` do query_log — informação, não perfil. */}

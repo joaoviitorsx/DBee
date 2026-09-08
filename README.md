@@ -146,13 +146,31 @@ como uma falha diferente e obscura:
 > **Não existem `ADMIN_PASSWORD` nem `DOKPLOY_DEPLOY_WEBHOOK`.** Versões antigas
 > deste README as citavam; o código não as lê. A primeira conta nasce pela tela
 > de setup, com o token de `/data/setup-token` (passos 4–5) — **nenhuma senha é
-> gerada nem impressa**. A atualização por webhook e o badge de versão são
-> planejados, ainda não implementados — hoje se atualiza publicando uma tag e
-> re-deployando.
+> gerada nem impressa**. A URL de deploy do Dokploy **também não é variável de
+> ambiente**: cola-se uma vez na própria tela de atualização (ver abaixo), e ela
+> fica cifrada no SQLite.
 >
 > `DBEE_PUBLIC_DIR` (opcional) aponta o diretório do web estático que o binário
 > serve; default `./public` a partir do diretório de trabalho (no container,
 > `/app/public`). Em dev o web é servido pelo Vite, não por esta variável.
+
+### Atualizar
+
+O DBee consulta as releases do repo uma vez por dia e mostra um selo no
+cabeçalho quando há versão nova. Clicar abre o diálogo com o link das notas.
+
+Para atualizar **pelo próprio app**, cole uma vez a URL de deploy do serviço:
+no Dokploy, seu serviço → aba **Deployments** → **Webhook URL**. Ela fica
+guardada cifrada, e a partir daí atualizar é só o botão. Sem ela, o aviso de
+versão continua funcionando e o botão simplesmente não aparece.
+
+O container **não** se atualiza por dentro: o botão pede o redeploy ao Dokploy,
+que puxa a imagem nova e recria o container. Nada de socket do Docker montado.
+O porquê está no [ADR 009](docs/adr/009-atualizacao-por-webhook-do-orquestrador.md).
+
+> **`pull_policy: always` no compose é obrigatório.** Sem ele, o redeploy reusa
+> a `:latest` que já está em cache no host e não traz a versão nova — o botão
+> diria sucesso sem atualizar. O `deploy/docker-compose.yml` já vem com a linha.
 
 > ### ⚠️ Perder o `APP_SECRET` **ou** o volume `/data` = conexões perdidas
 >

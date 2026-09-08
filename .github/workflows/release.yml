@@ -29,7 +29,8 @@ jobs:
     needs: verify
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      # `contents: write` cria a Release; `read` só clonaria.
+      contents: write
       packages: write
     steps:
       - uses: actions/checkout@v5
@@ -62,6 +63,11 @@ jobs:
           push: false
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # A tag entra NO binário via `--define` (Dockerfile). Sem isto o
+          # `GET /api/meta/version` responde `dev` em produção e o aviso de
+          # atualização nunca acende — falha silenciosa, imagem verde.
+          build-args: |
+            DBEE_VERSION=${{ github.ref_name }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -79,3 +85,20 @@ jobs:
           printf '%s\n' "${{ steps.meta.outputs.tags }}" | while read -r t; do
             [ -n "$t" ] && docker push "$t"
           done
+
+      # A Release é o que o app consulta em `GET /repos/.../releases/latest`
+      # (DBee.md §8). Sem ela a API devolve 404 mesmo com a tag publicada — o
+      # endpoint ignora tag sem release —, `latest` fica `null` e o badge nunca
+      # acende. Vem DEPOIS do push: release anunciando imagem que não existe
+      # seria pior que release nenhuma.
+      #
+      # `--generate-notes` monta as notas a partir dos commits desde a tag
+      # anterior; é o alvo do link "notas da versão" na modal.
+      - name: Criar a Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            --verify-tag

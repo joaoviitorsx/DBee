@@ -3,6 +3,7 @@ import { Elysia } from "elysia";
 import { HealthResponse } from "@dbee/shared";
 
 import { ConnectionsRepository } from "./db/connections.repo";
+import { SettingsRepository } from "./db/settings.repo";
 import { UsersRepository } from "./db/users.repo";
 import { QueryLogRepository } from "./db/queryLog.repo";
 import { SavedQueriesRepository } from "./db/savedQueries.repo";
@@ -16,6 +17,7 @@ import { connectionsRoutes } from "./routes/connections";
 import { errorHandler } from "./routes/errors";
 import { exportRoutes } from "./routes/export";
 import { sessionGuard } from "./routes/guard";
+import { metaRoutes } from "./routes/meta";
 import { mutationRoutes } from "./routes/mutation";
 import { queryRoutes } from "./routes/query";
 import { rowsRoutes } from "./routes/rows";
@@ -27,6 +29,7 @@ import { ExportService } from "./services/export.service";
 import { QueryService } from "./services/query.service";
 import { RowsService } from "./services/rows.service";
 import { SchemaService } from "./services/schema.service";
+import { UpdateService, versaoDoBinario } from "./services/update.service";
 
 export interface AppDeps {
   readonly store: Store;
@@ -34,6 +37,13 @@ export interface AppDeps {
   readonly pools?: PoolManager;
   /** Diretório de dados — leva o `setup-token` ao `AuthService`. Ver §7. */
   readonly dataDir?: string;
+  /**
+   * Releases API consultada pelo aviso de versão (§8). Existe para o teste
+   * apontar para um servidor local: sem isso a suíte dependeria da
+   * api.github.com estar de pé, e um teste que precisa de internet é um teste
+   * que falha por motivo errado.
+   */
+  readonly releasesApi?: string;
 }
 
 /**
@@ -44,7 +54,13 @@ export interface AppDeps {
  * Recebe as dependências prontas em vez de abrir o banco por conta própria: é
  * o que permite o teste rodar contra um SQLite em memória.
  */
-export function createApp({ store, caCert, pools = new PoolManager(caCert), dataDir }: AppDeps) {
+export function createApp({
+  store,
+  caCert,
+  pools = new PoolManager(caCert),
+  dataDir,
+  releasesApi,
+}: AppDeps) {
   const repository = new ConnectionsRepository(store.db, store.key);
   const users = new UsersRepository(store.db);
   const auth = new AuthService({ users, dataDir });
@@ -56,6 +72,11 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert), data
   const mutation = new MutationService({ repository, pools, log });
   const rows = new RowsService({ repository, pools, schema, log });
   const exportar = new ExportService({ repository, pools, schema, log });
+  const update = new UpdateService({
+    settings: new SettingsRepository(store.db, store.key),
+    current: versaoDoBinario(),
+    releasesApi,
+  });
 
   const connections = new ConnectionsService({
     repository,
@@ -98,6 +119,7 @@ export function createApp({ store, caCert, pools = new PoolManager(caCert), data
       .use(exportRoutes(exportar, users))
       .use(auditRoutes(audit))
       .use(savedQueriesRoutes(savedQueries))
+      .use(metaRoutes(update, users))
   );
 }
 
