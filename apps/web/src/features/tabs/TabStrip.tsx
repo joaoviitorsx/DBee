@@ -1,5 +1,5 @@
 import type { Connection } from "@dbee/shared";
-import { Activity, Code2, Database, Eye, Layers, Plus, ScrollText, Share2, Table2, X } from "lucide-react";
+import { Activity, Download, Code2, Database, Eye, Layers, Plus, ScrollText, Share2, Table2, X } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { cn } from "../../lib/cn";
@@ -54,13 +54,15 @@ export function TabStrip({
             ? ICON[tab.target.kind]
             : tab.kind === "diagram"
               ? Share2
-              : tab.kind === "overview"
-                ? Database
-                : tab.kind === "activity"
-                  ? Activity
-                  : tab.kind === "audit"
-                    ? ScrollText
-                    : Code2;
+              : tab.kind === "export"
+                ? Download
+                : tab.kind === "overview"
+                  ? Database
+                  : tab.kind === "activity"
+                    ? Activity
+                    : tab.kind === "audit"
+                      ? ScrollText
+                      : Code2;
 
         return (
           <div

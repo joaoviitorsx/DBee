@@ -180,3 +180,35 @@ export function sqlInsertLine(
   const vals = valores.map(sqlValue).join(", ");
   return `INSERT INTO ${tabelaQualificada} (${cols}) VALUES (${vals});\n`;
 }
+
+/**
+ * Uma tabela no dump de várias (Adminer-like).
+ *
+ * `structure` e `data` são independentes porque os três casos úteis existem:
+ * só o schema (para criar um ambiente vazio), só os dados (para recarregar num
+ * schema que já existe), ou os dois.
+ */
+export const BundleTable = t.Object({
+  schema: t.String({ minLength: 1, maxLength: 63 }),
+  table: t.String({ minLength: 1, maxLength: 63 }),
+  structure: t.Boolean(),
+  data: t.Boolean(),
+});
+export type BundleTable = Static<typeof BundleTable>;
+
+/**
+ * Dump `.sql` de várias tabelas num arquivo.
+ *
+ * Só `.sql`: CSV de várias tabelas precisaria de um zip (vários arquivos) ou de
+ * concatenar planilhas num arquivo só, que nenhum leitor de CSV entende. Para
+ * CSV de **uma** tabela, a rota é a de sempre.
+ */
+export const ExportBundleRequest = t.Object({
+  database: t.Optional(t.String({ minLength: 1, maxLength: 100 })),
+  tables: t.Array(BundleTable, { minItems: 1, maxItems: 500 }),
+  /** `DROP TABLE IF EXISTS` antes de cada `CREATE`. */
+  dropFirst: t.Optional(t.Boolean()),
+  /** Comprime com gzip pelo `CompressionStream` — sem binário externo. */
+  gzip: t.Optional(t.Boolean()),
+});
+export type ExportBundleRequest = Static<typeof ExportBundleRequest>;

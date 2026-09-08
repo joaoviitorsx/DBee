@@ -243,6 +243,69 @@ export class PoolManager {
   }
 
   /**
+   * Um comando **fora de transação**. O único caminho assim no app.
+   *
+   * ## Por que existe
+   *
+   * `CREATE DATABASE` não roda dentro de transação — medido:
+   * `ERROR: CREATE DATABASE cannot run inside a transaction block`. Como todo o
+   * resto do app passa por `withTransaction` (que é o que faz o read-only do
+   * ADR 001 valer), não havia caminho por onde esse comando pudesse rodar.
+   *
+   * ## Por que isso não é uma porta lateral em volta do read-only
+   *
+   * **Nada que venha do cliente como SQL chega aqui.** O único chamador é o
+   * `DdlService`, que monta o comando no servidor a partir de campos
+   * estruturados — nome citado, opções de lista fechada (ADR 010). Um caminho
+   * sem transação que aceitasse SQL livre seria exatamente o contorno que o
+   * ADR 001 existe para impedir; este só sabe carregar a forma que o montador
+   * emite.
+   *
+   * Quem chamar isto com SQL vindo do usuário está reabrindo o buraco. Se
+   * aparecer um segundo chamador, ele precisa da mesma prova.
+   */
+  async withAutocommit<T>(
+    connection: ResolvedConnection,
+    database: string,
+    fn: (client: PoolClient) => Promise<T>,
+  ): Promise<T> {
+    const entry = this.#acquire(connection, database);
+    entry.leases++;
+
+    let client: PoolClient;
+    try {
+      client = await entry.pool.connect();
+    } catch (err: unknown) {
+      entry.leases--;
+      this.#discard(connection.id, database);
+      throw err;
+    }
+
+    try {
+      // Sem `BEGIN`: o cliente do `pg` roda em autocommit por padrão, e é
+      // justamente isso que o comando precisa. `statement_timeout` continua
+      // valendo — sem `LOCAL`, que só existe dentro de transação.
+      await client.query("SELECT set_config('statement_timeout', $1, false)", [
+        String(connection.statementTimeoutMs),
+      ]);
+      return await fn(client);
+    } finally {
+      entry.leases--;
+      entry.lastUsedAt = Date.now();
+      // O cliente é SEMPRE destruído, não reciclado: ele voltaria ao pool com
+      // um `statement_timeout` de sessão que não é o padrão, e a próxima
+      // transação a pegá-lo herdaria esse valor sem nada dizer.
+      try {
+        client.release(true);
+      } finally {
+        if (entry.doomed && entry.leases === 0) {
+          void entry.pool.end().catch(() => undefined);
+        }
+      }
+    }
+  }
+
+  /**
    * Transação que sobrevive ao retorno da função.
    *
    * O export mantém um cursor aberto entre lotes, e cursor só existe dentro da
@@ -257,6 +320,13 @@ export class PoolManager {
     connection: ResolvedConnection,
     database: string,
     fn: (client: PoolClient, encerrar: () => void) => Promise<T>,
+    /**
+     * `repeatable-read` para o dump de várias tabelas: em READ COMMITTED cada
+     * cursor enxerga um instante diferente, e a tabela A lida às 10h00 com a B
+     * lida às 10h02 produz um arquivo que não recarrega. O padrão fica como
+     * estava — só o bundle pede o snapshot.
+     */
+    isolation: "read-committed" | "repeatable-read" = "read-committed",
   ): Promise<T> {
     const entry = this.#acquire(connection, database);
     entry.leases++;
@@ -289,7 +359,11 @@ export class PoolManager {
     };
 
     try {
-      await client.query("BEGIN READ ONLY");
+      await client.query(
+        isolation === "repeatable-read"
+          ? "BEGIN READ ONLY ISOLATION LEVEL REPEATABLE READ"
+          : "BEGIN READ ONLY",
+      );
       await client.query("SELECT set_config('statement_timeout', $1, true)", [
         String(connection.statementTimeoutMs),
       ]);

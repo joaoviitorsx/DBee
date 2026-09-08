@@ -10,6 +10,15 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 > continua sendo o orquestrador** — o DBee avisa e pede (ADR 009).
 
 ### Adicionado
+- **Criar tabela e criar database por formulário** (ADR 010), no menu de botão
+  direito do database e do schema. **Só aparecem com a escrita ligada** na
+  conexão — e o servidor recusa igual se a requisição vier direto na API, porque
+  esconder o item de menu não é controle.
+- **O comando fica à vista enquanto o formulário é preenchido**, montado pelo
+  mesmo código do servidor: o que se lê é literalmente o que vai rodar.
+- **Export de várias tabelas em aba própria**, no estilo do Adminer: filtro,
+  contagem de linhas por tabela, marcação separada de estrutura e dados,
+  `DROP + CREATE` e saída comprimida (`.sql.gz`).
 - **Selo "Atualizar" no cabeçalho**, só quando há versão maior publicada. Vira
   ícone abaixo de `md`; sem ponto colorido, porque verde já significa "conexão
   viva" na árvore e a mesma forma diria outra coisa.
@@ -27,6 +36,14 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   imagem. Sem isso, `releases/latest` devolve 404 mesmo com a tag publicada e o
   selo nunca acenderia (§11.27c).
 
+### Corrigido
+- **O `.sql` exportado não recarregava quando a tabela tinha coluna `serial`.**
+  Ela saía como `integer DEFAULT nextval('t_id_seq')` — o que ela é —, e o
+  `psql` parava em `relation "t_id_seq" does not exist` num banco vazio, porque
+  a sequência não era criada. Agora sai `serial`/`bigserial`. Valia para o
+  export de **uma** tabela também, que já existia. Travado pelo teste que
+  recarrega o dump e confere os valores.
+
 ### Alterado
 - **`deploy/docker-compose.yml` ganhou `pull_policy: always`.** Sem ele, um
   redeploy reusa a `:latest` já em cache no host e não traz nada — o botão diria
@@ -35,6 +52,13 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   o doc afirmava — é o que dispensa token na consulta de versão.
 
 ### Segurança
+- **Nenhuma rota de DDL aceita SQL.** O comando é montado no servidor a partir de
+  campos estruturados: identificador citado, tipo de lista fechada, default que é
+  literal escapado ou expressão de lista fechada. Testes cobrem o vetor de fechar
+  a aspa e emendar `DROP`, contra Postgres real — a tabela alvo continua de pé.
+- **`CREATE DATABASE` roda fora de transação** (não há alternativa: o Postgres o
+  recusa dentro de uma). O caminho é estreito e tem um único chamador, e o motivo
+  está travado por teste, não só por comentário.
 - A **URL de deploy é credencial** e não sai da API: `GET /meta/version` devolve
   `webhookConfigured: boolean`, nunca a URL. Nem a resposta de erro, nem o corpo
   devolvido pelo Dokploy (que pode conter a própria URL) atravessam para o

@@ -1,4 +1,4 @@
-import type { ExportRequest } from "@dbee/shared";
+import type { ExportBundleRequest, ExportRequest } from "@dbee/shared";
 
 /**
  * Baixa um export.
@@ -35,11 +35,15 @@ const picker = (): SaveFilePicker | null => {
   return typeof w.showSaveFilePicker === "function" ? w.showSaveFilePicker : null;
 };
 
-const ACEITA: Record<ExportRequest["format"], { descricao: string; mime: string; ext: string }> = {
+/** `gzip` não é um `ExportFormat`: é a saída comprimida do dump de várias. */
+type FormatoDeArquivo = ExportRequest["format"] | "gzip";
+
+const ACEITA: Record<FormatoDeArquivo, { descricao: string; mime: string; ext: string }> = {
   csv: { descricao: "CSV", mime: "text/csv", ext: ".csv" },
   json: { descricao: "JSON", mime: "application/json", ext: ".json" },
   ndjson: { descricao: "NDJSON", mime: "application/x-ndjson", ext: ".ndjson" },
   sql: { descricao: "SQL", mime: "application/sql", ext: ".sql" },
+  gzip: { descricao: "SQL comprimido", mime: "application/gzip", ext: ".sql.gz" },
 };
 
 export interface Progresso {
@@ -54,7 +58,7 @@ export class ExportCancelado extends Error {
 }
 
 /** Nome sugerido, tirado do `content-disposition` que o servidor manda. */
-function nomeDoCabecalho(res: Response, format: ExportRequest["format"]): string {
+function nomeDoCabecalho(res: Response, format: FormatoDeArquivo): string {
   const cd = res.headers.get("content-disposition") ?? "";
   return /filename="([^"]+)"/.exec(cd)?.[1] ?? `dbee${ACEITA[format].ext}`;
 }
@@ -78,7 +82,44 @@ export async function baixarExport(
   onProgress?: (p: Progresso) => void,
   signal?: AbortSignal,
 ): Promise<{ bytes: number; filename: string }> {
-  const res = await fetch(`/api/connections/${connectionId}/export`, {
+  return await baixar(
+    `/api/connections/${connectionId}/export`,
+    pedido,
+    pedido.format,
+    onProgress,
+    signal,
+  );
+}
+
+/**
+ * Dump `.sql` de várias tabelas.
+ *
+ * Mesmo caminho do export de uma: o corpo é stream dos dois lados, e a única
+ * diferença é a rota e a extensão sugerida.
+ */
+export async function baixarBundle(
+  connectionId: string,
+  pedido: ExportBundleRequest,
+  onProgress?: (p: Progresso) => void,
+  signal?: AbortSignal,
+): Promise<{ bytes: number; filename: string }> {
+  return await baixar(
+    `/api/connections/${connectionId}/export/bundle`,
+    pedido,
+    pedido.gzip === true ? "gzip" : "sql",
+    onProgress,
+    signal,
+  );
+}
+
+async function baixar(
+  url: string,
+  pedido: unknown,
+  format: FormatoDeArquivo,
+  onProgress?: (p: Progresso) => void,
+  signal?: AbortSignal,
+): Promise<{ bytes: number; filename: string }> {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(pedido),
@@ -89,13 +130,13 @@ export async function baixarExport(
   const corpo = res.body;
   if (corpo === null) throw new Error("o servidor não devolveu corpo");
 
-  const filename = nomeDoCabecalho(res, pedido.format);
+  const filename = nomeDoCabecalho(res, format);
   const salvar = picker();
 
   // Caminho bom: escreve em disco enquanto chega. Nada do arquivo passa pela
   // memória da aba, então uma tabela de 2 GB não derruba o navegador.
   if (salvar !== null) {
-    const tipo = ACEITA[pedido.format];
+    const tipo = ACEITA[format];
     let handle: SaveFileHandle;
     try {
       handle = await salvar({
@@ -135,12 +176,12 @@ export async function baixarExport(
   const blob = await res.blob();
   onProgress?.({ bytes: blob.size });
 
-  const url = URL.createObjectURL(blob);
+  const objectUrl = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  a.href = url;
+  a.href = objectUrl;
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(url);
+  URL.revokeObjectURL(objectUrl);
 
   return { bytes: blob.size, filename };
 }

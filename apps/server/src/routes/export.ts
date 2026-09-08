@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 
-import { ErrorResponse, ExportRequest } from "@dbee/shared";
+import { ErrorResponse, ExportBundleRequest, ExportRequest } from "@dbee/shared";
 
 import type { ExportService } from "../services/export.service";
 import type { UsersRepository } from "../db/users.repo";
@@ -55,4 +55,47 @@ export const exportRoutes = (service: ExportService, users: UsersRepository) =>
         502: ErrorResponse,
       },
     },
-  );
+  )
+    /**
+     * Dump `.sql` de várias tabelas num arquivo (§5).
+     *
+     * Rota separada do export de uma tabela, e não um campo a mais nele: os
+     * dois têm corpo, saída e modo de transação diferentes — o bundle abre um
+     * snapshot `REPEATABLE READ` e não aceita CSV. Espremer os dois numa rota
+     * daria um corpo cheio de campo que só vale em metade dos casos.
+     */
+    .post(
+      "/:id/export/bundle",
+      async ({ params, body, status, sessao }) => {
+        const result = await service.exportBundle(params.id, body, exigirAtor(sessao));
+
+        if (!result.ok) {
+          const { status: code, body: payload } = FAILURES[result.failure];
+          return status(
+            code,
+            result.detail === undefined ? payload : { ...payload, message: result.detail },
+          );
+        }
+
+        return new Response(result.value.stream, {
+          headers: {
+            "content-type": result.value.contentType,
+            "content-disposition": `attachment; filename="${result.value.filename}"`,
+            "cache-control": "no-store",
+            "x-content-type-options": "nosniff",
+          },
+        });
+      },
+      {
+        params: t.Object({ id: t.String() }),
+        body: ExportBundleRequest,
+        response: {
+          400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
+          404: ErrorResponse,
+          500: ErrorResponse,
+          502: ErrorResponse,
+        },
+      },
+    );

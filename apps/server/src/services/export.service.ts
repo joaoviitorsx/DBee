@@ -1,7 +1,9 @@
 import {
+  CONTENT_TYPE,
   exportFilename,
   splitStatements,
   sqlIdent,
+  type ExportBundleRequest,
   type ExportRequest,
   type Relation,
   type RowsRequest,
@@ -9,6 +11,7 @@ import {
 
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
+import { streamBundle, type BundleTablePlan } from "../pg/bundle";
 import { streamExport } from "../pg/exporter";
 import type { PoolManager } from "../pg/pool";
 import { RowsError, planRows } from "../pg/rows";
@@ -44,9 +47,34 @@ function tabelaQualificada(schema: string, table: string): string {
  * cabeçalho diz isso. `dataType` e `defaultValue` já vêm do Postgres como
  * `format_type`/`pg_get_expr` — expressões SQL válidas, usadas literais.
  */
+/**
+ * Colunas `serial` voltam da introspecção como o que elas realmente são:
+ * `integer NOT NULL DEFAULT nextval('t_id_seq'::regclass)`. Copiar isso para o
+ * dump gera um arquivo que **não recarrega** — a sequência não existe no banco
+ * vazio, e o `psql` para em `relation "t_id_seq" does not exist`.
+ *
+ * Escrever `serial` de volta faz o Postgres criar a sequência junto com a
+ * tabela. Achado pelo teste que recarrega o dump, não por leitura do código: o
+ * arquivo parecia perfeito.
+ */
+const SERIAL_POR_TIPO: Readonly<Record<string, string>> = {
+  smallint: "smallserial",
+  integer: "serial",
+  bigint: "bigserial",
+};
+
+function ehSequenciaPropria(defaultValue: string | null): boolean {
+  return defaultValue?.startsWith("nextval(") === true;
+}
+
 function montarCreateTable(schema: string, table: string, relation: Relation): string {
   const alvo = tabelaQualificada(schema, table);
   const linhas = relation.columns.map((c) => {
+    const serial = ehSequenciaPropria(c.defaultValue) ? SERIAL_POR_TIPO[c.dataType] : undefined;
+    if (serial !== undefined) {
+      // `serial` já implica NOT NULL e traz o próprio default.
+      return `  ${sqlIdent(c.name)} ${serial}`;
+    }
     const partes = [`  ${sqlIdent(c.name)} ${c.dataType}`];
     if (!c.nullable) partes.push("NOT NULL");
     if (c.defaultValue !== null) partes.push(`DEFAULT ${c.defaultValue}`);
@@ -217,6 +245,116 @@ export class ExportService {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "erro desconhecido";
       registrar(null, message);
+      return fail("upstream_error", message);
+    }
+  }
+  /**
+   * Dump `.sql` de várias tabelas (§5).
+   *
+   * Um snapshot só (`REPEATABLE READ`) para o arquivo recarregar: tabelas lidas
+   * em instantes diferentes podem discordar entre si. O gzip é o
+   * `CompressionStream` da plataforma — sem binário externo, o que manteria o
+   * recurso fora da fronteira pelo teste 2 do ADR 006.
+   */
+  async exportBundle(
+    connectionId: string,
+    request: ExportBundleRequest,
+    actor: string,
+  ): Promise<ServiceResult<ExportStream>> {
+    let connection;
+    try {
+      connection = this.#repository.resolve(connectionId);
+    } catch {
+      return fail("decryption_failed");
+    }
+    if (connection === null) return fail("not_found");
+
+    const database = request.database ?? connection.database;
+    const arvore = await this.#schema.get(connectionId, database, false);
+    if (!arvore.ok) return arvore;
+
+    const planos: BundleTablePlan[] = [];
+    for (const escolha of request.tables) {
+      // Uma tabela sem estrutura nem dados não é erro — é uma linha desmarcada
+      // que veio junto. Pular é o que a UI espera.
+      if (!escolha.structure && !escolha.data) continue;
+
+      const relation = arvore.value.schemas
+        .find((sc) => sc.name === escolha.schema)
+        ?.relations.find((r) => r.name === escolha.table);
+      if (relation === undefined) {
+        return fail("not_found", `${escolha.schema}.${escolha.table} não existe neste database`);
+      }
+
+      const qualified = tabelaQualificada(escolha.schema, escolha.table);
+      const colunas = relation.columns.map((c) => c.name);
+      planos.push({
+        schema: escolha.schema,
+        table: escolha.table,
+        qualified,
+        ddl: escolha.structure ? montarCreateTable(escolha.schema, escolha.table, relation) : null,
+        // Colunas nomeadas, não `SELECT *`: a ordem do `INSERT` tem que casar
+        // com a lista de colunas que o cabeçalho escreveu.
+        selectSql: escolha.data
+          ? `SELECT ${colunas.map(sqlIdent).join(", ")} FROM ${qualified}`
+          : null,
+        columns: colunas,
+        // A opção é do dump inteiro (como no Adminer), não por tabela.
+        dropFirst: request.dropFirst === true && escolha.structure,
+      });
+    }
+
+    if (planos.length === 0) return fail("bad_request", "nenhuma tabela selecionada");
+
+    const inicio = performance.now();
+    const resumo = planos.map((p) => `${p.schema}.${p.table}`).join(", ");
+    const sqlDoLog = `-- export de ${String(planos.length)} tabela(s): ${resumo}`;
+
+    try {
+      const stream = await this.#pools.withStreamingTransaction(
+        connection,
+        database,
+        (client, encerrar) =>
+          Promise.resolve(
+            streamBundle(client, planos, (resultado, erro) => {
+              this.#log.record({
+                connectionId,
+                database,
+                sql: sqlDoLog,
+                status: erro === null ? "ok" : "error",
+                error: erro,
+                rowCount: resultado.rows,
+                durationMs: Math.round(performance.now() - inicio),
+                readOnly: true,
+                actor,
+              });
+              encerrar();
+            }),
+          ),
+        "repeatable-read",
+      );
+
+      const comprimir = request.gzip === true;
+      // O `CompressionStream` da lib da plataforma declara `WritableStream<BufferSource>`;
+      // o nosso stream é de `Uint8Array`, que É um BufferSource. A conversão é
+      // só de tipagem da borda, não de dado.
+      const gzip = new CompressionStream("gzip") as unknown as ReadableWritablePair<
+        Uint8Array,
+        Uint8Array
+      >;
+      const nome = exportFilename(`${database}_dump`, "sql");
+      return ok({
+        stream: comprimir ? stream.pipeThrough(gzip) : stream,
+        contentType: comprimir ? "application/gzip" : CONTENT_TYPE.sql,
+        filename: comprimir ? `${nome}.gz` : nome,
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "erro desconhecido";
+      this.#log.record({
+        connectionId, database, sql: sqlDoLog, status: "error", error: message,
+        rowCount: null, durationMs: Math.round(performance.now() - inicio),
+        readOnly: true, actor,
+      });
       return fail("upstream_error", message);
     }
   }

@@ -1,4 +1,4 @@
-import { Activity, Code2, Copy, Database, Pencil, Plug, RefreshCw, ScrollText, Share2, Table2, Trash2 } from "lucide-react";
+import { Activity, Code2, Copy, Database, DatabaseZap, Download, Pencil, Plug, RefreshCw, ScrollText, Share2, Table2, TableProperties, Trash2 } from "lucide-react";
 
 import type { MenuSection } from "../../components/ContextMenu";
 import type { TableTarget } from "../../app/workspace";
@@ -43,6 +43,9 @@ export interface TreeMenuActions {
   readonly onNewQuery: (connectionId: string, database: string, sql?: string) => void;
   readonly onOpenDiagram: (connectionId: string, database: string) => void;
   readonly onOpenCluster: (connectionId: string, kind: "overview" | "activity" | "audit") => void;
+  readonly onCreateTable: (connectionId: string, database: string, schema: string) => void;
+  readonly onCreateDatabase: (connectionId: string) => void;
+  readonly onOpenExport: (connectionId: string, database: string) => void;
   readonly testing: boolean;
 }
 
@@ -125,8 +128,44 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
               icon: <Share2 aria-hidden className={icone} />,
               onSelect: () => { actions.onOpenDiagram(target.connection.id, target.database); },
             },
+            {
+              id: "export",
+              label: t("menu.exportar"),
+              icon: <Download aria-hidden className={icone} />,
+              onSelect: () => { actions.onOpenExport(target.connection.id, target.database); },
+            },
           ],
         },
+        /*
+         * Criar só aparece com escrita ligada.
+         *
+         * Não é o controle — o servidor recusa de qualquer forma
+         * (`write_forbidden`, ADR 010). É honestidade de menu: oferecer uma
+         * ação que vai falhar treina a pessoa a ignorar o menu, e o §5 do
+         * design-system pede o contrário.
+         */
+        ...(target.connection.writeEnabled
+          ? [
+              {
+                items: [
+                  {
+                    id: "create-table",
+                    label: t("menu.criarTabela"),
+                    icon: <TableProperties aria-hidden className={icone} />,
+                    onSelect: () => {
+                      actions.onCreateTable(target.connection.id, target.database, "public");
+                    },
+                  },
+                  {
+                    id: "create-database",
+                    label: t("menu.criarDatabase"),
+                    icon: <DatabaseZap aria-hidden className={icone} />,
+                    onSelect: () => { actions.onCreateDatabase(target.connection.id); },
+                  },
+                ],
+              },
+            ]
+          : []),
         {
           items: [
             {
@@ -147,6 +186,23 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
 
     case "schema":
       return [
+        ...(target.connection.writeEnabled
+          ? [
+              {
+                items: [
+                  {
+                    id: "create-table",
+                    label: t("menu.criarTabela"),
+                    icon: <TableProperties aria-hidden className={icone} />,
+                    onSelect: () => {
+                      // Aqui o schema é conhecido — no nó do database, `public`.
+                      actions.onCreateTable(target.connection.id, target.database, target.schema);
+                    },
+                  },
+                ],
+              },
+            ]
+          : []),
         {
           items: [
             {
