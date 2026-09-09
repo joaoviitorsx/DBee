@@ -86,6 +86,13 @@ beforeAll(async () => {
         );
         INSERT INTO filho VALUES (100, 1, 10), (101, 2, 20);
 
+        -- Comentários: a introspecção lê descrição de TABELA e de COLUNA da
+        -- mesma pg_description, e trocar as duas (ou duplicar linha) é o modo
+        -- de falha de um JOIN com condição errada.
+        COMMENT ON TABLE pai IS 'a tabela pai';
+        COMMENT ON COLUMN pai.nome IS 'o nome do pai';
+        COMMENT ON COLUMN filho.px IS 'metade da chave composta';
+
         -- Tabela referenciada que o papel restrito NÃO poderá ler: a FK para ela
         -- tem que sumir da introspecção do papel restrito.
         CREATE TABLE secreto (s int PRIMARY KEY);
@@ -158,5 +165,53 @@ describe.skipIf(!temDocker)("navegação por FK", () => {
     expect(await fksDe(connSuper, "aponta_secreto")).toHaveLength(1);
     // O papel restrito não lê `secreto`: a FK some, e a UI não pinta o salto.
     expect(await fksDe(connLeitor, "aponta_secreto")).toHaveLength(0);
+  });
+});
+
+/**
+ * Comentários de tabela e de coluna, lidos por JOIN em `pg_description`.
+ *
+ * A introspecção usava `obj_description()`/`col_description()`, que são
+ * chamadas UMA VEZ POR LINHA. Viraram `LEFT JOIN`, e a troca tem dois modos de
+ * falha que não quebram nada visível:
+ *
+ * - condição errada no `objsubid` faz o comentário da COLUNA aparecer como o da
+ *   TABELA (ou vice-versa);
+ * - condição incompleta faz o `LEFT JOIN` casar mais de uma linha e **duplicar
+ *   a coluna** — a árvore mostraria a mesma coluna duas vezes.
+ *
+ * Nenhum dos dois derruba nada; os dois fazem a tela afirmar coisa errada.
+ */
+describe.skipIf(!temDocker)("comentários e ausência de duplicação", () => {
+  it("comentário de tabela fica na tabela, o de coluna na coluna", async () => {
+    const res = await call(`/api/connections/${connSuper}/schema?database=app`, undefined, "GET");
+    expect(res.status).toBe(200);
+    const schema = (await res.json()) as DatabaseSchema;
+    const publico = schema.schemas.find((sc) => sc.name === "public");
+    const pai = publico?.relations.find((r) => r.name === "pai");
+    const filho = publico?.relations.find((r) => r.name === "filho");
+
+    expect(pai?.comment).toBe("a tabela pai");
+    expect(pai?.columns.find((c) => c.name === "nome")?.comment).toBe("o nome do pai");
+    // Coluna sem comentário continua nula — o LEFT JOIN não pode inventar.
+    expect(pai?.columns.find((c) => c.name === "a")?.comment).toBeNull();
+    // E a tabela sem comentário também.
+    expect(filho?.comment).toBeNull();
+    expect(filho?.columns.find((c) => c.name === "px")?.comment).toBe("metade da chave composta");
+  });
+
+  it("nenhuma relação nem coluna aparece duplicada", async () => {
+    const res = await call(`/api/connections/${connSuper}/schema?database=app`, undefined, "GET");
+    const schema = (await res.json()) as DatabaseSchema;
+    for (const sc of schema.schemas) {
+      const nomes = sc.relations.map((r) => r.name);
+      expect(`${sc.name}: ${String(nomes.length)}`).toBe(`${sc.name}: ${String(new Set(nomes).size)}`);
+      for (const r of sc.relations) {
+        const cols = r.columns.map((c) => c.name);
+        expect(`${sc.name}.${r.name}: ${String(cols.length)}`).toBe(
+          `${sc.name}.${r.name}: ${String(new Set(cols).size)}`,
+        );
+      }
+    }
   });
 });

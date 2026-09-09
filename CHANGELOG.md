@@ -48,6 +48,27 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   alerta numa conexão que falha de verdade.
 
 ### Desempenho
+- **O CRC-32 do `.zip` iterava byte a byte pelo protocolo de iterador.**
+  `for (const b of bytes)` sobre um `Uint8Array` cria um objeto
+  `{ value, done }` **por byte** — num export de 200 MB, duzentos milhões de
+  objetos de vida curta. É o único laço do projeto que roda uma vez por byte
+  exportado, então é o único onde a forma do laço aparece no relógio de quem
+  espera o download. Medido em 64 MB, com o JIT aquecido: **60 MB/s → 341 MB/s
+  (5,6×)**, mesmo CRC — inclusive encadeado em pedaços, que é como o
+  `ZipWriter` o usa.
+- **A introspecção chamava `col_description()` uma vez por coluna.** A função
+  faz a própria busca em `pg_description`; um `LEFT JOIN` resolve tudo em bloco.
+  Medido num schema de 10.055 colunas: a consulta de colunas caiu de 83,1 ms
+  para 35,0 ms (2,37×), e a introspecção inteira — 409 relações — de 105,8 ms
+  para 71,2 ms (**1,49×**), com resultado idêntico linha a linha.
+  `obj_description()` das relações mudou junto, para as duas ficarem na mesma
+  forma.
+
+  A troca tem dois modos de falha que não quebram nada visível: condição errada
+  no `objsubid` faz o comentário da coluna aparecer como o da tabela, e condição
+  incompleta faz o `LEFT JOIN` duplicar a coluna. Os dois agora têm teste de
+  integração contra Postgres real.
+### Desempenho
 - **O navegador baixava o TypeBox inteiro sem usar nada dele.** O barril do
   `@dbee/shared` reexporta 16 módulos, e 13 declaram schemas com o `t` da
   Elysia. `t` é **runtime**: tocar o barril trazia o TypeBox para o bundle,
