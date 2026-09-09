@@ -1,5 +1,7 @@
 import { t, type Static } from "elysia";
 
+import { Engine } from "./engine";
+
 /**
  * Modos de SSL — três, sem negociação (ADR 003).
  *
@@ -22,6 +24,13 @@ export const SSL_MODES = ["disable", "require", "verify-full"] as const;
 export const Connection = t.Object({
   id: t.String(),
   name: t.String(),
+  /*
+   * Obrigatório, não opcional. Opcional convidaria `conn.engine ?? "postgres"`
+   * espalhado pelo front, e o fallback é o que apodrece — some do lugar onde
+   * era certo e sobra onde já não é. O servidor sempre sabe, porque a coluna é
+   * NOT NULL.
+   */
+  engine: Engine,
   color: t.Union([t.String(), t.Null()]),
   host: t.String(),
   port: t.Integer(),
@@ -82,6 +91,17 @@ const FIELDS = {
 /** Criação: o que é obrigatório é obrigatório; o resto o repositório preenche. */
 export const CreateConnection = t.Object({
   name: FIELDS.name,
+  /*
+   * `engine` mora aqui e **não** em `FIELDS`, logo não entra no
+   * `UpdateConnection`. É imutável depois de criada — ver `engine.ts`: um PATCH
+   * que trocasse a engine mantendo `password_enc` continuaria decifrando (o AAD
+   * é o id) e passaria a mandar o segredo para outro tipo de servidor.
+   *
+   * Opcional na entrada e resolvido para `postgres` no repositório: cliente
+   * velho que não manda o campo continua criando conexão Postgres, que é o que
+   * ele quis dizer. Sem `default` no schema — ADR 004.
+   */
+  engine: t.Optional(Engine),
   host: FIELDS.host,
   database: FIELDS.database,
   username: FIELDS.username,

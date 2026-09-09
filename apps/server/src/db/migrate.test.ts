@@ -136,6 +136,67 @@ describe("subir um banco existente para a 006", () => {
   });
 });
 
+/**
+ * A 007 sobre um banco que já existe, com conexões dentro.
+ *
+ * É aditiva de propósito, e é isso que mantém rollback de deploy como opção:
+ * um binário anterior continua abrindo um banco v7 porque não pede a coluna
+ * nova. O teste trava as duas pontas — a coluna aparece com o valor certo, e
+ * nenhuma linha se perde.
+ */
+describe("subir um banco existente para a 007", () => {
+  const bancoNaV6 = (): Database => {
+    const db = new Database(":memory:");
+    db.run("BEGIN");
+    for (const m of MIGRATIONS.filter((x) => x.version <= 6)) db.run(m.sql);
+    db.run("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+    db.run("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('schema_version', '6')");
+    db.run("COMMIT");
+    for (let i = 0; i < 4; i++) {
+      db.query(
+        `INSERT INTO connections (id, name, host, port, database, username, password_enc,
+           ssl_mode, created_at, updated_at)
+         VALUES (?, ?, 'h', 5432, 'd', 'u', 'enc', 'require', '', '')`,
+      ).run(`c${String(i)}`, `conexao ${String(i)}`);
+    }
+    return db;
+  };
+
+  it("a coluna engine não existe na v6", () => {
+    const db = bancoNaV6();
+    const colunas = db
+      .query<{ name: string }, []>("SELECT name FROM pragma_table_info('connections')")
+      .all()
+      .map((r) => r.name);
+    expect(colunas).not.toContain("engine");
+  });
+
+  it("migra sem perder conexão, e toda linha existente vira postgres", () => {
+    const db = bancoNaV6();
+    expect(migrate(db)).toBe(latest);
+
+    const linhas = db
+      .query<{ id: string; engine: string }, []>("SELECT id, engine FROM connections ORDER BY id")
+      .all();
+    expect(linhas).toHaveLength(4);
+    // Não é chute: Postgres É a única engine que o DBee falava quando essas
+    // linhas foram gravadas.
+    expect(linhas.every((l) => l.engine === "postgres")).toBe(true);
+  });
+
+  it("o CHECK recusa engine que não existe", () => {
+    const db = bancoNaV6();
+    migrate(db);
+    expect(() => {
+      db.query(
+        `INSERT INTO connections (id, name, engine, host, port, database, username,
+           password_enc, ssl_mode, created_at, updated_at)
+         VALUES ('x', 'x', 'oracle', 'h', 1, 'd', 'u', 'e', 'require', '', '')`,
+      ).run();
+    }).toThrow();
+  });
+});
+
 describe("ordem das migrations", () => {
   it("aplica por versão, não pela ordem do array", () => {
     // O array é mantido à mão; um rebase de dois branches basta para inverter

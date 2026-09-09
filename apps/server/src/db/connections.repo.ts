@@ -1,6 +1,6 @@
 import type { Database, Statement } from "bun:sqlite";
 
-import type { Connection, CreateConnection, SslMode, UpdateConnection } from "@dbee/shared";
+import type { Connection, CreateConnection, Engine, SslMode, UpdateConnection } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
 import { decrypt, encrypt, type EncryptionKey } from "../lib/crypto";
@@ -12,7 +12,7 @@ import { nanoid } from "../lib/ids";
  * coluna (DBee.md §5, §7 — nunca retornar credencial).
  */
 const PUBLIC_COLUMNS = `
-  id, name, color, host, port, database, username,
+  id, name, color, engine, host, port, database, username,
   ssl_mode AS sslMode, write_enabled AS writeEnabled,
   statement_timeout_ms AS statementTimeoutMs, timezone,
   created_at AS createdAt, updated_at AS updatedAt
@@ -26,7 +26,7 @@ const PUBLIC_COLUMNS = `
  * ambiguidade pela ordem do `FROM`, não pela intenção de quem escreveu.
  */
 const PUBLIC_COLUMNS_C = `
-  c.id, c.name, c.color, c.host, c.port, c.database, c.username,
+  c.id, c.name, c.color, c.engine, c.host, c.port, c.database, c.username,
   c.ssl_mode AS sslMode, c.write_enabled AS writeEnabled,
   c.statement_timeout_ms AS statementTimeoutMs, c.timezone,
   c.created_at AS createdAt, c.updated_at AS updatedAt
@@ -37,6 +37,7 @@ interface ConnectionRow {
   id: string;
   name: string;
   color: string | null;
+  engine: Engine;
   host: string;
   port: number;
   database: string;
@@ -215,15 +216,19 @@ export class ConnectionsRepository {
     this.#db
       .query<unknown, (string | number | null)[]>(
         `INSERT INTO connections (
-           id, name, color, host, port, database, username, password_enc,
+           id, name, color, engine, host, port, database, username, password_enc,
            ssl_mode, write_enabled, statement_timeout_ms, timezone,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         input.name,
         input.color ?? null,
+        // Ausente significa Postgres: é o que um cliente que não conhece o
+        // campo quis dizer, e é a única engine que o DBee fala. O resolvido
+        // fica aqui e não como `default` no schema — ADR 004.
+        input.engine ?? "postgres",
         input.host,
         input.port ?? 5432,
         input.database,

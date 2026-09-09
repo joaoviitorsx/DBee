@@ -4,6 +4,23 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+### Adicionado
+- **A conexão passou a saber qual banco está do outro lado** (`engine`), ainda
+  com uma engine só. É a primeira fatia do multi-engine, e ela deliberadamente
+  **não** adiciona engine nenhuma: o campo, a migration, a tabela de capacidades
+  e a resposta da API entram enquanto ainda é possível verificar que **nada
+  mudou** — a suíte passa sem alteração de teste.
+
+  `engine` é **imutável depois de criada**: entra em `CreateConnection` e não em
+  `UpdateConnection`. Não é preferência de interface, é o ADR 005 — a senha é
+  cifrada com AAD amarrado ao id, então um `PATCH` que trocasse a engine
+  continuaria decifrando e passaria a mandar o segredo para outro tipo de
+  servidor. Há teste travando isso.
+
+  Migration 007 aditiva (`EXPECTED_SCHEMA` 6 → 7). Aditiva de propósito: um
+  binário anterior continua abrindo um banco v7, então rollback de deploy segue
+  sendo opção.
+
 ### Segurança
 - **O `SAVEPOINT` do executor é a trava que impede o `COMMIT` do usuário de
   furar o modo somente-leitura — e isso não estava escrito em lugar nenhum.**
