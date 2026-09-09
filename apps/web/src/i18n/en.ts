@@ -417,6 +417,7 @@ export const en: Record<ChaveI18n, string> = {
   "aba.fecharTodas": "Close all",
   "grid.selecionado": "{linhas} × {colunas} selected",
   "grid.copiaTsv": "Ctrl+C copies as TSV",
+  "grid.dicaArrasto": "Drag the table to pan",
   "grid.nulo": "NULL",
   "grid.vazio": "empty",
   "acesso.titulo": "Who reaches this connection",

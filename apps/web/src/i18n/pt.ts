@@ -417,6 +417,7 @@ export const pt = {
   "aba.fecharTodas": "Fechar todas",
   "grid.selecionado": "{linhas} × {colunas} selecionado",
   "grid.copiaTsv": "Ctrl+C copia como TSV",
+  "grid.dicaArrasto": "Arraste a tabela para navegar",
   "grid.nulo": "NULL",
   "grid.vazio": "vazio",
   "acesso.titulo": "Quem alcança esta conexão",

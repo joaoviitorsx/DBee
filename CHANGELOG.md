@@ -18,6 +18,13 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   - O deslocamento escreve `scrollLeft`/`scrollTop` direto no nó. Um `setState`
     por `pointermove` re-renderizaria a grade a cada quadro, no caminho mais
     caro do app.
+- **Dica que ensina o gesto**, no canto inferior esquerdo da grade. Arrastar não
+  tem affordance nenhuma — sem alça, sem cursor diferente antes de começar — e
+  gesto que ninguém descobre é gesto que não existe. Aparece **só quando a
+  tabela transborda de verdade** (medido por `ResizeObserver` no scroller e no
+  conteúdo) e some para sempre no primeiro deslocamento horizontal, por arrasto
+  ou por qualquer outro meio: quem já sabe navegar não precisa ser ensinado.
+
 ### Corrigido
 - **A aba Diagrama derrubava o app inteiro.** `Uncaught Error: Not possible to
   find intersection inside of the rectangle`, lançado pelo `dagre` dentro do

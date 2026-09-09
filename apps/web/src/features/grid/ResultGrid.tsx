@@ -1,10 +1,11 @@
 import type { ResultColumn } from "@dbee/shared";
-import { ArrowDown, ArrowUp, CornerUpRight } from "lucide-react";
+import { ArrowDown, ArrowUp, CornerUpRight, Hand } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef, useState } from "react";
 
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
+import { dicaVista, marcarDicaVista } from "./dicaArrasto";
 import { type Celula, contaCelulas, dentro, faixaEntre, recorteTsv } from "./selecao";
 
 /**
@@ -98,6 +99,46 @@ export function ResultGrid({
   const cabecalho = useRef<HTMLDivElement>(null);
 
   /*
+   * A dica que ensina o gesto.
+   *
+   * **Só quando a grade transborda de verdade.** Uma dica de navegação
+   * horizontal sobre uma tabela que cabe inteira na tela não é dica, é texto
+   * mentindo — e treina a pessoa a ignorar o canto onde ela aparece. O
+   * `ResizeObserver` mede o scroller e o conteúdo, porque a largura muda por
+   * dois caminhos: a janela encolhendo e uma coluna sendo alargada no
+   * cabeçalho.
+   *
+   * **E só enquanto ninguém a viu.** Depois de dispensada, `dica` é `false`
+   * para sempre e o efeito sai na primeira linha: nenhum observer, nenhuma
+   * medição, custo zero no componente mais caro do app.
+   */
+  const [dica, setDica] = useState(() => !dicaVista());
+  const [transborda, setTransborda] = useState(false);
+
+  const encerrarDica = (): void => {
+    if (!dica) return;
+    setDica(false);
+    marcarDicaVista();
+  };
+
+  useEffect(() => {
+    if (!dica) return;
+    const el = scroller.current;
+    if (el === null) return;
+    const conteudo = el.firstElementChild;
+    if (conteudo === null) return;
+
+    // +1 absorve a fração de pixel que o zoom do navegador introduz: sem ela
+    // uma tabela que cabe exatamente aparece como transbordando.
+    const medir = (): void => { setTransborda(el.scrollWidth > el.clientWidth + 1); };
+    medir();
+    const ro = new ResizeObserver(medir);
+    ro.observe(el);
+    ro.observe(conteudo);
+    return () => { ro.disconnect(); };
+  }, [dica, columns]);
+
+  /*
    * Arrastar a grade para navegar (§5.4).
    *
    * ## Por que isto não conflita com a seleção
@@ -189,6 +230,9 @@ export function ResultGrid({
     el.style.userSelect = "";
     if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
     engolirClique.current = true;
+    // Arrastou uma vez: aprendeu. Inclusive o arrasto só vertical, que não
+    // mexe no `scrollLeft` e por isso não passaria pelo `sincronizarScroll`.
+    encerrarDica();
   };
 
   // Clique define a âncora, Shift+clique estende. É a convenção de planilha, e
@@ -250,7 +294,11 @@ export function ResultGrid({
   const sincronizarScroll = (): void => {
     const c = cabecalho.current;
     const s = scroller.current;
-    if (c !== null && s !== null) c.style.transform = `translateX(${String(-s.scrollLeft)}px)`;
+    if (c === null || s === null) return;
+    c.style.transform = `translateX(${String(-s.scrollLeft)}px)`;
+    // Andou na horizontal por qualquer meio — barra, Shift+roda, teclado — e a
+    // dica perdeu a função: quem chegou aqui já sabe navegar.
+    if (s.scrollLeft > 0) encerrarDica();
   };
 
   const arrastoLargura = useRef<{ nome: string; x0: number; w0: number } | null>(null);
@@ -430,6 +478,28 @@ export function ResultGrid({
           })}
         </div>
       </div>
+
+      {/*
+        A dica vive no canto **oposto** ao selo de seleção, e sai de cena
+        quando há seleção: a 320 px os dois lado a lado não cabem, e quem já
+        clicou numa célula está trabalhando, não procurando como navegar.
+
+        O gesto é só de mouse (ver `iniciarArrasto`), então o toque não pode
+        recebê-lo: lá a rolagem com inércia já existe, e ensinar um gesto que
+        o aparelho não tem é pior que não dizer nada.
+
+        A regra esconde em `pointer: coarse` em vez de exigir `pointer: fine`
+        de propósito. Ambiente que não sabe classificar o ponteiro responde
+        `none` — foi o que o Chrome headless devolveu ao verificar esta tela —
+        e exigir `fine` esconderia a dica de quem tem mouse. Escondendo pelo
+        toque, o desconhecido cai no lado que ainda funciona.
+      */}
+      {dica && transborda && faixa === null ? (
+        <div className="pointer-events-none absolute bottom-2 left-3 z-10 flex items-center gap-1.5 rounded-[4px] border border-line bg-overlay px-2 py-1 text-2xs text-muted shadow-sm [@media(pointer:coarse)]:hidden">
+          <Hand aria-hidden className="h-3 w-3 shrink-0 text-accent" />
+          {t("grid.dicaArrasto")}
+        </div>
+      ) : null}
 
       {faixa !== null ? (
         <div className="pointer-events-none absolute bottom-2 right-3 z-10 rounded-[4px] border border-line bg-overlay px-2 py-1 text-2xs text-muted shadow-sm">
