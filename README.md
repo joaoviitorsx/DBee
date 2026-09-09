@@ -28,18 +28,19 @@ pessoa.
 Está em produção diária num escritório contábil desde a v0.1.
 
 <p align="center">
-  <img src="assets/grid.webp" alt="Grid de resultados do DBee, com árvore de schema à esquerda" width="900">
+  <img src="assets/grid.webp" alt="Grade de resultados do DBee, com a árvore de schemas à esquerda" width="900">
 </p>
-<p align="center"><sub>Grade virtualizada — 100 mil linhas sem travar, paginação por keyset, arraste para navegar.</sub></p>
+<p align="center"><sub>Grade virtualizada — 100 mil linhas sem travar, paginação por keyset, arraste para navegar.<br>
+<em>As telas usam um catálogo de música de exemplo, gerado só para a documentação.</em></sub></p>
 
 <table>
 <tr>
-<td width="50%"><img src="assets/sql.webp" alt="Editor SQL com dois resultados" width="100%"></td>
-<td width="50%"><img src="assets/diagrama.webp" alt="Diagrama ERD gerado do schema" width="100%"></td>
+<td width="50%"><img src="assets/sql.webp" alt="Editor SQL do DBee com uma consulta agregada e o resultado abaixo" width="100%"></td>
+<td width="50%"><img src="assets/diagrama.webp" alt="Diagrama ERD gerado a partir do catálogo, com as tabelas ligadas pelas chaves estrangeiras" width="100%"></td>
 </tr>
 <tr>
-<td><sub><strong>Editor SQL</strong> — autocomplete de tabela e coluna, vários statements por execução, tempo de cada um, erro do Postgres inteiro (com a posição destacada).</sub></td>
-<td><sub><strong>Diagrama ERD</strong> — gerado do catálogo, layout em camadas pelas FKs. Tabelas sem relação vão para uma grade abaixo, em vez de virar uma coluna de 13 mil pixels.</sub></td>
+<td><sub><strong>Editor SQL</strong> — autocomplete alimentado pelo catálogo, vários statements por execução com o tempo de cada um, e o selo <em>somente leitura</em> dizendo em que modo a transação vai nascer.</sub></td>
+<td><sub><strong>Diagrama ERD</strong> — gerado do catálogo, layout em camadas pelas FKs, atravessando schemas. Tabelas sem relação vão para uma grade abaixo, em vez de virar uma coluna de 13 mil pixels.</sub></td>
 </tr>
 </table>
 
