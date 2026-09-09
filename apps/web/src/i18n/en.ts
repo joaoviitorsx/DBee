@@ -176,6 +176,7 @@ export const en: Record<ChaveI18n, string> = {
   "arvore.padrao": "default",
   "arvore.statusOk": "connected",
   "arvore.statusErro": "could not connect",
+  "arvore.statusConectando": "connecting…",
   "arvore.statusNaoTestada": "not tested",
   "arvore.lendoCatalogo": "Reading the catalog…",
   "arvore.nenhumaRelacao": "No relations",

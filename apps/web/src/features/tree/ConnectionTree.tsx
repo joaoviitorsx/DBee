@@ -1,9 +1,11 @@
 import type { Connection, DatabaseTree, RelationKind, RelationTree , ConnectionWarning } from "@dbee/shared";
 import {
+  AlertCircle,
   ChevronRight,
   Database,
   Eye,
   Layers,
+  Loader2,
   MoreHorizontal,
   Pencil,
   Plug,
@@ -47,7 +49,7 @@ const RELATION_LABEL: Readonly<Record<RelationKind, string>> = {
 const MAX_AUTO_EXPAND = 200;
 
 /** Estado do último teste, por conexão. */
-export type ConnectionHealth = "untested" | "ok" | "error";
+export type ConnectionHealth = "untested" | "conectando" | "ok" | "error";
 
 /** O que o menu de contexto está descrevendo. */
 export type TreeTarget =
@@ -275,10 +277,36 @@ function Row({
   );
 }
 
-const HEALTH_DOT: Readonly<Record<ConnectionHealth, string>> = {
+/**
+ * O indicador de estado da conexão.
+ *
+ * ## Quatro estados, não três
+ *
+ * Faltava `conectando`, e a falta aparecia no pior momento: ao expandir uma
+ * conexão, enquanto os databases carregam, `saudeVigente` não tinha evidência
+ * nova e caía de volta no resultado do último "Testar" — quem tinha um teste
+ * falho antigo via **vermelho justamente ao abrir a conexão que estava
+ * funcionando**. Foi esse o relato. Espera acima de 300 ms sem sinal é a UI
+ * dizendo a coisa errada, não silêncio.
+ *
+ * ## Nem só cor
+ *
+ * Verde e vermelho num ponto de 6 px são a mesma coisa para quem não distingue
+ * os dois matizes, e o §10 do design-system já resolve colisão assim mudando a
+ * **forma**. Então cada estado tem forma própria:
+ *
+ * - `untested` — anel vazado: nada se sabe ainda.
+ * - `conectando` — anel girando: está acontecendo agora.
+ * - `ok` — ponto sólido, calmo. É o estado de repouso, e repouso não deve
+ *   chamar atenção; um "check" verde em toda linha seria ruído permanente.
+ * - `error` — glifo de alerta. A forma muda só onde precisa mudar: é o único
+ *   estado que exige ação.
+ */
+const HEALTH_DOT: Readonly<Record<"ok" | "untested", string>> = {
   ok: "bg-ok",
-  error: "bg-danger",
-  untested: "bg-line-strong",
+  // Anel vazado, não cinza sólido: "nada se sabe ainda" não é um estado, é a
+  // ausência de um — e a forma vazada diz isso sem depender do matiz.
+  untested: "border border-line-strong",
 };
 
 /**
@@ -297,19 +325,30 @@ const HEALTH_DOT: Readonly<Record<ConnectionHealth, string>> = {
  */
 /** Chave de i18n por estado — o rótulo era string fixa em português. */
 const HEALTH_LABEL: Readonly<
-  Record<ConnectionHealth, "arvore.statusOk" | "arvore.statusErro" | "arvore.statusNaoTestada">
+  Record<
+    ConnectionHealth,
+    | "arvore.statusOk"
+    | "arvore.statusErro"
+    | "arvore.statusConectando"
+    | "arvore.statusNaoTestada"
+  >
 > = {
   ok: "arvore.statusOk",
   error: "arvore.statusErro",
+  conectando: "arvore.statusConectando",
   untested: "arvore.statusNaoTestada",
 };
 
 function saudeVigente(
   doTeste: ConnectionHealth,
-  databases: { isSuccess: boolean; isError: boolean },
+  databases: { isSuccess: boolean; isError: boolean; isFetching: boolean },
 ): ConnectionHealth {
   if (databases.isSuccess) return "ok";
   if (databases.isError) return "error";
+  // Buscando: é o que está acontecendo AGORA, e vence um teste antigo. Sem
+  // isto, abrir a conexão mostrava o vermelho do último teste falho até a
+  // resposta chegar — o oposto do que estava acontecendo.
+  if (databases.isFetching) return "conectando";
   return doTeste;
 }
 
@@ -405,11 +444,25 @@ function ConnectionBranch({
           </button>
         }
       >
-        <span
-          aria-hidden
-          className={cn("h-1.5 w-1.5 shrink-0 rounded-full", HEALTH_DOT[saude])}
-          title={t(HEALTH_LABEL[saude])}
-        />
+        {/*
+          O `title` fica no invólucro: os ícones do lucide não aceitam `title`,
+          e um wrapper só mantém o texto no mesmo lugar para os três estados.
+        */}
+        <span aria-hidden className="flex h-3 w-3 shrink-0 items-center justify-center" title={t(HEALTH_LABEL[saude])}>
+          {saude === "error" ? (
+            // Único estado com glifo de alerta: é o único que pede ação, e a
+            // forma o separa do "ok" para quem não distingue verde de vermelho.
+            <AlertCircle className="h-3 w-3 text-danger" />
+          ) : saude === "conectando" ? (
+            // Glifo, e não o ponto girando: um anel de 6 px fica idêntico a
+            // cada quadro da rotação, então o giro não comunicaria nada. Com o
+            // movimento zerado por `prefers-reduced-motion`, o `Loader2` parado
+            // ainda é uma forma diferente do ponto — não depende da animação.
+            <Loader2 className="h-3 w-3 animate-spin text-accent" />
+          ) : (
+            <span className={cn("h-1.5 w-1.5 rounded-full", HEALTH_DOT[saude === "ok" ? "ok" : "untested"])} />
+          )}
+        </span>
         <Plug aria-hidden className={cn("h-3.5 w-3.5 shrink-0", perigo ? "text-danger-ink" : "text-muted")} />
         <span className="truncate text-sm font-medium text-ink">{connection.name}</span>
         <span className="sr-only">{t(HEALTH_LABEL[saude])}</span>

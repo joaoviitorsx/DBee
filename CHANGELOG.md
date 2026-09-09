@@ -28,6 +28,25 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   vivas, rearme estável em quatro alternâncias, e a variante de raiz cobrindo a
   janela nos dois temas.
 
+### Adicionado
+- **O estado da conexão passou a mostrar "conectando".** Faltava esse estado, e
+  a falta aparecia no pior momento: ao expandir uma conexão, enquanto os
+  databases carregam, o indicador não tinha evidência nova e caía de volta no
+  resultado do último "Testar" — quem tinha um teste falho antigo via
+  **vermelho justamente ao abrir a conexão que estava funcionando**. Foi esse o
+  relato de quem usa.
+
+  Também deixou de comunicar só por cor: verde e vermelho num ponto de 6 px são
+  a mesma coisa para quem não distingue os dois matizes. Cada estado ganhou
+  forma própria — anel vazado para "não testada", ícone girando para
+  "conectando", ponto sólido para "conectada" e glifo de alerta para "não
+  conectou". A forma muda só onde precisa: o estado de repouso continua um
+  ponto calmo, e um "check" verde em toda linha seria ruído permanente.
+
+  Verificado no navegador, com latência de rede emulada para a espera existir:
+  "não testada" → "conectando…" → "conectada", e "não conectou" com o glifo de
+  alerta numa conexão que falha de verdade.
+
 ### Desempenho
 - **O plano do export abria uma transação por tabela.** A busca de índices e
   triggers era feita tabela a tabela, e cada chamada abria a própria transação:

@@ -176,6 +176,7 @@ export const pt = {
   "arvore.padrao": "padrão",
   "arvore.statusOk": "conectada",
   "arvore.statusErro": "não conectou",
+  "arvore.statusConectando": "conectando…",
   "arvore.statusNaoTestada": "não testada",
   "arvore.lendoCatalogo": "Lendo o catálogo…",
   "arvore.nenhumaRelacao": "Nenhuma relação",
