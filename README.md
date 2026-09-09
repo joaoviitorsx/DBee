@@ -162,4 +162,5 @@ módulo nativo — o binário tem que compilar com `bun build --compile`.
 | [`docs/arquitetura.md`](docs/arquitetura.md) | Estrutura de pastas e o caminho do erro do Postgres até a tela |
 | [`docs/design-system.md`](docs/design-system.md) | Paleta, tipografia e semântica de cor |
 | [`docs/papeis-postgres.md`](docs/papeis-postgres.md) | SQL para papéis restritos no banco do cliente |
+| [`docs/multi-engine.md`](docs/multi-engine.md) | Plano para suportar MySQL, MariaDB, SQLite e outros |
 | [`CHANGELOG.md`](CHANGELOG.md) | Histórico de versões |
