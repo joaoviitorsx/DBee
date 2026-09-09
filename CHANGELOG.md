@@ -5,6 +5,45 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **MySQL e MariaDB acesos no seletor — a fase 2 do multi-engine, em leitura.**
+
+  Os serviços passaram a despachar por engine: teste de conexão, árvore, lista
+  de databases, execução de consulta e cancelamento. O `QueryService` deixou de
+  receber o `PoolManager` do Postgres — quem faz pool agora é o driver.
+
+  **Capacidades de MySQL e MariaDB, medidas e não deduzidas.** A que mais muda a
+  tela: `campos` **não tem `writeEnabled`**. O interruptor "permitir escrita
+  nesta execução" pressupõe que exista algo por execução para ligar, e ali não
+  existe — a garantia mora na credencial. Um interruptor que não liga nada é a
+  tela mentindo. `diagramaErd: false` pelo mesmo motivo: a introspecção desta
+  fase lê a árvore, não as chaves estrangeiras, e a aba abriria vazia.
+
+  **A árvore pula o nível de schema** quando a capacidade diz que ele não
+  existe. No MySQL `SCHEMA` e `DATABASE` são a mesma coisa; o driver devolve um
+  nó com o nome do database para a resposta manter a forma do fio, e a tela
+  deixa de desenhá-lo. `catalogo > catalogo > tabela` seria a tela inventando
+  hierarquia que o servidor não tem. Sai da capacidade e não de um
+  `if (engine === "mysql")`, então a próxima engine sem schema já vem certa.
+
+  **Guarda explícita nos recursos que só o Postgres tem** — exportação, DDL,
+  edição de linhas e a grade com filtro. Sem ela, uma conexão MySQL faria o
+  `PoolManager` do Postgres falar protocolo de Postgres com a porta 3306, e o
+  erro seria de handshake: sem relação com a verdade, que é "isto não existe
+  aqui". DDL e mutação recusam com `write_forbidden`, que é exato — escrita é
+  proibida ali, e pelo motivo mais forte.
+
+  Um defeito da própria mensagem foi corrigido no caminho: ela prometia "esta
+  conexão suporta leitura" **até para engine que o DBee não fala**. Uma conexão
+  `sqlite` não lê nada. Viraram dois casos, com teste travando que engine sem
+  driver não ganha essa frase.
+
+  As invariantes de capacidade foram reescritas para dizer o que importa. A
+  antiga era "capacidade declarada **se e somente se** implementada", verdade
+  por acidente enquanto só existia o Postgres — as duas coisas acontecem em
+  momentos diferentes. E o caso "só o Postgres tem garantia por transação"
+  afirmava que **todas** eram `transacao`, o que passava por haver uma entrada
+  só; agora ele afirma a diferença.
+
 - **A fronteira do driver de leitura**, extraída **depois** de dois drivers
   existirem — e um teste de contrato único que roda contra as três engines.
 

@@ -3,8 +3,7 @@ import type { CancelResponse, QueryLogEntry, QueryRequest, QueryResponse } from 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
-import { execute } from "../pg/executor";
-import type { PoolManager } from "../pg/pool";
+import type { Drivers } from "../driver/registro";
 import { type ServiceResult, fail, ok } from "./result";
 
 /** Default de `maxRows` (DBee.md §6). */
@@ -22,14 +21,14 @@ const MAX_ROWS_PADRAO = 1000;
  */
 
 export interface QueryServiceDeps {
+  /** Quem sabe falar com cada engine. */
+  readonly drivers?: Drivers;
   readonly repository: ConnectionsRepository;
-  readonly pools: PoolManager;
   readonly log: QueryLogRepository;
 }
 
 export class QueryService {
   readonly #repository: ConnectionsRepository;
-  readonly #pools: PoolManager;
   readonly #log: QueryLogRepository;
   /**
    * Queries em execução, por `queryId`, com o backend PID e o suficiente para
@@ -41,10 +40,12 @@ export class QueryService {
     { readonly pid: number; readonly connection: ResolvedConnection; readonly database: string }
   >();
 
-  constructor({ repository, pools, log }: QueryServiceDeps) {
+  readonly #drivers: Drivers | undefined;
+
+  constructor({ repository, log, drivers }: QueryServiceDeps) {
     this.#repository = repository;
-    this.#pools = pools;
     this.#log = log;
+    this.#drivers = drivers;
   }
 
   /**
@@ -90,20 +91,26 @@ export class QueryService {
     const inicio = performance.now();
 
     try {
-      const outcome = await this.#pools.withTransaction(connection, database, readOnly, async (client) => {
-        // `processID` é o backend PID, disponível assim que o cliente conecta.
-        // Registra sob o `queryId` para o cancelamento achar o backend certo, e
-        // desregistra no fim — a janela cancelável é exatamente a da execução.
-        const pid = (client as unknown as { processID: number }).processID;
-        if (request.queryId !== undefined) {
-          this.#emExecucao.set(request.queryId, { pid, connection, database });
-        }
-        try {
-          return await execute(client, request.sql, maxRows);
-        } finally {
-          if (request.queryId !== undefined) this.#emExecucao.delete(request.queryId);
-        }
+      if (this.#drivers === undefined) return fail("bad_request");
+      /*
+       * O driver da engine, e não `pg/` fixo.
+       *
+       * O token que ele entrega em `aoIniciar` é o PID do backend no Postgres e
+       * o id da thread no MySQL — quem cancela só precisa devolvê-lo. Registrar
+       * sob o `queryId` faz a janela cancelável ser exatamente a da execução.
+       */
+      const outcome = await this.#drivers.para(connection.engine).executar(connection, {
+        sql: request.sql,
+        database,
+        maxRows,
+        somenteLeitura: readOnly,
+        aoIniciar: (token) => {
+          if (request.queryId !== undefined) {
+            this.#emExecucao.set(request.queryId, { pid: token, connection, database });
+          }
+        },
       });
+      if (request.queryId !== undefined) this.#emExecucao.delete(request.queryId);
 
       const totalDurationMs = Math.round(performance.now() - inicio);
       const linhas = outcome.results.reduce((soma, r) => soma + r.rowCount, 0);
@@ -183,7 +190,10 @@ export class QueryService {
     // cancelar sob este id nesta conexão.
     if (reg?.connection.id !== connectionId) return ok({ cancelled: false });
     try {
-      const cancelled = await this.#pools.cancelBackend(reg.connection, reg.database, reg.pid);
+      if (this.#drivers === undefined) return ok({ cancelled: false });
+      const cancelled = await this.#drivers
+        .para(reg.connection.engine)
+        .cancelar(reg.connection, reg.database, reg.pid);
       return ok({ cancelled });
     } catch {
       return ok({ cancelled: false });

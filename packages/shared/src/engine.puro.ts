@@ -18,8 +18,16 @@ import type { Engine } from "./engine";
  */
 export type { Engine };
 
-/** As que o DBee de fato fala hoje. O resto está declarado, não implementado. */
-export const ENGINES_IMPLEMENTADAS: readonly Engine[] = ["postgres"];
+/**
+ * As que o DBee de fato fala hoje. O resto está declarado, não implementado.
+ *
+ * MySQL e MariaDB entraram **em leitura**: navegar a árvore e executar
+ * consultas. Exportação, DDL e edição de linhas continuam só no Postgres, e os
+ * serviços recusam essas engines com mensagem que diz o que falta — a garantia
+ * de escrita ali mora na credencial, e sem uma segunda credencial por conexão
+ * não há modo de escrita para oferecer (`docs/papeis-mysql.md`).
+ */
+export const ENGINES_IMPLEMENTADAS: readonly Engine[] = ["postgres", "mysql", "mariadb"];
 
 /**
  * Onde mora a garantia de que uma leitura não vira escrita.
@@ -93,7 +101,7 @@ export type CampoConexao =
  * fase que as implementar — declarar capacidade de engine que não existe seria
  * a tabela afirmando o que o app não faz.
  */
-export const CAPACIDADES: Readonly<Record<"postgres", Capacidades>> = {
+export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capacidades>> = {
   postgres: {
     niveis: "conexao/database/schema/tabela",
     escopoReadOnly: "transacao",
@@ -107,6 +115,55 @@ export const CAPACIDADES: Readonly<Record<"postgres", Capacidades>> = {
     cancelarQuery: true,
     diagramaErd: true,
   },
+
+  /*
+   * MySQL e MariaDB — medidos, não deduzidos do Postgres.
+   *
+   * `campos` **não tem `writeEnabled`**, e é a diferença que mais muda a tela.
+   * O interruptor "permitir escrita nesta execução" pressupõe que exista algo
+   * por execução para ligar, e aqui não existe: medido, dentro de
+   * `START TRANSACTION READ ONLY` o `TRUNCATE` esvazia a tabela e o
+   * `CREATE USER` cria usuário. A garantia mora na credencial
+   * (`docs/papeis-mysql.md`), e um interruptor que não liga nada é a tela
+   * mentindo.
+   *
+   * `diagramaErd: false` porque a introspecção desta fase lê a árvore, não as
+   * chaves estrangeiras. Vira `true` quando ler — e não antes, senão a aba
+   * abriria vazia.
+   */
+  mysql: {
+    niveis: "conexao/database/tabela",
+    escopoReadOnly: "credencial",
+    readOnlyCobreDdl: false,
+    campos: [
+      "host", "port", "database", "username", "password",
+      "sslMode", "timezone", "statementTimeoutMs",
+    ],
+    portaPadrao: 3306,
+    sqlLivre: true,
+    cancelarQuery: true,
+    diagramaErd: false,
+  },
+
+  /*
+   * MariaDB tem as mesmas capacidades do MySQL **do ponto de vista da tela**.
+   * As divergências medidas entre os dois — nome da variável de timeout, tipo
+   * do JSON, `SEQUENCE`, lock de leitura permitido — são todas de driver, e
+   * ficam dentro dele. Nenhuma delas muda um campo do formulário.
+   */
+  mariadb: {
+    niveis: "conexao/database/tabela",
+    escopoReadOnly: "credencial",
+    readOnlyCobreDdl: false,
+    campos: [
+      "host", "port", "database", "username", "password",
+      "sslMode", "timezone", "statementTimeoutMs",
+    ],
+    portaPadrao: 3306,
+    sqlLivre: true,
+    cancelarQuery: true,
+    diagramaErd: false,
+  },
 };
 
 /**
@@ -117,7 +174,9 @@ export const CAPACIDADES: Readonly<Record<"postgres", Capacidades>> = {
  * não tem. Um valor errado aqui vira promessa falsa lá.
  */
 export function capacidadesDe(engine: Engine): Capacidades | null {
-  return engine === "postgres" ? CAPACIDADES.postgres : null;
+  return engine === "postgres" || engine === "mysql" || engine === "mariadb"
+    ? CAPACIDADES[engine]
+    : null;
 }
 
 /** Se o DBee fala esta engine hoje. */

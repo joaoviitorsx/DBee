@@ -9,6 +9,7 @@ import {
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
+import { exigirPostgres } from "./engine.guarda";
 import type { PoolManager } from "../pg/pool";
 
 /**
@@ -130,6 +131,19 @@ export class DdlService {
       return { ok: false, sql: "", failure: "decryption_failed" };
     }
     if (connection === null) return { ok: false, sql: "", failure: "not_found" };
+    /*
+     * Só o Postgres faz isto. Sem esta guarda, uma conexão MySQL faria o
+     * `PoolManager` do Postgres falar protocolo de Postgres com a porta 3306,
+     * e o erro seria de handshake — sem relação com a verdade, que é
+     * "isto não existe aqui".
+     */
+    const semSuporte = exigirPostgres<never>(connection.engine, "criação de tabela e database (DDL)");
+    if (semSuporte !== null && !semSuporte.ok) {
+      // `write_forbidden` e não uma falha nova: escrita **é** proibida nesta
+      // conexão, e pelo motivo mais forte — a engine não a oferece de jeito
+      // nenhum. O `detail` diz qual é o motivo.
+      return { ok: false, sql: "", failure: "write_forbidden", message: semSuporte.detail ?? "" };
+    }
 
     // Monta ANTES de checar escrita, para a recusa registrar o comando que teria
     // rodado — o `query_log` sem o SQL da tentativa é auditoria pela metade.

@@ -7,6 +7,7 @@ import { SettingsRepository } from "./db/settings.repo";
 import { UsersRepository } from "./db/users.repo";
 import { QueryLogRepository } from "./db/queryLog.repo";
 import { SavedQueriesRepository } from "./db/savedQueries.repo";
+import { Drivers } from "./driver/registro";
 import { MutationService } from "./services/mutation.service";
 import { AuditService } from "./services/audit.service";
 import type { Store } from "./db/client";
@@ -66,13 +67,19 @@ export function createApp({
   releasesApi,
 }: AppDeps) {
   const repository = new ConnectionsRepository(store.db, store.key);
+  /*
+   * Quem sabe falar com cada engine. Criado uma vez: cada driver é dono do seu
+   * pool, e recriá-los por requisição abriria conexão nova a cada clique. O de
+   * Postgres recebe o `PoolManager` que já existe, em vez de abrir um segundo.
+   */
+  const drivers = new Drivers(pools, caCert);
   const users = new UsersRepository(store.db);
   const auth = new AuthService({ users, dataDir });
-  const schema = new SchemaService({ repository, pools });
+  const schema = new SchemaService({ repository, pools, drivers });
   const log = new QueryLogRepository(store.db);
   const audit = new AuditService(log);
   const savedQueries = new SavedQueriesRepository(store.db);
-  const query = new QueryService({ repository, pools, log });
+  const query = new QueryService({ repository, log, drivers });
   const mutation = new MutationService({ repository, pools, log });
   const rows = new RowsService({ repository, pools, schema, log });
   const exportar = new ExportService({ repository, pools, schema, log });
@@ -87,11 +94,15 @@ export function createApp({
   const connections = new ConnectionsService({
     repository,
     caCert,
+    drivers,
     // Editar ou apagar conexão invalida a árvore em cache e derruba os pools:
     // host, senha ou timezone mudaram, e o que estava aberto não vale mais.
     onConnectionChanged: (id) => {
       schema.evict(id);
       pools.evict(id);
+      // Os drivers têm pools próprios (o de MySQL tem o seu): esquecer só o do
+      // Postgres deixaria conexões MySQL falando com o servidor antigo.
+      void drivers.esquecer(id);
     },
   });
 

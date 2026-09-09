@@ -14,7 +14,7 @@ arqueologia na terceira sessão.
 | 0b — o campo `engine` existe | migration 007, tipo, capacidades, `engine` na API | **concluída** |
 | 0a — fronteira do driver | `DriverLeitura` + contrato contra 3 engines | **concluída** na fase 2 |
 | 1 — papéis documentados | `docs/papeis-mysql.md`, medido | **concluída** |
-| 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | **em andamento** — tipos, TLS e introspecção prontos |
+| 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | **funcional** — falta verificação por screenshot |
 | 3 — libSQL | URL + token, read-only por JWT | não começou |
 | 4 — MongoDB | vista de documentos | descrito, não agendado |
 | 5 — Redis | vista chave/valor (6 tipos) | descrito, não agendado |
@@ -154,6 +154,31 @@ Falta para a fase fechar:
       `ENGINES_IMPLEMENTADAS` — é o passo que acende os chips do seletor. Só
       depois de tudo acima, senão a tela oferece o que o servidor não faz.
 - [ ] A árvore da interface pulando o nível de schema pela capacidade.
+
+## O que ficou pronto na fase 2
+
+Treze peças, todas medidas contra MySQL 8.4.11 e MariaDB 11.8.9 reais:
+
+tipos · TLS · introspecção · teste de conexão · sessão · nomes de coluna ·
+executor · fuso · pool · cancelamento · keyset · fronteira do driver · fiação
+
+`ENGINES_IMPLEMENTADAS` inclui `mysql` e `mariadb`. O que funciona: criar
+conexão, testar, navegar a árvore, executar consulta e cancelar. O que **não**
+funciona e recusa com mensagem clara: exportação, DDL, edição de linhas e a
+grade com filtro e paginação.
+
+### Falta para fechar a fase por completo
+
+- [ ] Verificação por screenshot nos quatro breakpoints com uma conexão MySQL
+      real na árvore (`CLAUDE.md` §4b). O container de demonstração
+      (`dbee-demo-my`, catálogo de música) foi preparado e não chegou a ser
+      fotografado.
+- [ ] `planRows` do MySQL — a condição de keyset está pronta e medida
+      (`mysql/keyset.ts`), falta o planejador que a usa: filtros, validação de
+      coluna contra o catálogo e contagem. Enquanto isso a grade de linhas
+      recusa MySQL pela guarda.
+- [ ] Introspecção completa (`/schema`): colunas, índices e chaves estrangeiras.
+      Só a árvore leve existe hoje, e é por isso que `diagramaErd` é `false`.
 
 ## Decisões pendentes, e quem decide
 

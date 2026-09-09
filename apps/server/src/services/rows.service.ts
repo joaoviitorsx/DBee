@@ -6,6 +6,7 @@ import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { PoolManager } from "../pg/pool";
 import { RowsError, fetchRows, planRows } from "../pg/rows";
 import type { SchemaService } from "./schema.service";
+import { exigirPostgres } from "./engine.guarda";
 import { type ServiceResult, fail, ok } from "./result";
 
 
@@ -62,6 +63,14 @@ export class RowsService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
+    /*
+     * Só o Postgres faz isto. Sem esta guarda, uma conexão MySQL faria o
+     * `PoolManager` do Postgres falar protocolo de Postgres com a porta 3306,
+     * e o erro seria de handshake — sem relação com a verdade, que é
+     * "isto não existe aqui".
+     */
+    const semSuporte = exigirPostgres<never>(connection.engine, "a grade de linhas com filtro e paginação");
+    if (semSuporte !== null) return semSuporte;
 
     const database = request.database ?? connection.database;
 

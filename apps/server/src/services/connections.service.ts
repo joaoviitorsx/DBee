@@ -5,13 +5,20 @@ import type { ConnectionGrant } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
-import { testConnection } from "../pg/test-connection";
+import type { Drivers } from "../driver/registro";
 
 import { type ServiceResult, fail, ok } from "./result";
 
 export interface ConnectionsServiceDeps {
   readonly repository: ConnectionsRepository;
   readonly caCert: string | undefined;
+  /**
+   * Quem sabe falar com cada engine.
+   *
+   * Opcional para os testes que só exercitam o repositório não precisarem
+   * montar driver nenhum; sem ele, `test` recusa em vez de conectar às cegas.
+   */
+  readonly drivers?: Drivers;
   /** Avisa quem mantém cache ou pool que aquela conexão mudou de forma. */
   readonly onConnectionChanged?: (id: string) => void;
 }
@@ -24,12 +31,12 @@ export interface ConnectionsServiceDeps {
  */
 export class ConnectionsService {
   readonly #repository: ConnectionsRepository;
-  readonly #caCert: string | undefined;
+  readonly #drivers: Drivers | undefined;
   readonly #onChanged: (id: string) => void;
 
-  constructor({ repository, caCert, onConnectionChanged }: ConnectionsServiceDeps) {
+  constructor({ repository, onConnectionChanged, drivers }: ConnectionsServiceDeps) {
     this.#repository = repository;
-    this.#caCert = caCert;
+    this.#drivers = drivers;
     this.#onChanged = onConnectionChanged ?? ((): void => undefined);
   }
 
@@ -110,6 +117,16 @@ export class ConnectionsService {
     }
     if (resolved === null) return fail("not_found");
 
-    return ok(await testConnection(resolved, this.#caCert));
+    /*
+     * O driver da engine da conexão, e não `pg/` fixo.
+     *
+     * O que o teste de conexão faz é diferente em cada uma: no Postgres ele
+     * abre `BEGIN READ ONLY` e detecta papel privilegiado; no MySQL não há modo
+     * de transação para exercitar, e ele olha os privilégios da credencial
+     * (`docs/papeis-mysql.md`). Chamar o de Postgres num MySQL falharia no
+     * `BEGIN READ ONLY` com erro de sintaxe, escondendo o que importa.
+     */
+    if (this.#drivers === undefined) return fail("bad_request");
+    return ok(await this.#drivers.para(resolved.engine).testarConexao(resolved));
   }
 }

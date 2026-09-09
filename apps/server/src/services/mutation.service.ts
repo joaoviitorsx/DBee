@@ -16,6 +16,7 @@ import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { PoolClient } from "pg";
 
 import type { PoolManager } from "../pg/pool";
+import { exigirPostgres } from "./engine.guarda";
 import { type MutationResult, mutFail, mutOk } from "./result";
 
 /**
@@ -187,6 +188,15 @@ export class MutationService {
       return mutFail("decryption_failed");
     }
     if (connection === null) return mutFail("not_found");
+    /*
+     * Só o Postgres faz isto. Sem esta guarda, uma conexão MySQL faria o
+     * `PoolManager` do Postgres falar protocolo de Postgres com a porta 3306,
+     * e o erro seria de handshake — sem relação com a verdade, que é
+     * "isto não existe aqui".
+     */
+    const semSuporte = exigirPostgres<never>(connection.engine, "edição de linhas");
+    // `write_forbidden` pelo motivo mais forte: a engine não oferece escrita.
+    if (semSuporte !== null && !semSuporte.ok) return mutFail("write_forbidden", semSuporte.detail);
     // A conexão manda: sem `write_enabled`, nem a requisição mais explícita
     // libera escrita. (O `readOnly: false` já é exigido pelo schema.) A tentativa
     // negada vai ao query_log: escrita barrada é justamente o evento que uma
