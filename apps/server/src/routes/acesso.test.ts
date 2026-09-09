@@ -84,43 +84,112 @@ beforeEach(async () => {
 });
 
 /**
- * Toda rota que recebe id de conexão. **Manter em dia é o ponto do arquivo.**
+ * **Varredura de `app.routes`, não lista escrita à mão.**
  *
- * O corpo não precisa ser válido: a recusa por acesso acontece antes de a
- * requisição chegar ao Postgres, e é isso que estamos medindo. Onde o schema
- * recusaria o corpo (422) antes do acesso, o corpo aqui é válido de propósito.
+ * A lista à mão que estava aqui protegia as rotas que alguém lembrou de
+ * escrever — e a que vazava era justamente a esquecida. Ela tinha seis
+ * ausentes (`/history`, `/query/cancel`, os dois de export, os três de
+ * mutação) e, pior, um **falso positivo**: `POST /connections/:id/rows`, que
+ * não existe. A leitura de linhas é `/tables/:schema/:table/rows`. O 404 que a
+ * asserção comemorava vinha do roteador, não da negação de acesso — a rota real
+ * ficava sem cobertura enquanto o teste dizia o contrário.
+ *
+ * `GET /connections/:id/history` foi encontrado por uma varredura destas, não
+ * por leitura. Ela pega a próxima sozinha.
  */
-const ROTAS: readonly [string, (id: string) => string, unknown?][] = [
-  ["GET", (id) => `/connections/${id}/databases`, undefined],
-  ["GET", (id) => `/connections/${id}/databases/overview`, undefined],
-  ["GET", (id) => `/connections/${id}/activity`, undefined],
-  ["GET", (id) => `/connections/${id}/schema?database=postgres`, undefined],
-  ["GET", (id) => `/connections/${id}/schema/tree?database=postgres`, undefined],
-  ["POST", (id) => `/connections/${id}/test`, {}],
-  ["POST", (id) => `/connections/${id}/query`, { database: "postgres", sql: "SELECT 1" }],
-  [
-    "POST",
-    (id) => `/connections/${id}/rows`,
-    { database: "postgres", schema: "public", table: "t", limit: 10 },
-  ],
-  [
-    "POST",
-    (id) => `/connections/${id}/ddl/table`,
-    { database: "postgres", schema: "public", name: "t", columns: [{ name: "a", type: "integer" }] },
-  ],
-  ["POST", (id) => `/connections/${id}/ddl/database`, { name: "novo_banco" }],
-];
+const CORPO_POR_ROTA: Readonly<Record<string, unknown>> = {
+  "POST /api/connections/:id/query": { database: "postgres", sql: "SELECT 1" },
+  "POST /api/connections/:id/query/cancel": { queryId: "00000000-0000-4000-8000-000000000000" },
+  "POST /api/connections/:id/tables/:schema/:table/rows": { database: "postgres", limit: 10 },
+  /*
+   * Os corpos precisam ser **válidos pelo schema**. Um corpo inválido volta 422
+   * antes de a autorização ser consultada, e a asserção passaria sem exercitar
+   * nada — o mesmo vício do falso positivo que este arquivo acabou de perder.
+   */
+  "POST /api/connections/:id/rows/update": {
+    // `readOnly: false` é a intenção de escrita explícita que o schema
+    // exige (§6): campo ausente significa o estado seguro.
+    database: "postgres", schema: "public", table: "t", readOnly: false,
+    pk: [{ column: "id", value: "1" }],
+    changes: [{ column: "a", from: "1", to: "2" }],
+  },
+  "POST /api/connections/:id/rows/delete": {
+    // `readOnly: false` é a intenção de escrita explícita que o schema
+    // exige (§6): campo ausente significa o estado seguro.
+    database: "postgres", schema: "public", table: "t", readOnly: false,
+    pk: [{ column: "id", value: "1" }],
+    guard: [],
+  },
+  "POST /api/connections/:id/rows/insert": {
+    // `readOnly: false` é a intenção de escrita explícita que o schema
+    // exige (§6): campo ausente significa o estado seguro.
+    database: "postgres", schema: "public", table: "t", readOnly: false,
+    values: [{ column: "a", value: "1" }],
+  },
+  "POST /api/connections/:id/ddl/table": {
+    database: "postgres", schema: "public", name: "t",
+    columns: [{ name: "a", type: "integer" }],
+  },
+  "POST /api/connections/:id/ddl/database": { name: "novo_banco" },
+  "POST /api/connections/:id/export": {
+    database: "postgres",
+    source: { kind: "table", schema: "public", table: "t" },
+    format: "csv",
+  },
+  "POST /api/connections/:id/export/bundle": {
+    database: "postgres",
+    tables: [{ schema: "public", table: "t", structure: true, data: true }],
+  },
+  "POST /api/connections/:id/test": {},
+  "PUT /api/connections/:id/access": { userId: "x", canWrite: false },
+};
+
+/**
+ * Rotas com `:id` de conexão que **não** são de acesso do member.
+ *
+ * `PATCH`/`DELETE` da conexão e as três de `/access` são administrativas — a
+ * resposta certa ali é 403 (`admin_required`), não 404, e elas têm teste
+ * próprio no bloco "administrar conexão é de admin".
+ */
+const ADMINISTRATIVAS = new Set([
+  "PATCH /api/connections/:id",
+  "DELETE /api/connections/:id",
+  "GET /api/connections/:id/access",
+  "PUT /api/connections/:id/access",
+  "DELETE /api/connections/:id/access/:userId",
+]);
 
 describe("um member sem concessão não alcança a conexão", () => {
-  it("todas as rotas com id respondem 404 — nenhuma vaza pelo id", async () => {
+  it("NENHUMA rota com :id de conexão responde 2xx — varrendo app.routes", async () => {
     const conexao = await criarConexao("producao", true);
     const ana = await membro("ana");
 
-    for (const [metodo, caminho, corpo] of ROTAS) {
-      const url = caminho(conexao.id);
-      const res = await chamar(metodo, url, ana.cookie, corpo);
-      // A string na asserção faz a falha nomear a rota culpada.
-      expect(`${metodo} ${url} -> ${String(res.status)}`).toBe(`${metodo} ${url} -> 404`);
+    const comId = app.routes
+      .map((r) => ({ metodo: r.method, path: r.path, chave: `${r.method} ${r.path}` }))
+      .filter((r) => r.path.includes("/connections/:id") && !ADMINISTRATIVAS.has(r.chave));
+
+    // Se isto cair, alguém removeu rotas — ou a varredura parou de enxergá-las.
+    expect(comId.length).toBeGreaterThanOrEqual(10);
+
+    for (const rota of comId) {
+      const caminho = rota.path
+        .replace(":id", conexao.id)
+        .replace(":schema", "public")
+        .replace(":table", "t")
+        .replace(":userId", ana.id);
+      const corpo = CORPO_POR_ROTA[rota.chave];
+      const res = await chamar(rota.metodo, caminho.replace(/^\/api/, ""), ana.cookie, corpo);
+
+      /*
+       * 404 é a resposta certa: indistinguível de "não existe", porque dizer
+       * "existe, mas não é sua" confirmaria o id a quem não deveria saber.
+       *
+       * E **422 não vale**: significa que o schema recusou o corpo antes de a
+       * autorização ser consultada, ou seja, a rota não foi exercitada. Quem
+       * vir esta falha deve corrigir o corpo em `CORPO_POR_ROTA`, não relaxar a
+       * asserção.
+       */
+      expect(`${rota.chave} -> ${String(res.status)}`).toBe(`${rota.chave} -> 404`);
     }
   });
 

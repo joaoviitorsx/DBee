@@ -6,6 +6,43 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [0.3.0] — 2026-09-08
 
+### Segurança
+- **`GET /connections/:id/history` não provava acesso.** Devolvia o `query_log`
+  de qualquer conexão a qualquer conta, e o id nem precisava ser adivinhado:
+  `GET /saved-queries` é lista global por desenho e entrega o `connectionId` de
+  conexões invisíveis. A invariante da fase 2 estava formulada como
+  "`resolve(id, ator)`, por onde passa todo caminho que **fala com o
+  Postgres**" — e essa formulação deixou de fora justamente a rota que lê dado
+  sensível sem abrir conexão, porque ela lê o SQLite.
+- **As rotas `/meta` não exigiam admin.** Um `member` sobrescrevia a URL de
+  deploy do administrador — e como a resposta só devolve o booleano
+  `webhookConfigured`, nada na tela dele denunciava —, disparava redeploy do
+  container de produção, e ganhava um scanner HTTP da rede interna: com faixas
+  privadas liberadas de propósito, o status do erro distingue "porta fechada"
+  de "HTTP 403". A nota de risco do `update.service.ts` justificava o SSRF
+  dizendo que "quem está autenticado já consegue apontar uma conexão para
+  qualquer host:porta" — isso **deixou de valer** quando criar conexão virou de
+  admin, e a nota não acompanhou.
+- **O intervalo mínimo entre disparos só contava sucesso**, então não limitava
+  a varredura, que rodava a ~1 ms por alvo. Agora conta a tentativa.
+- **`POST /connections/:id/query/cancel` não provava acesso.** Não era
+  explorável (o `queryId` é um UUIDv4 gerado no cliente), mas é rota com id de
+  recurso sem prova no servidor.
+- **10 senhas erradas trancavam o time inteiro por 15 minutos.** O balde por
+  origem colapsa atrás do Traefik, onde todos compartilham um IP — e como a
+  consulta acontece antes da verificação, acertar a senha não limpava nada. A
+  chave passou a ser `origem|username`.
+- **O teste que deveria ter pego tudo isso tinha um falso positivo dentro:**
+  `POST /connections/:id/rows` não existe, e o 404 que a asserção comemorava
+  vinha do roteador, não da negação de acesso. A lista escrita à mão virou
+  **varredura de `app.routes`** — foi assim que o `/history` apareceu, e é assim
+  que a próxima aparece sozinha.
+- `users.repo.remover()` apaga as concessões na mesma transação, em vez de
+  depender do `ON DELETE CASCADE` — o comentário do próprio arquivo diz que
+  garantia de segurança não se apoia em `PRAGMA` que pode mudar longe dali.
+- Caminho estático malformado (`/%`, `/arquivo%00.png`) devolve 404 em vez de
+  500.
+
 > **O DBee deixa de ser de uma pessoa só.** Contas individuais com papéis, e
 > permissão por conexão: `admin` administra contas e conexões, `member` alcança
 > só o que lhe foi concedido, e escrever exige as duas pontas — `write_enabled`

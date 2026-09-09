@@ -1,4 +1,4 @@
-import type { CancelResponse, QueryRequest, QueryResponse } from "@dbee/shared";
+import type { CancelResponse, QueryLogEntry, QueryRequest, QueryResponse } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
@@ -159,20 +159,52 @@ export class QueryService {
    * erro, é o cancelamento chegando tarde. O `connectionId` do caminho tem que
    * bater com o registrado: um id não impede cancelar a query de outra conexão.
    */
-  async cancelar(connectionId: string, queryId: string): Promise<CancelResponse> {
+  async cancelar(
+    connectionId: string,
+    queryId: string,
+    ator: Ator,
+  ): Promise<ServiceResult<CancelResponse>> {
+    /*
+     * Prova de acesso antes de qualquer coisa, e **404**, não `cancelled:false`.
+     *
+     * As duas respostas escondem a mesma quantidade de informação, mas 404 é a
+     * que o resto das rotas com id dá — e a varredura de `acesso.test.ts` exige
+     * uniformidade justamente para que "esta rota responde diferente" seja
+     * sinal de que alguém esqueceu de resolver pelo ator.
+     *
+     * Não é explorável hoje: o `queryId` é um UUIDv4 gerado no cliente. Mas é
+     * rota que recebe id de recurso e não provava acesso no servidor, e o dia
+     * em que o `queryId` virar um contador isso é cancelamento arbitrário.
+     */
+    if (this.#repository.find(connectionId, ator) === null) return fail("not_found");
+
     const reg = this.#emExecucao.get(queryId);
     // `undefined` (já terminou) e conexão diferente caem no mesmo lugar: nada a
     // cancelar sob este id nesta conexão.
-    if (reg?.connection.id !== connectionId) return { cancelled: false };
+    if (reg?.connection.id !== connectionId) return ok({ cancelled: false });
     try {
       const cancelled = await this.#pools.cancelBackend(reg.connection, reg.database, reg.pid);
-      return { cancelled };
+      return ok({ cancelled });
     } catch {
-      return { cancelled: false };
+      return ok({ cancelled: false });
     }
   }
 
-  history(limit: number, connectionId?: string) {
-    return this.#log.list(limit, connectionId);
+  /**
+   * O histórico daquela conexão.
+   *
+   * **Exige o ator**, e essa era a falha: a rota não pedia sessão e devolvia o
+   * `query_log` de qualquer conexão a qualquer conta. O id não precisava nem ser
+   * adivinhado — `GET /saved-queries` é lista global por desenho e entrega o
+   * `connectionId` de conexões invisíveis.
+   *
+   * A invariante da fase 2 estava formulada como "`resolve(id, ator)`, por onde
+   * passa todo caminho que fala com o Postgres", e essa formulação deixou de
+   * fora justamente a rota que lê dado sensível **sem** abrir conexão: aqui a
+   * leitura é no SQLite.
+   */
+  history(connectionId: string, limit: number, ator: Ator): ServiceResult<QueryLogEntry[]> {
+    if (this.#repository.find(connectionId, ator) === null) return fail("not_found");
+    return ok(this.#log.list(limit, connectionId));
   }
 }

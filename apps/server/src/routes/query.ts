@@ -55,21 +55,49 @@ export const queryRoutes = (service: QueryService, users: UsersRepository) =>
     )
     .post(
       "/:id/query/cancel",
-      // Sem `actor`: cancelar não é execução — a query cancelada é que registra
-      // seu próprio `cancelled` no log. A sessão vem do guard global.
-      ({ params, body }) => service.cancelar(params.id, body.queryId),
+      // Sem `actor` no log: cancelar não é execução — a query cancelada é que
+      // registra seu próprio `cancelled`. Mas o ator vai adiante mesmo assim,
+      // porque a rota recebe id de conexão e precisa provar acesso.
+      async ({ params, body, sessao, status }) => {
+        const result = await service.cancelar(params.id, body.queryId, exigirAtor(sessao));
+        if (result.ok) return result.value;
+        const { status: code, body: payload } = FAILURES[result.failure];
+        return status(code, payload);
+      },
       {
         params: t.Object({ id: t.String() }),
         body: CancelRequest,
-        response: { 200: CancelResponse, 401: ErrorResponse, 403: ErrorResponse },
+        response: {
+          200: CancelResponse,
+          400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
+          404: ErrorResponse,
+          500: ErrorResponse,
+          502: ErrorResponse,
+        },
       },
     )
     .get(
       "/:id/history",
-      ({ params, query }) => service.history(query.limit ?? 100, params.id),
+      ({ params, query, sessao, status }) => {
+        const result = service.history(params.id, query.limit ?? 100, exigirAtor(sessao));
+        if (result.ok) return result.value;
+        const { status: code, body } = FAILURES[result.failure];
+        return status(code, body);
+      },
       {
         params: t.Object({ id: t.String() }),
         query: t.Object({ limit: t.Optional(t.Integer({ minimum: 1, maximum: 1000 })) }),
-        response: { 200: t.Array(QueryLogEntry) },
+        // A rota também não declarava 401/403/404 — §7 da definição de pronto.
+        response: {
+          200: t.Array(QueryLogEntry),
+          400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
+          404: ErrorResponse,
+          500: ErrorResponse,
+          502: ErrorResponse,
+        },
       },
     );

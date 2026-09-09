@@ -41,7 +41,19 @@ export function servirWeb(publicDir: string) {
   const cacheGzip = new Map<string, Uint8Array>();
 
   return async (request: Request): Promise<Response> => {
-    const pathname = decodeURIComponent(new URL(request.url).pathname);
+    /*
+     * `decodeURIComponent` **estoura** em `%`, `%zz` e afins, e o erro virava
+     * 500 pelo handler global. Não vaza nada, mas 500 diz "o servidor quebrou"
+     * para uma requisição malformada, que é 404. O `\0` entra na mesma recusa:
+     * caminho com byte nulo não tem uso legítimo aqui.
+     */
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent(new URL(request.url).pathname);
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
+    if (pathname.includes("\0")) return new Response("Not found", { status: 404 });
     const alvo = normalize(join(raiz, pathname === "/" ? "/index.html" : pathname));
 
     // Trava de travessia: o caminho resolvido tem que continuar sob `raiz`.

@@ -107,12 +107,18 @@ export function versaoDoBinario(bruta: string | undefined = VERSAO_COMPILADA): s
 /**
  * Endereços de metadado de nuvem, barrados na URL de deploy.
  *
- * **Isto não é uma defesa completa de SSRF, e não pode fingir ser.** A URL é
- * fornecida por quem já está autenticado, e quem está autenticado já consegue
- * apontar uma conexão para qualquer host:porta — a primitiva de saída já
- * existe no app. O que muda aqui é o protocolo: HTTP alcança coisas que o
- * protocolo do Postgres não alcança, e o mais valioso delas é o serviço de
- * metadado, que entrega credencial de instância a quem fizer um GET simples.
+ * **Isto não é uma defesa completa de SSRF, e não pode fingir ser.**
+ *
+ * A justificativa original era que "quem está autenticado já consegue apontar
+ * uma conexão para qualquer host:porta". **Ela envelheceu**: criar conexão
+ * virou de admin na migração 005, e um `member` deixou de ter essa primitiva —
+ * mas estas rotas continuaram abertas a qualquer sessão, e viraram a única
+ * saída de rede que sobrou para ele. Por isso agora exigem admin (`meta.ts`).
+ *
+ * O que continua valendo: quem chega aqui é operador, e o que muda em relação
+ * ao Postgres é o protocolo. HTTP alcança coisas que o protocolo do Postgres
+ * não alcança, e a mais valiosa é o serviço de metadado, que entrega
+ * credencial de instância a um GET simples.
  *
  * Faixas privadas continuam liberadas **de propósito**: o Dokploy vive numa
  * rede privada (`dokploy-network`) ou num endereço `100.x` da tailnet, e
@@ -278,6 +284,18 @@ export class UpdateService {
       }
     }
 
+    /*
+     * Registra a **tentativa**, não o sucesso.
+     *
+     * Estava depois do `resposta.ok`, e o efeito era que o intervalo mínimo só
+     * limitava disparos que davam certo — ou seja, não limitava nada do que
+     * importa. Com faixas privadas liberadas de propósito, isso permitia
+     * varrer a rede interna a ~1 ms por alvo, distinguindo "porta fechada" de
+     * "HTTP 403" pelo status do erro. O gasto de um disparo é a requisição
+     * sair, não ela ser aceita.
+     */
+    this.#settings.registrarDisparo(new Date(agora).toISOString());
+
     let resposta: Response;
     try {
       resposta = await this.#fetch(url, {
@@ -302,7 +320,6 @@ export class UpdateService {
       );
     }
 
-    this.#settings.registrarDisparo(new Date(agora).toISOString());
     // Ação com efeito externo: fica registrado quem apertou. Sem a URL.
     console.log(`[dbee] atualização disparada por ${actor}`);
   }

@@ -391,3 +391,52 @@ describe("cookie Secure segue o protocolo", () => {
     }
   });
 });
+
+/**
+ * O limite de tentativas não pode trancar quem não errou.
+ *
+ * Este caso não existia porque os testes usam `app.handle()`, sem `server` — e
+ * aí `server.requestIP()` devolve `null`, a origem vira a constante
+ * `"desconhecida"` para todo mundo, e a colisão entre pessoas fica invisível.
+ * No deploy documentado (Traefik do Dokploy na frente) **todo mundo tem a mesma
+ * origem de verdade**, e o efeito medido era: dez senhas erradas de qualquer um
+ * e o time inteiro tomava 429 por quinze minutos.
+ *
+ * A chave passou a ser `origem|username`. O teste abaixo prova a consequência
+ * que importa, sem precisar de servidor: baldes distintos por conta.
+ */
+describe("o limite de tentativas não acopla contas diferentes", () => {
+  it("errar a senha de uma conta não tranca a outra na mesma origem", async () => {
+    const store = openTestStore();
+    const app = createApp({ store, caCert: undefined });
+    const users = new UsersRepository(store.db);
+
+    const primeiro = await criarPrimeiroUsuario(users);
+    if (primeiro === null) throw new Error("sem primeiro usuário");
+    users.trocarSenha(primeiro.user.id, await Bun.password.hash("senha-da-ana-1234"));
+
+    // Uma segunda conta, pelo repositório — a rota de criar exige admin e o
+    // assunto aqui é o balde, não a administração.
+    const bob = users.criar("bob", await Bun.password.hash("senha-do-bob-1234"), false, "member");
+
+    const logar = (username: string, password: string): Promise<Response> =>
+      app.handle(
+        new Request("http://localhost/api/auth/login", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ username, password }),
+        }),
+      );
+
+    // Doze senhas erradas na conta da ana — passa do teto de 10.
+    for (let i = 0; i < 12; i += 1) {
+      await logar(primeiro.user.username, `chute-errado-${String(i)}`);
+    }
+    expect((await logar(primeiro.user.username, "senha-da-ana-1234")).status).toBe(429);
+
+    // O bob, com a senha certa, na MESMA origem, continua entrando.
+    const doBob = await logar("bob", "senha-do-bob-1234");
+    expect(`bob -> ${String(doBob.status)}`).toBe("bob -> 200");
+    expect(bob.username).toBe("bob");
+  });
+});

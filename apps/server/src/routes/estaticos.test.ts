@@ -135,4 +135,12 @@ describe("o que já valia continua valendo", () => {
       expect(texto).not.toContain("root:");
     }
   });
+
+  /** Requisição malformada é 404, não 500 — "o servidor quebrou" seria mentira. */
+  it("caminho malformado não vira 500", async () => {
+    for (const caminho of ["/%", "/%zz", "/arquivo%00.png", "/a%ffb"]) {
+      const res = await pedir(caminho);
+      expect(`${caminho} -> ${String(res.status)}`).not.toBe(`${caminho} -> 500`);
+    }
+  });
 });

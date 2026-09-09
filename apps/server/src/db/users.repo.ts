@@ -321,6 +321,14 @@ export class UsersRepository {
   remover(userId: string): void {
     this.#db.transaction(() => {
       this.#apagarSessoesDoUsuario.run(userId);
+      // As concessões também à mão, pela mesma razão do comentário acima: o
+      // `ON DELETE CASCADE` da migração 005 depende de `PRAGMA foreign_keys`,
+      // e o parágrafo anterior diz que não se apoia garantia de segurança em
+      // configuração que pode mudar longe daqui. Estava fazendo exatamente
+      // isso com a tabela de acesso.
+      this.#db
+        .query<unknown, [string]>("DELETE FROM connection_access WHERE user_id = ?")
+        .run(userId);
       this.#db.query<unknown, [string]>("DELETE FROM users WHERE id = ?").run(userId);
     })();
   }

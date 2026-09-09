@@ -33,11 +33,28 @@ const HASH_DE_COMPARACAO =
   "$argon2id$v=19$m=65536,t=2,p=1$Oh+HGT4/PHErrfqezMrUV4x8bKs9ORIVgiGIUwrKUxI$TJYyfsLOlVkn0W6M4VNgTNztVXBdoLcjLATAbQbBFdo";
 
 /**
- * 10 tentativas em 15 minutos, por usuário **e** por origem.
+ * 10 tentativas em 15 minutos, por usuário **e** por origem+usuário.
  *
- * Duas chaves porque elas cobrem ataques diferentes: por usuário barra quem
- * martela uma conta de vários lugares; por origem barra quem varre vários
- * nomes do mesmo lugar. Uma só deixaria o outro passar.
+ * Duas chaves porque cobrem ataques diferentes: por usuário barra quem martela
+ * uma conta de vários lugares; a outra barra quem varre nomes do mesmo lugar.
+ *
+ * ## Por que a chave de origem carrega o usuário junto
+ *
+ * Era só a origem, e no deploy documentado — Traefik do Dokploy na frente (§8)
+ * — **todo mundo compartilha um único IP de origem**. Medido contra um
+ * `Bun.serve` real: dez senhas erradas de qualquer pessoa faziam o login de
+ * **todo o time** responder `429` por 15 minutos, e como a consulta acontece
+ * antes da verificação, acertar a senha não limpava o balde. Qualquer um na
+ * tailnet mantinha o escritório fora do sistema com dez requisições a cada
+ * quinze minutos — em contexto contábil, trabalho parado.
+ *
+ * `origem|username` preserva o que a chave existia para fazer (varrer nomes do
+ * mesmo lugar continua caro: cada nome tentado gasta o próprio balde e o
+ * atacante não ganha nada em compartilhá-los) sem acoplar contas diferentes
+ * atrás do mesmo proxy.
+ *
+ * `X-Forwarded-For` continua fora: confiar em cabeçalho de proxy não
+ * configurado daria ao atacante o direito de escolher a própria chave.
  */
 const LIMITE = { tentativas: 10, janelaMs: 15 * 60_000 };
 
@@ -116,14 +133,14 @@ export class AuthService {
     // Consulta antes de trabalhar: um argon2id por tentativa é justamente o
     // que o limite existe para não deixar acontecer sem teto.
     const antesUsuario = this.#porUsuario.consultar(username);
-    const antesOrigem = this.#porOrigem.consultar(origem);
+    const antesOrigem = this.#porOrigem.consultar(`${origem}|${username}`);
     if (!antesUsuario.permitido || !antesOrigem.permitido) {
       const espera = Math.max(antesUsuario.esperarSegundos, antesOrigem.esperarSegundos);
       return authFail("rate_limited", `tente de novo em ${String(espera)}s`);
     }
 
     this.#porUsuario.registrar(username);
-    this.#porOrigem.registrar(origem);
+    this.#porOrigem.registrar(`${origem}|${username}`);
 
     const encontrado = this.#users.comHashPorNome(username);
 
@@ -136,8 +153,9 @@ export class AuthService {
       return authFail("invalid_credentials");
     }
 
+    // A mesma chave composta: limpar só `origem` deixaria o balde real cheio.
     this.#porUsuario.limpar(username);
-    this.#porOrigem.limpar(origem);
+    this.#porOrigem.limpar(`${origem}|${username}`);
 
     const { token, expiraEm } = this.#users.abrirSessao(encontrado.user.id);
     return authOk({ user: encontrado.user, token, expiraEm });
