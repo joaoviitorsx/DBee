@@ -201,8 +201,14 @@ export function SubTabButtons({
     { id: "diagram", label: t("aba.diagrama"), badge: null },
   ] as const;
 
+  /*
+   * `overflow-x-auto` em vez de `shrink-0`: a 320 px a fila de sub-abas
+   * estourava a viewport e empurrava "Abrir inspetor" 50 px para fora, levando
+   * a página junto. Depende do idioma — em português estoura, em inglês passa
+   * raspando —, e o português é o padrão do produto.
+   */
   return (
-    <div role="tablist" className="flex shrink-0 items-center gap-1">
+    <div role="tablist" className="flex min-w-0 items-center gap-1 overflow-x-auto">
       {itens.map((item) => (
         <button
           key={item.id}

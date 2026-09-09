@@ -135,7 +135,10 @@ export function UpdateDialog({
             // dizendo nada.
             "focus-visible:outline-none",
             "fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2",
-            "max-h-[calc(100dvh-2rem)] overflow-y-auto",
+            // Coluna com corpo rolável e rodapé fixo: como estava, o painel
+            // inteiro era o scroller e o rodapé rolava junto — a 375x667 os
+            // botões de ação nasciam 24 px abaixo da dobra.
+            "flex max-h-[calc(100dvh-2rem)] flex-col",
             "rounded-lg border border-line bg-surface animate-settle shadow-[0_24px_64px_rgba(0,0,0,.5)]",
           )}
         >
@@ -156,7 +159,7 @@ export function UpdateDialog({
             </Dialog.Close>
           </header>
 
-          <div className="space-y-4 px-5 py-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
             {aguardando ? (
               <p
                 role="status"
@@ -259,7 +262,7 @@ export function UpdateDialog({
             ) : null}
           </div>
 
-          <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-line px-5 py-3">
+          <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-line px-5 py-3">
             <span className="text-2xs text-subtle">
               {estado.checkedAt === null
                 ? t("update.nuncaVerificado")

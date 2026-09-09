@@ -18,10 +18,18 @@ const button = cva(
         ghost: "text-muted hover:bg-accent-soft hover:text-accent",
         danger: "bg-transparent text-danger border border-danger/35 hover:bg-danger/10",
       },
+      /*
+       * `max-lg:` amplia o alvo **só no toque**.
+       *
+       * A densidade de 14 px no desktop é decisão do §2.2 e não muda. Mas
+       * medido a 375 px, o app tinha 544 alvos abaixo dos 44×44 que o §9 exige
+       * — botão de ícone a 28×28, fechar aba a 16×16. Ampliar aqui, uma vez,
+       * cobre a maioria sem tocar em cada tela.
+       */
       size: {
-        sm: "h-8 px-3 text-xs",
-        md: "h-10 px-4 text-sm",
-        icon: "h-9 w-9",
+        sm: "h-8 px-3 text-xs max-lg:h-10",
+        md: "h-10 px-4 text-sm max-lg:h-11",
+        icon: "h-9 w-9 max-lg:h-11 max-lg:w-11",
       },
     },
     defaultVariants: { variant: "secondary", size: "md" },

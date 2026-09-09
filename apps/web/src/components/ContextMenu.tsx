@@ -93,7 +93,7 @@ export function ContextMenu({ anchor, title, sections, footer, onClose }: Contex
       role="menu"
       aria-label={title ?? t("menu.acoes")}
       style={{ top: pos.y, left: pos.x }}
-      className="fixed z-50 min-w-52 overflow-hidden rounded-[6px] border border-line bg-overlay py-1 shadow-[0_8px_24px_rgba(0,0,0,.5)]"
+      className="fixed z-50 min-w-52 overflow-hidden rounded-[6px] border border-line bg-overlay py-1 shadow-[0_8px_24px_rgba(0,0,0,.5)] max-w-[calc(100vw-1rem)]"
     >
       {title !== undefined ? (
         <p className="truncate px-3 pb-1 pt-0.5 text-2xs text-subtle">{title}</p>

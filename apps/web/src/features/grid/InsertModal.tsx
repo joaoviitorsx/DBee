@@ -118,12 +118,12 @@ export function InsertModal({
             "animate-settle border-l-[3px] border-l-accent shadow-[0_24px_64px_rgba(0,0,0,.5)]",
           )}
         >
-          <header className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
-            <Dialog.Title className="text-base font-semibold text-ink">
-              {t("edit.tituloInsert")} · <span className="font-mono text-sm text-muted">{schema}.{table}</span>
+          <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
+            <Dialog.Title className="min-w-0 flex-1 text-base font-semibold text-ink">
+              {t("edit.tituloInsert")} · <span className="block truncate font-mono text-sm text-muted">{schema}.{table}</span>
             </Dialog.Title>
             <Dialog.Close asChild>
-              <Button size="icon" variant="ghost" aria-label={t("comum.fechar")}>
+              <Button size="icon" variant="ghost" className="shrink-0" aria-label={t("comum.fechar")}>
                 <X aria-hidden className="h-4 w-4" />
               </Button>
             </Dialog.Close>
@@ -133,8 +133,18 @@ export function InsertModal({
             {columns.map((c) => {
               const ctrl = controles[c.name] ?? { usar: true, nulo: false, valor: "" };
               const obrigatoria = c.defaultValue === null && !c.nullable;
+              /*
+               * Empilha abaixo de `sm`. O trilho `1fr` tem `min-width:auto`, e
+               * a célula de valor é um `flex` com o input mais dois rótulos
+               * `shrink-0` — o min-content estourava o trilho e os campos de
+               * digitação ficavam decepados na borda do painel a 375 px. Não
+               * dá para ver o que se digita.
+               */
               return (
-                <div key={c.name} className="grid grid-cols-[10rem_1fr] items-center gap-3">
+                <div
+                  key={c.name}
+                  className="grid grid-cols-1 gap-1.5 sm:grid-cols-[10rem_1fr] sm:items-center sm:gap-3"
+                >
                   <div className="flex min-w-0 items-center gap-1.5">
                     {c.isPrimaryKey ? (
                       <KeyRound aria-hidden className="h-3 w-3 shrink-0 text-accent" />

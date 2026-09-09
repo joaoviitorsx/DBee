@@ -86,7 +86,10 @@ export function CreateDatabaseDialog({
           className={cn(
             "focus-visible:outline-none",
             "fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2",
-            "max-h-[calc(100dvh-2rem)] overflow-y-auto",
+            // Coluna com corpo rolável e rodapé fixo: como estava, o painel
+            // inteiro era o scroller e o rodapé rolava junto — a 375x667 os
+            // botões de ação nasciam 24 px abaixo da dobra.
+            "flex max-h-[calc(100dvh-2rem)] flex-col",
             "rounded-lg border border-line bg-surface animate-settle shadow-[0_24px_64px_rgba(0,0,0,.5)]",
           )}
         >
@@ -101,7 +104,7 @@ export function CreateDatabaseDialog({
             </Dialog.Close>
           </header>
 
-          <div className="space-y-4 px-5 py-4">
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
             <div>
               <label htmlFor="db-nome" className={rotulo}>{t("ddl.nomeDatabase")}</label>
               <Input
@@ -188,7 +191,7 @@ export function CreateDatabaseDialog({
             ) : null}
           </div>
 
-          <footer className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">
+          <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-5 py-3">
             <Dialog.Close asChild>
               <Button type="button" variant="ghost">{t("comum.cancelar")}</Button>
             </Dialog.Close>

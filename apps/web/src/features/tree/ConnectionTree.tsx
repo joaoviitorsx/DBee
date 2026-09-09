@@ -255,7 +255,7 @@ function Row({
         type="button"
         onClick={onClick}
         aria-expanded={expandable ? expanded : undefined}
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1.5 text-left"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1.5 text-left max-lg:py-3"
       >
         {expandable ? (
           <ChevronRight

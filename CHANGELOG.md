@@ -5,6 +5,38 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Corrigido
+- **Responsividade: seis defeitos graves, todos com a mesma causa.** O app tinha
+  **um** breakpoint, e ele decidia apenas coluna-vs-sobreposição; abaixo disso
+  não havia adaptação nenhuma nos componentes de conteúdo. Um `flex`/`grid`
+  desenhado para ~900 px, sem `min-w-0`, numa caixa de 300 px.
+  - **A página rolava na horizontal na aba Dados**, em todo telefone: o
+    `<select>` de filtro dimensiona pela opção mais larga — o nome de coluna
+    mais comprido da tabela, 299 px — e o grupo não podia encolher. A 320 px
+    sobravam 157 px fora da tela, levando junto a barra superior que no modo
+    escrita **é** o alerta âmbar.
+  - **O interruptor "Permitir escrita nesta execução" ficava fora da tela** a
+    375 (+32 px) e 320 (+87 px). É o controle que faz a transação nascer
+    `BEGIN READ WRITE`, e o aviso vermelho que ele liga aparecia abaixo, sem
+    que se visse o controle.
+  - **O inspetor cobria a barra superior inteira** abaixo de 1024 px — 304 de
+    375 px — e não tinha *scrim*, ao contrário da árvore. O `design-system.md`
+    §5.3 já registrava o sintoma desde setembro; o que fora corrigido na época
+    foi a afirmação do doc, não o layout.
+  - **O X de fechar dos modais de escrita era clipado** a 375 px, e os campos
+    do "Nova linha" ficavam decepados na borda do painel.
+  - **O campo Porta ficava 84 px fora do painel** a 320 px.
+  - **Os botões de contas e de sair eram inalcançáveis** a 320 px: o lockup da
+    marca era `shrink-0` e empurrava os dois para fora de um cabeçalho
+    `overflow-hidden`. Agora o lockup cede e o wordmark volta a partir de `sm`
+    — o ícone identifica a marca sozinho.
+  - `overflow-x-hidden` no shell como rede de segurança: o mesmo erro passa a
+    cortar o filho em vez de deslizar a página inteira.
+  - Alvo de toque ≥44 px no toque (`max-lg:` no `Button` e na linha da árvore),
+    sem mexer na densidade do desktop.
+  - `scripts/check-responsivo.ts`: varre oito larguras × três cenas com dado
+    real e **falha por elemento fora do alcance**, não só por a página rolar —
+    a rede de segurança mascara o sintoma. Nenhuma das 466 asserções da suíte
+    tinha como pegar esta classe.
 - **Export `.sql` travava para sempre e matava a conexão** quando a tabela tinha
   múltiplo exato de 1000 linhas. Não era lentidão: o `FETCH` final volta com
   zero linhas, e nesse passo o caminho `sql`+`insert` não emitia nada **nem

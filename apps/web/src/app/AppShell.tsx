@@ -232,7 +232,16 @@ export function AppShell({
   const perigo = conexaoAtiva?.writeEnabled === true;
 
   return (
-    <div className="flex h-dvh flex-col">
+    /*
+      `overflow-x-hidden` é rede de segurança, não layout.
+
+      Rolagem horizontal de PÁGINA nunca deveria ser possível aqui: a grade tem
+      o scroller dela, e as tabelas largas têm o delas. Quando um `flex` sem
+      `min-w-0` estourava, a página inteira deslizava e a barra superior — que
+      no modo escrita É o alerta âmbar — saía de vista. Com isto, o mesmo erro
+      vira conteúdo cortado: visível, e mensurável por teste.
+    */
+    <div className="flex h-dvh flex-col overflow-x-hidden">
       <TopBar
         target={abaTabela?.target ?? null}
         database={abaTabela?.target.database ?? abaQuery?.database ?? null}
@@ -377,11 +386,30 @@ export function AppShell({
           )}
         </main>
 
-        {/* Estreito: o inspetor também sobrepõe, em vez de espremer o centro. */}
+        {/*
+          Estreito: o inspetor também sobrepõe, em vez de espremer o centro.
+
+          Faltavam duas coisas que a árvore ao lado já tinha, e a diferença
+          aparecia medida: ele começava em `y=0` e cobria a barra superior
+          inteira — 304 de 375 px, levando junto o selo de escrita e o nome do
+          banco ativo —, e não tinha *scrim*, então fechar exigia achar o ⇥
+          dentro do próprio painel.
+        */}
+        {!largo && visivel.inspectorOpen ? (
+          <button
+            type="button"
+            aria-label={t("inspetor.fechar")}
+            onClick={() => { setWs(toggleInspector); }}
+            className="fixed inset-0 z-30 cursor-default bg-black/50"
+          />
+        ) : null}
+
         {visivel.inspectorOpen ? (
           <div
             className={cn(
-              largo ? "w-[280px] shrink-0" : "fixed inset-y-0 right-0 z-40 w-[min(19rem,85vw)]",
+              largo
+                ? "w-[280px] shrink-0"
+                : "fixed bottom-0 right-0 top-[var(--h-topbar,49px)] z-40 w-[min(19rem,85vw)]",
             )}
           >
             <InspectorZone tab={abaTabela} onClose={() => { setWs(toggleInspector); }} />
@@ -507,9 +535,35 @@ function TopBar({
   const perigo = connection?.writeEnabled === true;
   const t = useT();
 
+  /** Mede o cabeçalho e publica em `--h-topbar` para a gaveta se alinhar. */
+  const medirAltura = useCallback((el: HTMLElement | null) => {
+    if (el === null) return;
+    const aplicar = (): void => {
+      el.ownerDocument.documentElement.style.setProperty(
+        "--h-topbar",
+        `${String(Math.round(el.getBoundingClientRect().height))}px`,
+      );
+    };
+    aplicar();
+    const obs = new ResizeObserver(aplicar);
+    obs.observe(el);
+    return () => { obs.disconnect(); };
+  }, []);
+
   return (
     <header
+      /*
+       * Publica a própria altura em `--h-topbar`.
+       *
+       * A gaveta do inspetor precisa começar **abaixo** do cabeçalho, e um
+       * número fixo no CSS mentiria no dia em que o padding ou a fonte
+       * mudassem. O `ResizeObserver` custa uma escrita por redimensionamento.
+       */
+      ref={medirAltura}
       className={cn(
+        // `overflow-hidden` fica: os favos decorativos sangram de propósito
+        // pelas bordas, e trocar por `auto` os tornaria conteúdo rolável.
+        // Quem tinha de ceder era o lockup da marca — ver abaixo.
         "relative flex shrink-0 items-center gap-3 overflow-hidden border-b px-3 py-2",
         // Escrita habilitada é CAUTELA, não erro: uma faixa âmbar quente e suave,
         // não o vermelho de perigo (que fica reservado para o ato destrutivo —
@@ -546,18 +600,29 @@ function TopBar({
       ) : null}
 
       {onToggleTree !== null ? (
-        <Button size="icon" variant="ghost" aria-label={t("arvore.abrir")} onClick={onToggleTree}>
+        // `shrink-0`: sem ele a hambúrguer era espremida a **16 px de largura**
+        // entre 768 e 1023, e de novo abaixo de 375 quando o selo de escrita
+        // aparece — justamente a faixa em que ela É a navegação.
+        <Button size="icon" variant="ghost" className="shrink-0" aria-label={t("arvore.abrir")} onClick={onToggleTree}>
           <PanelLeft aria-hidden className="h-4 w-4" />
         </Button>
       ) : null}
 
-      <div className="relative flex shrink-0 items-center gap-2.5">
+      {/*
+        O lockup é quem cede.
+
+        Era `shrink-0`, e a 320 px empurrava os botões de contas e de sair para
+        fora de um cabeçalho `overflow-hidden` — permanentemente inalcançáveis,
+        sem outro caminho para sair da conta. O ícone identifica a marca
+        sozinho; o wordmark volta a partir de `sm`.
+      */}
+      <div className="relative flex min-w-0 items-center gap-2.5">
         {/* Ícone maior, com um leve halo âmbar para ganhar presença sem virar
             enfeite — a marca é a âncora do cabeçalho, não mais um controle. */}
         <Marca className="h-8 w-8 drop-shadow-[0_1px_5px_rgba(245,166,35,0.28)]" />
         {/* Mesma marca do login: "Bee" em âmbar, distinção só de cor. Tipo
             próprio (Space Grotesk) só no lockup — ver `.font-marca`. */}
-        <span className="font-marca text-xl font-bold leading-none tracking-[-0.03em]">
+        <span className="hidden font-marca text-xl font-bold leading-none tracking-[-0.03em] sm:inline">
           <span className="text-ink">D</span>
           <span className="text-accent">Bee</span>
         </span>
@@ -598,7 +663,7 @@ function TopBar({
         </span>
       ) : null}
 
-      <div className={cn("relative flex shrink-0 items-center gap-2", perigo ? "" : "ml-auto")}>
+      <div className={cn("relative flex shrink-0 items-center gap-1", perigo ? "" : "ml-auto")}>
         <VersaoChip />
         <UpdateBadge />
         <IdiomaToggle />

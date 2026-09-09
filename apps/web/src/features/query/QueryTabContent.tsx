@@ -130,7 +130,14 @@ export function QueryTabContent({
       </div>
 
       <div className="shrink-0 border-b border-line">
-        <div className="flex items-center gap-3 px-3 py-2">
+        {/*
+        `flex-wrap` aqui não é estética: sem ele o interruptor de escrita — o
+        controle que faz a transação nascer `BEGIN READ WRITE` — ficava **fora
+        da tela** a 375 (+32 px) e a 320 (+87 px), alcançável só rolando a
+        página inteira para o lado. E o aviso vermelho que ele liga aparece
+        abaixo, sem que se veja o controle que o ligou.
+      */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
           <Button
             variant="primary"
             size="sm"
@@ -170,10 +177,12 @@ export function QueryTabContent({
             {t("salvas.abrirLista")}
           </Button>
 
-          <span className="text-2xs text-subtle">{t("query.cmdEnter")}</span>
+          {/* A dica de atalho é a primeira a sair: teclado não é o caminho
+              de quem está no telefone, e ela empurrava o interruptor. */}
+          <span className="hidden text-2xs text-subtle lg:inline">{t("query.cmdEnter")}</span>
 
           {writeEnabled ? (
-            <label className="ml-auto flex cursor-pointer items-center gap-1.5 text-2xs text-muted">
+            <label className="flex w-full cursor-pointer items-center gap-1.5 text-2xs text-muted sm:ml-auto sm:w-auto">
               <input
                 type="checkbox"
                 checked={pedirEscrita}

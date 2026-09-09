@@ -232,7 +232,7 @@ export function DataTab({
           <span aria-hidden className="h-5 w-px shrink-0 self-center bg-line" />
         ) : null}
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Button size="sm" variant="secondary" onClick={onConsultar}>
             {t("aba.consultar")}
           </Button>
@@ -244,13 +244,22 @@ export function DataTab({
             </Button>
           ) : null}
 
-          <div className="flex items-center gap-1">
-            <Filter aria-hidden className="h-3 w-3 text-subtle" />
+          {/*
+            `min-w-0` é o que faltava, não media query.
+
+            Um `<select>` nativo dimensiona pela opção mais larga, e a opção
+            mais larga aqui é o nome de coluna mais comprido da tabela — media
+            299 px numa tabela real. Sem `min-w-0` o grupo não podia encolher
+            abaixo do próprio min-content, o `flex-wrap` do pai não resolvia
+            nada, e a PÁGINA rolava 157 px a 320.
+          */}
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+            <Filter aria-hidden className="h-3 w-3 shrink-0 text-subtle" />
             <select
               value={rascunho.column}
               onChange={(e) => { setRascunho((r) => ({ ...r, column: e.target.value })); }}
               aria-label={t("dados.colunaFiltro")}
-              className="h-7 cursor-pointer rounded-[4px] border border-line bg-sunken px-2 text-xs text-ink"
+              className="h-7 min-w-0 max-w-[10rem] flex-1 cursor-pointer rounded-[4px] border border-line bg-sunken px-2 text-xs text-ink"
             >
               <option value="">{t("dados.coluna")}</option>
               {colunas.map((c) => (
@@ -268,7 +277,7 @@ export function DataTab({
               }}
               placeholder={t("dados.contem")}
               aria-label={t("dados.valorFiltro")}
-              className="h-7 w-36 text-xs"
+              className="h-7 w-full min-w-0 max-w-[9rem] flex-1 text-xs"
             />
           </div>
 

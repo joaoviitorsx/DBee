@@ -177,7 +177,14 @@ export function ConnectionForm({
                 </div>
               </div>
 
-              <div className="grid grid-cols-[1fr_7rem] gap-3">
+              {/*
+                Empilha abaixo de `sm`: a 320 px o campo Porta ficava 84 px
+                FORA do painel, alcançável só rolando o diálogo na horizontal —
+                um eixo que ninguém espera dentro de um formulário. O
+                `CreateDatabaseDialog` já fazia assim.
+              */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_7rem]">
+
                 <Field label={t("form.host")} htmlFor="host">
                   <Input
                     id="host"

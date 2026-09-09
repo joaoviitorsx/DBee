@@ -140,7 +140,7 @@ export function RowEditModal({
             pendente.kind === "delete" ? "border-danger-line border-l-[3px] border-l-danger" : "border-line border-l-[3px] border-l-accent",
           )}
         >
-          <header className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+          <header className="flex items-start justify-between gap-3 border-b border-line px-5 py-4">
             <Dialog.Title className="flex items-center gap-2 text-base font-semibold text-ink">
               {pendente.kind === "delete" ? (
                 <TriangleAlert aria-hidden className="h-4 w-4 shrink-0 text-danger" />
@@ -148,7 +148,7 @@ export function RowEditModal({
               {titulo}
             </Dialog.Title>
             <Dialog.Close asChild>
-              <Button size="icon" variant="ghost" aria-label={t("comum.fechar")}>
+              <Button size="icon" variant="ghost" className="shrink-0" aria-label={t("comum.fechar")}>
                 <X aria-hidden className="h-4 w-4" />
               </Button>
             </Dialog.Close>
