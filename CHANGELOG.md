@@ -5,6 +5,23 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Cancelamento de consulta no MySQL/MariaDB**, por `KILL QUERY`.
+
+  É o equivalente do `pg_cancel_backend`: mata **a consulta**, não a sessão, e
+  vai por uma conexão à parte. Medido em `docs/papeis-mysql.md`: funciona com a
+  credencial restrita, **sem** privilégio `PROCESS`, desde que a thread seja do
+  mesmo usuário — é o que torna o cancelamento viável numa engine cuja garantia
+  é a credencial.
+
+  Cancelar uma thread que já terminou devolve `false` em vez de lançar: clicar
+  em cancelar enquanto a consulta responde é o caso comum, não um erro.
+
+  E fica travado por teste o silêncio do MySQL: **`SELECT SLEEP` cancelado volta
+  sem erro**, com o valor `1`. A primeira versão do caso usava `SLEEP` como
+  vítima e lia "terminou sozinha" mesmo com o cancelamento tendo funcionado —
+  voltou em 355 ms de um `SLEEP` de 20 s. É a mesma armadilha que o limite de
+  tempo já tinha, e agora está registrada nos dois lugares.
+
 - **O pool de conexões MySQL/MariaDB**, próprio em vez do que o `mysql2`
   oferece — e a razão está no fonte deles.
 

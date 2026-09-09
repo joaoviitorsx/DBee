@@ -136,12 +136,12 @@ da documentação dos drivers.
       como queda para servidor sem tabelas de fuso.
 - [x] **Pool** (`mysql/pool.ts`) — próprio, porque o do `mysql2` não espera a
       configuração de sessão terminar.
+- [x] **Cancelamento** (`PoolMysql.cancelarConsulta`) — `KILL QUERY` por conexão
+      à parte, funcionando com a credencial restrita.
 
 Falta para a fase fechar:
 
 - [ ] Leitura de linhas com paginação por keyset, e exportação.
-- [ ] Cancelamento por `KILL QUERY` — medido como viável com a credencial
-      restrita, falta a fiação. O limite de tempo já está em `sessao.ts`.
 - [ ] `CAPACIDADES` de `mysql` e `mariadb`, e as duas entrando em
       `ENGINES_IMPLEMENTADAS` — é o passo que acende os chips do seletor. Só
       depois de tudo acima, senão a tela oferece o que o servidor não faz.

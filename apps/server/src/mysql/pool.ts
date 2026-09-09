@@ -133,6 +133,59 @@ export class PoolMysql {
     await Promise.all(ociosas.map(async (v) => v.conexao.end().catch(() => undefined)));
   }
 
+  /**
+   * O id da thread de uma conexão — o que o `KILL QUERY` endereça.
+   *
+   * É o equivalente do PID do backend no Postgres. O `mysql2/promise` o guarda
+   * na conexão de callbacks que embrulha.
+   */
+  static threadDe(conexao: Connection): number {
+    return (conexao as unknown as { connection: { threadId: number } }).connection.threadId;
+  }
+
+  /**
+   * Cancela a consulta que roda numa thread, por uma conexão à parte.
+   *
+   * `KILL QUERY` mata **a consulta**, não a sessão — é o que corresponde ao
+   * `pg_cancel_backend` do lado Postgres, e não ao `pg_terminate_backend`.
+   *
+   * Medido (`docs/papeis-mysql.md`): funciona com a credencial restrita, sem
+   * privilégio `PROCESS`, desde que a thread seja **do mesmo usuário**. É o que
+   * torna o cancelamento viável na engine cuja garantia é a credencial.
+   *
+   * Devolve `false` em vez de lançar quando a thread não existe ou não é dela:
+   * cancelar o que já terminou é o caso comum — a pessoa clica em cancelar
+   * enquanto a consulta responde — e não é erro.
+   */
+  async cancelarConsulta(conexao: ResolvedConnection, thread: number): Promise<boolean> {
+    const ssl = sslMysqlPara(conexao.sslMode, this.#caCert, conexao.host);
+    if (ehRecusa(ssl)) throw new Error(ssl.motivo);
+
+    const c = await mysql.createConnection({
+      host: conexao.host,
+      port: conexao.port,
+      database: conexao.database,
+      user: conexao.username,
+      password: conexao.password,
+      ...(ssl.ssl === false ? {} : { ssl: ssl.ssl }),
+      connectTimeout: 5000,
+    });
+    try {
+      // O número vem de `threadDe`, nunca do usuário, e `KILL` não aceita
+      // placeholder. `Number.isInteger` é a trava que impede qualquer outra
+      // coisa de chegar à concatenação.
+      if (!Number.isInteger(thread) || thread <= 0) return false;
+      await c.query(`KILL QUERY ${String(thread)}`);
+      return true;
+    } catch {
+      // Thread inexistente (1094) ou de outro dono (1095): não há o que
+      // cancelar, e isso não é falha do cancelamento.
+      return false;
+    } finally {
+      await c.end().catch(() => undefined);
+    }
+  }
+
   async shutdown(): Promise<void> {
     const ids = [...this.#grupos.keys()];
     await Promise.all(ids.map(async (id) => this.evict(id)));

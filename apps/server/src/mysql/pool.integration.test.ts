@@ -226,6 +226,107 @@ for (const s of SERVIDORES) {
       await espia.end().catch(() => undefined);
     }, 60_000);
 
+    /*
+     * Cancelamento por KILL QUERY, que é o equivalente do pg_cancel_backend.
+     *
+     * Medido em `docs/papeis-mysql.md`: funciona com a credencial restrita, sem
+     * privilégio PROCESS, desde que a thread seja do mesmo usuário. É o que
+     * torna o cancelamento viável numa engine cuja garantia é a credencial.
+     */
+    it("cancela a consulta em andamento, e a vítima sabe que foi interrompida", async () => {
+      if (!temDocker) return;
+      const pool = new PoolMysql(undefined);
+      const c = conexao(s.porta);
+
+      let thread = 0;
+      const vitima = pool.usar(c, async (conn) => {
+        thread = PoolMysql.threadDe(conn);
+        try {
+          /*
+           * Consulta pesada de verdade, e não `SELECT SLEEP`.
+           *
+           * Medido: no MySQL o SLEEP cortado volta SEM erro, com o valor 1 — é
+           * como ele sinaliza interrupção. A primeira versão deste caso usava
+           * SLEEP e lia "terminou sozinha" mesmo com o cancelamento tendo
+           * funcionado (voltou em 355 ms de um SLEEP de 20 s). É a mesma
+           * armadilha que `sessao.ts` documenta para o limite de tempo.
+           */
+          await conn.query(
+            "SELECT COUNT(*) FROM information_schema.columns a, information_schema.columns b, information_schema.columns c",
+          );
+          return { valor: "terminou sozinha", descartarConexao: false };
+        } catch (e) {
+          return { valor: (e as Error).message, descartarConexao: true };
+        }
+      });
+
+      // Espera a thread ser conhecida e a consulta estar de fato rodando.
+      for (let i = 0; i < 100 && thread === 0; i++) await Bun.sleep(50);
+      expect(thread, "não consegui a thread da consulta").toBeGreaterThan(0);
+      await Bun.sleep(300);
+
+      const inicio = Date.now();
+      expect(await pool.cancelarConsulta(c, thread)).toBe(true);
+      const mensagem = await vitima;
+      const decorrido = Date.now() - inicio;
+
+      expect(mensagem).toContain("interrupted");
+      // Voltou por causa do cancelamento, não porque o SLEEP(20) acabou.
+      expect(decorrido, `demorou ${String(decorrido)}ms`).toBeLessThan(10_000);
+      await pool.shutdown();
+    }, 90_000);
+
+    /*
+     * O silêncio do SLEEP, travado como conhecimento. Um executor que decida
+     * "deu certo" pela ausência de erro relataria sucesso numa consulta que o
+     * usuário mandou cancelar.
+     */
+    it("SLEEP cancelado volta sem erro — o silêncio é do servidor, não do pool", async () => {
+      if (!temDocker) return;
+      const pool = new PoolMysql(undefined);
+      const c = conexao(s.porta);
+      let thread = 0;
+      const vitima = pool.usar(c, async (conn) => {
+        thread = PoolMysql.threadDe(conn);
+        try {
+          const [r] = await conn.query<mysql.RowDataPacket[]>("SELECT SLEEP(20)");
+          const bruto = (r as unknown as (Buffer | null)[][])[0]?.[0];
+          return { valor: `sem erro, valor=${bruto?.toString("utf8") ?? "?"}`, descartarConexao: true };
+        } catch (e) {
+          return { valor: `erro: ${(e as Error).message}`, descartarConexao: true };
+        }
+      });
+      for (let i = 0; i < 100 && thread === 0; i++) await Bun.sleep(50);
+      await Bun.sleep(300);
+      const inicio = Date.now();
+      await pool.cancelarConsulta(c, thread);
+      const desfecho = await vitima;
+      const decorrido = Date.now() - inicio;
+
+      // O cancelamento funcionou nos dois: voltou muito antes dos 20 s.
+      expect(decorrido, `demorou ${String(decorrido)}ms`).toBeLessThan(10_000);
+      if (s.sabor === "mysql") {
+        // Sem erro, e o valor 1 é como o SLEEP diz que foi interrompido.
+        expect(desfecho).toBe("sem erro, valor=1");
+      } else {
+        expect(desfecho).toContain("erro:");
+      }
+      await pool.shutdown();
+    }, 90_000);
+
+    it("cancelar thread inexistente devolve false, sem lançar", async () => {
+      if (!temDocker) return;
+      const pool = new PoolMysql(undefined);
+      const c = conexao(s.porta);
+      // Id absurdo: a consulta já terminou é o caso comum, e não é erro.
+      expect(await pool.cancelarConsulta(c, 999_999_999)).toBe(false);
+      // E entrada que não é thread nenhuma nem chega a virar SQL.
+      expect(await pool.cancelarConsulta(c, 0)).toBe(false);
+      expect(await pool.cancelarConsulta(c, -1)).toBe(false);
+      expect(await pool.cancelarConsulta(c, 1.5)).toBe(false);
+      await pool.shutdown();
+    }, 60_000);
+
     it("shutdown fecha tudo", async () => {
       if (!temDocker) return;
       const pool = new PoolMysql(undefined);
