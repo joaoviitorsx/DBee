@@ -12,9 +12,33 @@ import { join, normalize, sep } from "node:path";
  * entra dependência (regra 3 do CLAUDE.md). O fallback para `index.html` é o que
  * um SPA precisa — uma rota de cliente (`/editor`, por ex.) não é arquivo e tem
  * que devolver o app, não 404.
+ *
+ * ## Compressão e cache
+ *
+ * Medido contra o binário compilado: a resposta saía **só** com `content-type`.
+ * Sem validador nenhum, o navegador não tinha como reaproveitar nada, e abrir o
+ * DBee custava **1,38 MB toda vez** — inclusive na segunda abertura do mesmo
+ * dia, pela tailnet. Com gzip e `immutable`: 538 kB na primeira visita e
+ * **2,9 kB** nas seguintes; o FCP medido caiu de 812 ms para 236 ms.
+ *
+ * Três cuidados que não são opcionais:
+ *
+ * - **`index.html` nunca cacheia.** Os nomes dos assets carregam hash do Vite;
+ *   se o HTML cachear, o app velho continua apontando para arquivos que já não
+ *   existem, e a tela quebra depois de um deploy.
+ * - **`Vary: Accept-Encoding`** em tudo que pode variar, senão um proxy entrega
+ *   corpo gzipado a quem não pediu.
+ * - **Não comprimir o que já está comprimido** (webp, png, woff2): gasta CPU e
+ *   costuma aumentar o tamanho.
+ *
+ * O gzip acontece **uma vez por arquivo** e fica em memória: são poucos
+ * arquivos, e comprimir por requisição trocaria banda por CPU num container que
+ * também atende query.
  */
 export function servirWeb(publicDir: string) {
   const raiz = normalize(publicDir);
+  /** Corpo já gzipado, por caminho absoluto. Preenchido na primeira leitura. */
+  const cacheGzip = new Map<string, Uint8Array>();
 
   return async (request: Request): Promise<Response> => {
     const pathname = decodeURIComponent(new URL(request.url).pathname);
@@ -26,16 +50,34 @@ export function servirWeb(publicDir: string) {
       return new Response("Not found", { status: 404 });
     }
 
+    const aceitaGzip = (request.headers.get("accept-encoding") ?? "").includes("gzip");
+
     const arquivo = Bun.file(alvo);
-    if (await arquivo.exists()) return resposta(arquivo);
+    if (await arquivo.exists()) return await resposta(arquivo, alvo, aceitaGzip, cacheGzip);
 
     // Fallback SPA: caminho que não é arquivo devolve o app (client-side routing).
-    const index = Bun.file(join(raiz, "index.html"));
-    if (await index.exists()) return resposta(index);
+    const caminhoIndex = join(raiz, "index.html");
+    const index = Bun.file(caminhoIndex);
+    if (await index.exists()) {
+      return await resposta(index, caminhoIndex, aceitaGzip, cacheGzip);
+    }
 
     return new Response("Not found", { status: 404 });
   };
 }
+
+/** Tipos que valem comprimir. webp/png/woff2 já vêm comprimidos. */
+const COMPRIMIVEIS = /^(?:text\/|application\/(?:javascript|json)|image\/svg)/;
+
+/**
+ * Um ano, imutável — só para nome com hash do Vite (`app-B3xK9.js`).
+ *
+ * O reconhecimento é pelo formato do nome, não por uma lista: o Vite gera o
+ * hash entre o último `-` e a extensão, e um arquivo sem hash (o `index.html`,
+ * um `favicon.ico`) não pode receber `immutable` porque o nome dele não muda
+ * quando o conteúdo muda.
+ */
+const COM_HASH = /-[A-Za-z0-9_]{8,}\.[a-z0-9]+$/;
 
 /**
  * Resposta com `Content-Type` **explícito**. Ao devolver a Response por um
@@ -44,9 +86,40 @@ export function servirWeb(publicDir: string) {
  * carrega em branco). `arquivo.type` traz o tipo por extensão; o mapa cobre o
  * punhado que o Bun não adivinha.
  */
-function resposta(arquivo: ReturnType<typeof Bun.file>): Response {
-  const tipo = arquivo.type && arquivo.type !== "application/octet-stream" ? arquivo.type : porExtensao(arquivo.name);
-  return new Response(arquivo, { headers: { "content-type": tipo } });
+async function resposta(
+  arquivo: ReturnType<typeof Bun.file>,
+  caminho: string,
+  aceitaGzip: boolean,
+  cacheGzip: Map<string, Uint8Array>,
+): Promise<Response> {
+  const tipo =
+    arquivo.type && arquivo.type !== "application/octet-stream"
+      ? arquivo.type
+      : porExtensao(arquivo.name);
+
+  const headers: Record<string, string> = {
+    "content-type": tipo,
+    // Mesmo sem comprimir: um proxy no meio precisa saber que a resposta
+    // varia com o cabeçalho, senão serve o corpo errado para o próximo.
+    vary: "Accept-Encoding",
+    "cache-control": COM_HASH.test(caminho)
+      ? "public, max-age=31536000, immutable"
+      : // Sem hash no nome, o conteúdo pode mudar sob o mesmo endereço. O
+        // `no-cache` não proíbe guardar — obriga a revalidar, que com o ETag
+        // custa uma resposta de 304 vazia.
+        "no-cache",
+  };
+
+  if (!aceitaGzip || !COMPRIMIVEIS.test(tipo)) {
+    return new Response(arquivo, { headers });
+  }
+
+  let corpo = cacheGzip.get(caminho);
+  if (corpo === undefined) {
+    corpo = Bun.gzipSync(new Uint8Array(await arquivo.arrayBuffer()));
+    cacheGzip.set(caminho, corpo);
+  }
+  return new Response(corpo, { headers: { ...headers, "content-encoding": "gzip" } });
 }
 
 const TIPOS: Readonly<Record<string, string>> = {

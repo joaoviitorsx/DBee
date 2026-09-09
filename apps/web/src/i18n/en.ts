@@ -230,6 +230,7 @@ export const en: Record<ChaveI18n, string> = {
   // --- inspector ---
   "inspetor.titulo": "Inspector",
   "inspetor.fechar": "Close inspector",
+  "inspetor.abrir": "Open inspector",
   "inspetor.notNull": "NOT NULL",
   "inspetor.tipo": "Type",
   "inspetor.oidTipo": "Type OID",
@@ -410,6 +411,14 @@ export const en: Record<ChaveI18n, string> = {
   "userchip.sair": "Sign out of {user}",
 
   // --- update (DBee.md §8) ---
+  "aba.consulta": "Query",
+  "aba.fechar": "Close",
+  "aba.fecharOutras": "Close others",
+  "aba.fecharTodas": "Close all",
+  "grid.selecionado": "{linhas} × {colunas} selected",
+  "grid.copiaTsv": "Ctrl+C copies as TSV",
+  "grid.nulo": "NULL",
+  "grid.vazio": "empty",
   "acesso.titulo": "Who reaches this connection",
   "acesso.ajuda": "Administrators see every connection. Members see only what you check here — and the change takes effect at once, without waiting for Save.",
   "acesso.carregando": "Loading…",

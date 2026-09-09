@@ -13,7 +13,16 @@ import { RowEditModal, type Pendente, type PkValor } from "../grid/RowEditModal"
 import { InsertModal } from "../grid/InsertModal";
 import { useT } from "../../i18n";
 
-const PAGINA = 200;
+/**
+ * Linhas por página.
+ *
+ * Era 200, e rolar 2.000 linhas custava **nove** requisições de ~37 ms cada,
+ * espaçadas ~350 ms — 3,2 s para uma rolagem que o usuário faz o tempo todo. O
+ * schema já aceitava até 1000; 500 corta as idas pela metade sem materializar
+ * lote grande demais no servidor (o `FETCH n` do §6 traz n linhas para a
+ * memória).
+ */
+const PAGINA = 500;
 
 /**
  * Sub-aba Dados.
@@ -321,8 +330,11 @@ export function DataTab({
       {/* Sem PK não há keyset. Dizer isso é obrigatório: fingir que a navegação
           funciona é o que faz o usuário confiar numa lista incompleta. */}
       {primeira !== undefined && !primeira.keyset ? (
-        <p className="flex shrink-0 items-center gap-1.5 border-b border-danger-line bg-danger-surface px-3 py-1.5 text-2xs text-danger-ink">
-          <TriangleAlert aria-hidden className="h-3 w-3 shrink-0" />
+        // Informação de navegação, não ato destrutivo: sai do vocabulário de
+        // perigo. Em vermelho, colada sob a aba (que também era vermelha), as
+        // duas se liam como um alerta só, dizendo coisas sem relação.
+        <p className="flex shrink-0 items-center gap-1.5 border-b border-line bg-raised px-3 py-1.5 text-2xs text-muted">
+          <TriangleAlert aria-hidden className="h-3 w-3 shrink-0 text-accent" />
           {t("dados.semPk")}
         </p>
       ) : null}

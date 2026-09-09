@@ -4,6 +4,49 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+### Corrigido
+- **Export `.sql` travava para sempre e matava a conexão** quando a tabela tinha
+  múltiplo exato de 1000 linhas. Não era lentidão: o `FETCH` final volta com
+  zero linhas, e nesse passo o caminho `sql`+`insert` não emitia nada **nem
+  fechava o stream** — um `pull` que volta sem enfileirar e sem fechar nunca é
+  chamado de novo. Com isso `aoTerminar` nunca rodava, o lease do pool ficava
+  preso (o `sweep()` pula pools com lease, por desenho) e sobrava uma transação
+  `REPEATABLE READ` pendurada no banco do cliente, segurando o horizonte do
+  VACUUM. **Três exports e aquele par conexão+database ficava morto até o
+  processo reiniciar.** Os outros formatos escapavam por acidente, cada um
+  emitindo algo nesse mesmo passo. As fixtures tinham 2 e 3 linhas, então
+  nenhum teste chegava a um `FETCH` de zero — agora há uma com exatamente 1000,
+  e sem a correção ela estoura em 30 s.
+- **O web estático não comprimia nem deixava cachear.** A resposta saía só com
+  `content-type`: sem validador, o navegador rebaixava **1,38 MB a cada
+  abertura**, inclusive na segunda do mesmo dia. Com gzip e `immutable` nos
+  nomes com hash: 538 kB na primeira visita, **2,9 kB** nas seguintes, e o FCP
+  medido caiu de 812 ms para 236 ms. O `index.html` fica `no-cache` de
+  propósito — se ele cachear, depois de um deploy o app velho aponta para
+  assets que já não existem.
+- **Escrita habilitada aparecia em duas cores na mesma tela**: barra superior
+  âmbar, aba vermelha, a 20 px uma da outra — e o `danger-surface` tinha três
+  donos na mesma vista (a aba, a faixa de "sem chave primária" logo abaixo, e o
+  erro de conexão na árvore). Vermelho volta a ser só do ato destrutivo.
+- **`NULL` e `vazio` no grid mediam 2,11:1** — abaixo do piso que o próprio
+  design-system afirma. Era `opacity-70` empilhado sobre um token já fraco. Num
+  grid fiscal, distinguir NULL de zero é a leitura que importa.
+- **Foco invisível no cabeçalho do grid**: o `:focus-visible` tinha o mesmo
+  fundo do hover e o outline removido — 1,09:1 contra o vizinho, quando o
+  mínimo para elemento de UI é 3:1.
+- **Português vazando na interface em inglês**: nome da aba, menu de abas, menu
+  da árvore, seleção do grid, `NULL`/`vazio`, e dois `aria-label`. Algumas
+  chaves já existiam sem uso.
+- `obrigatória` no formulário de nova linha usava **o mesmo vermelho do erro
+  real**, e o modal abria parecendo ter quatro erros.
+
+### Desempenho
+- `staleTime` do schema alinhado ao TTL do servidor (30 s → 5 min): uma
+  remontagem de aba rebaixava **2,87 MB** de catálogo para pedir de volta o que
+  o servidor já tinha em cache.
+- Página do grid de 200 para 500 linhas: rolar 2.000 linhas custava **nove**
+  requisições, 3,2 s com RTT de 20 ms.
+
 ### Adicionado
 - **Permissão por conexão (fase 2 do multi-usuário).** A fase 1 entregou contas
   individuais e, com elas, o pior arranjo: auditoria correta e **todo mundo

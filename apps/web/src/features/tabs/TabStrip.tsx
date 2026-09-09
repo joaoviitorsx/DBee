@@ -72,11 +72,23 @@ export function TabStrip({
               // Faixa superior de 2px sempre presente (transparente quando
               // inativa) para a aba não pular quando ganha a cor.
               "group/tab flex shrink-0 items-center gap-1.5 border-r border-t-2 border-t-transparent border-line pl-3 pr-1.5 transition-colors duration-150",
-              // Aba ativa assume a cor da marca: topo âmbar e leito `accent-soft`.
-              // Perigo (conexão gravável) vence o âmbar — vermelho é o sinal
-              // mais forte e não pode ser diluído pela cor de marca.
+              /*
+               * Escrita habilitada é **âmbar**, igual à barra superior e à
+               * árvore — não vermelho.
+               *
+               * Esta aba era a última peça na doutrina antiga ("vermelho vence
+               * o âmbar"), e o resultado era a mesma tela afirmando o mesmo
+               * estado em duas famílias de cor a 20 px de distância: barra
+               * âmbar, aba vermelha. Pior, o `danger-surface` tinha três donos
+               * na mesma vista — a aba, a faixa de "sem chave primária" logo
+               * abaixo, e o texto de erro de conexão na árvore ao lado —, e
+               * dois blocos vermelhos encostados leem como um alerta só.
+               *
+               * Vermelho fica reservado ao **ato destrutivo** (design-system
+               * §1.4): confirmar um DELETE. Escrita habilitada é cautela.
+               */
               perigo
-                ? cn("border-t-danger", ativa && "bg-danger-surface")
+                ? cn("border-t-accent-line", ativa && "bg-accent-soft")
                 : ativa
                   ? "border-t-accent bg-accent-soft"
                   : "hover:bg-accent-soft/50",
@@ -91,7 +103,7 @@ export function TabStrip({
             >
               <Icon
                 aria-hidden
-                className={cn("h-3.5 w-3.5", perigo ? "text-danger-ink" : "text-subtle")}
+                className={cn("h-3.5 w-3.5", perigo ? "text-accent" : "text-subtle")}
               />
               <span
                 className={cn(

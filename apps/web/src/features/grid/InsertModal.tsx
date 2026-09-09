@@ -143,7 +143,7 @@ export function InsertModal({
                       {c.name}
                     </span>
                     {obrigatoria ? (
-                      <span className="shrink-0 text-2xs text-danger">{t("edit.obrigatoria")}</span>
+                      <span className="shrink-0 text-2xs text-muted">{t("edit.obrigatoria")}</span>
                     ) : null}
                   </div>
 

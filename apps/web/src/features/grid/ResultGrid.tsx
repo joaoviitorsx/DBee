@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, CornerUpRight } from "lucide-react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef, useState } from "react";
 
+import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
 import { type Celula, contaCelulas, dentro, faixaEntre, recorteTsv } from "./selecao";
 
@@ -101,6 +102,7 @@ export function ResultGrid({
   const [ancora, setAncora] = useState<Celula | null>(null);
   const [foco, setFoco] = useState<Celula | null>(null);
   const [copiado, setCopiado] = useState(false);
+  const t = useT();
   const faixa = faixaEntre(ancora, foco);
 
   /**
@@ -274,8 +276,15 @@ export function ResultGrid({
             const classe = cn(
               "h-full w-full border-r border-line px-3 py-1.5 text-left",
               direita && "text-right",
+              /*
+               * O foco tinha o **mesmo fundo do hover** e o outline removido:
+               * medido, o cabeçalho focado ficava a `1,09:1` do vizinho, contra
+               * os 3:1 que o §9 pede para elemento de UI. Quem navega por
+               * teclado não via onde estava. O anel âmbar volta — "foco visível
+               * é inegociável" (§6).
+               */
               ordenavel &&
-                "cursor-pointer transition-colors duration-150 hover:bg-raised focus-visible:bg-raised focus-visible:outline-none",
+                "cursor-pointer transition-colors duration-150 hover:bg-raised focus-visible:bg-raised focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
               ativa && "bg-amber/[0.06]",
             );
 
@@ -334,8 +343,11 @@ export function ResultGrid({
             <span className="text-ok">copiado como TSV</span>
           ) : (
             <>
-              {contaCelulas(faixa).linhas} × {contaCelulas(faixa).colunas} selecionado ·{" "}
-              <kbd className="font-mono text-subtle">Ctrl+C</kbd> copia como TSV
+              {t("grid.selecionado", {
+                linhas: String(contaCelulas(faixa).linhas),
+                colunas: String(contaCelulas(faixa).colunas),
+              })}{" · "}
+              {t("grid.copiaTsv")}
             </>
           )}
         </div>
@@ -422,10 +434,25 @@ export function ResultGrid({
                       * que aparece de verdade dentro da representação textual
                       * de um array, como em `{a,NULL,b}`.
                       */}
+                    {/*
+                      * Sem `opacity-70`.
+                      *
+                      * Ela empilhava sobre o `text-subtle` da célula e o
+                      * resultado renderizado media **2,51:1 no escuro e 2,11:1
+                      * no claro** — abaixo do piso que o próprio
+                      * `design-system.md` §1.5 afirma para o token. A suíte de
+                      * contraste não pegava porque mede o token sobre
+                      * `surface`, e não vê nem a opacidade nem o fundo
+                      * `sunken` do grid.
+                      *
+                      * Num grid fiscal, distinguir NULL de zero é exatamente a
+                      * leitura que importa. O itálico já separa dos valores;
+                      * a opacidade só apagava.
+                      */}
                     {celula === null ? (
-                      <span className="italic opacity-70">NULL</span>
+                      <span className="italic text-muted">{t("grid.nulo")}</span>
                     ) : celula === "" ? (
-                      <span className="italic text-subtle opacity-70">vazio</span>
+                      <span className="italic text-muted">{t("grid.vazio")}</span>
                     ) : (
                       celula
                     )}

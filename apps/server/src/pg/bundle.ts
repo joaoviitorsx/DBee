@@ -167,11 +167,22 @@ export function streamBundle(
     aoTerminar({ tables: tabelas, rows: linhas }, erro);
   };
 
+  /**
+   * Se este passo já entregou bytes ao consumidor.
+   *
+   * Existe por causa do travamento descrito no `pull`: sem saber se algo saiu,
+   * não há como decidir se é preciso dar outro passo.
+   */
+  let enfileirou = false;
+
   const emitir = (
     c: ReadableStreamDefaultController<Uint8Array>,
     bytes: Uint8Array | null,
   ): void => {
-    if (bytes !== null && bytes.length > 0) c.enqueue(bytes);
+    if (bytes !== null && bytes.length > 0) {
+      c.enqueue(bytes);
+      enfileirou = true;
+    }
   };
 
   const texto = (
@@ -191,13 +202,61 @@ export function streamBundle(
       }
     },
 
+    /**
+     * Repete o passo até **entregar bytes** ou encerrar.
+     *
+     * Sem o laço, o export `.sql` com `INSERT` travava para sempre quando a
+     * tabela tinha múltiplo exato de `EXPORT_BATCH` linhas. O `FETCH` final
+     * volta com zero linhas; nesse passo o caminho `sql`+`insert` não enfileira
+     * nada (o `fecharTabela` do recipiente SQL é `null`) e também não fecha o
+     * stream — e um `pull` que volta sem enfileirar e sem fechar **nunca é
+     * chamado de novo**.
+     *
+     * O efeito não era lentidão: `aoTerminar` nunca rodava, logo o `encerrar`
+     * do `withStreamingTransaction` nunca rodava, o lease ficava preso, e o
+     * `sweep()` pula pools com lease por desenho. Três exports e aquele par
+     * conexão+database ficava morto até o processo reiniciar — com uma
+     * transação `REPEATABLE READ` pendurada no banco do cliente, segurando o
+     * horizonte do VACUUM.
+     *
+     * Os outros formatos escapavam por acidente: cada um emite algo nesse mesmo
+     * passo (o descritor do zip, o `]` do JSON, o `\.` do COPY).
+     *
+     * Nenhum teste pegava porque as fixtures tinham 2 e 3 linhas, e
+     * `EXPORT_BATCH` é 1000 — nunca se chegava a um `FETCH` de zero linhas.
+     */
     async pull(controller) {
-      try {
+      // `umPasso` devolve se entregou bytes em vez de a condição ler a
+      // variável de fora: o TypeScript estreita `enfileirou` para `false` logo
+      // após a atribuição e não enxerga a mutação feita lá dentro.
+      for (;;) {
+        const entregou = await umPasso(controller);
+        if (entregou || encerrado) return;
+      }
+    },
+
+    cancel() {
+      // Navegador fechou a aba, ou o download foi abortado. A transação precisa
+      // ser devolvida do mesmo jeito — senão o cliente fica preso ao pool.
+      encerrar("cancelado pelo cliente");
+    },
+  });
+
+  /**
+   * Um avanço: abre tabela, busca um lote, ou fecha o arquivo.
+   *
+   * Devolve `true` se entregou bytes ao consumidor.
+   */
+  async function umPasso(
+    controller: ReadableStreamDefaultController<Uint8Array>,
+  ): Promise<boolean> {
+    enfileirou = false;
+    try {
         if (indice >= planos.length) {
           emitir(controller, recipiente.finalizar());
           encerrar(null);
           controller.close();
-          return;
+          return enfileirou;
         }
 
         const plano = planos[indice];
@@ -205,7 +264,7 @@ export function streamBundle(
           emitir(controller, recipiente.finalizar());
           encerrar(null);
           controller.close();
-          return;
+          return enfileirou;
         }
 
         // Primeira visita a esta tabela: abre o arquivo/seção e emite estrutura.
@@ -226,7 +285,7 @@ export function streamBundle(
             emitir(controller, recipiente.fecharTabela());
             tabelas += 1;
             indice += 1;
-            return;
+            return enfileirou;
           }
 
           // Cabeçalho de coluna dos formatos tabulares; abertura do array JSON.
@@ -247,7 +306,7 @@ export function streamBundle(
           primeiraLinhaDaTabela = true;
         }
 
-        if (cursorAberto === null) return;
+        if (cursorAberto === null) return enfileirou;
 
         const lote = await client.query<(string | null)[]>({
           text: `FETCH ${String(EXPORT_BATCH)} FROM ${cursorAberto}`,
@@ -299,17 +358,11 @@ export function streamBundle(
           tabelas += 1;
           indice += 1;
         }
-      } catch (erro: unknown) {
-        const mensagem = erro instanceof Error ? erro.message : "erro desconhecido";
-        encerrar(mensagem);
-        controller.error(erro);
-      }
-    },
-
-    cancel() {
-      // Navegador fechou a aba, ou o download foi abortado. A transação precisa
-      // ser devolvida do mesmo jeito — senão o cliente fica preso ao pool.
-      encerrar("cancelado pelo cliente");
-    },
-  });
+    } catch (erro: unknown) {
+      const mensagem = erro instanceof Error ? erro.message : "erro desconhecido";
+      encerrar(mensagem);
+      controller.error(erro);
+    }
+    return enfileirou;
+  }
 }

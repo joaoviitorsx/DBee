@@ -75,6 +75,16 @@ export function useSchema(connectionId: string, database: string, enabled: boole
   return useQuery({
     queryKey: schemaKey(connectionId, database),
     enabled,
+    /*
+     * Cinco minutos, alinhado ao TTL do cache do servidor.
+     *
+     * O padrão global é 30 s, o que fazia uma remontagem de aba depois desse
+     * tempo rebaixar o catálogo inteiro — medido em **2,87 MB** num banco de
+     * 801 tabelas. Não bloqueava (o valor velho é servido), mas era banda
+     * repetida o dia todo numa tailnet, para pedir de volta o mesmo que o
+     * servidor já tinha em cache.
+     */
+    staleTime: 5 * 60_000,
     queryFn: async (): Promise<DatabaseSchema> => {
       const { data, error } = await api.api
         .connections({ id: connectionId })

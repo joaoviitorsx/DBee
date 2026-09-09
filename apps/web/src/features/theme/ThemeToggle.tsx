@@ -2,6 +2,7 @@ import { Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "../../components/ui";
+import { useT } from "../../i18n";
 import { alternar, aplicar, guardarTema, lerTema, type Tema } from "../../lib/theme";
 
 /**
@@ -13,6 +14,7 @@ import { alternar, aplicar, guardarTema, lerTema, type Tema } from "../../lib/th
  */
 export function ThemeToggle() {
   const [tema, setTema] = useState<Tema>(() => lerTema());
+  const t = useT();
 
   useEffect(() => {
     aplicar(tema);
@@ -20,7 +22,7 @@ export function ThemeToggle() {
 
   const proximo = alternar(tema);
   const Icone = proximo === "light" ? Sun : Moon;
-  const legenda = proximo === "light" ? "Mudar para o tema claro" : "Mudar para o tema escuro";
+  const legenda = proximo === "light" ? t("tema.claro") : t("tema.escuro");
 
   return (
     <Button

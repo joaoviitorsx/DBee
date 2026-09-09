@@ -230,6 +230,7 @@ export const pt = {
   // --- inspetor ---
   "inspetor.titulo": "Inspetor",
   "inspetor.fechar": "Fechar inspetor",
+  "inspetor.abrir": "Abrir inspetor",
   "inspetor.notNull": "NOT NULL",
   "inspetor.tipo": "Tipo",
   "inspetor.oidTipo": "OID do tipo",
@@ -410,6 +411,14 @@ export const pt = {
   "userchip.sair": "Sair da conta {user}",
 
   // --- atualização (DBee.md §8) ---
+  "aba.consulta": "Consulta",
+  "aba.fechar": "Fechar",
+  "aba.fecharOutras": "Fechar as outras",
+  "aba.fecharTodas": "Fechar todas",
+  "grid.selecionado": "{linhas} × {colunas} selecionado",
+  "grid.copiaTsv": "Ctrl+C copia como TSV",
+  "grid.nulo": "NULL",
+  "grid.vazio": "vazio",
   "acesso.titulo": "Quem alcança esta conexão",
   "acesso.ajuda": "Administradores enxergam todas as conexões. Membros só o que você marcar aqui — e a mudança vale no ato, sem esperar o Salvar.",
   "acesso.carregando": "Carregando…",

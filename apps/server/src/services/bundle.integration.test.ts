@@ -106,6 +106,10 @@ beforeAll(async () => {
 linha', 0);
     CREATE TABLE notas (id serial PRIMARY KEY, cliente_id int NOT NULL, valor numeric(10,2));
     INSERT INTO notas (cliente_id, valor) VALUES (1, 10.00), (2, 20.50);
+    -- Exatamente EXPORT_BATCH linhas: o gatilho do travamento. Ver o teste
+    -- "múltiplo exato de EXPORT_BATCH" abaixo.
+    CREATE TABLE lote_exato (id int PRIMARY KEY, texto text NOT NULL);
+    INSERT INTO lote_exato SELECT g, 'linha ' || g FROM generate_series(1, 1000) g;
   `]);
   // Sem esta linha, um seed que falha vira seis testes falhando por
   // "tabela não existe" — o sintoma longe da causa.
@@ -455,4 +459,79 @@ describe.if(temDocker)("formatos", () => {
     expect(texto).toContain("CREATE TABLE");
     expect(texto.length).toBeLessThanOrEqual(256 * 1024);
   });
+});
+
+/**
+ * O travamento do stream, e por que ele não é "lentidão".
+ *
+ * Uma tabela com **múltiplo exato** de `EXPORT_BATCH` linhas força um `FETCH`
+ * final que volta com zero. Nesse passo o caminho `sql` + `insert` não tem nada
+ * a emitir — o `fecharTabela` do recipiente SQL é `null` — e também não fecha o
+ * stream; um `pull` que volta sem enfileirar e sem fechar nunca é chamado de
+ * novo.
+ *
+ * O que quebrava não era a resposta: era o **pool**. `aoTerminar` nunca rodava,
+ * logo o `encerrar` do `withStreamingTransaction` nunca rodava, o lease ficava
+ * preso, o `sweep()` pula pools com lease por desenho, e sobrava uma transação
+ * `REPEATABLE READ` pendurada no banco do cliente segurando o horizonte do
+ * VACUUM. Três exports e aquele par conexão+database ficava morto até o
+ * processo reiniciar.
+ *
+ * As fixtures antigas tinham 2 e 3 linhas, então nenhum teste chegava a um
+ * `FETCH` de zero.
+ */
+describe.if(temDocker)("múltiplo exato de EXPORT_BATCH", () => {
+  it("o export .sql termina — e traz as 1000 linhas", async () => {
+    const res = await baixarBundle({
+      tables: [{ schema: "public", table: "lote_exato", structure: true, data: true }],
+      format: "sql",
+      data: "insert",
+    });
+    expect(res.status).toBe(200);
+
+    // O `text()` só resolve quando o stream fecha. Antes da correção ele
+    // pendurava aqui até o timeout do teste.
+    const texto = await res.text();
+    expect(texto).toContain('CREATE TABLE "public"."lote_exato"');
+    expect((texto.match(/INSERT INTO/g) ?? []).length).toBe(1000);
+    expect(texto).toContain("linha 1000");
+  }, 30_000);
+
+  /**
+   * A consequência que dói: o lease tem de voltar. Sem isso o terceiro export
+   * esgota o pool e a conexão fica inutilizável.
+   */
+  it("três exports seguidos continuam funcionando — o lease volta ao pool", async () => {
+    for (const tentativa of [1, 2, 3]) {
+      const res = await baixarBundle({
+        tables: [{ schema: "public", table: "lote_exato", structure: false, data: true }],
+        format: "sql",
+        data: "insert",
+      });
+      const texto = await res.text();
+      expect(`tentativa ${String(tentativa)}: ${String((texto.match(/INSERT INTO/g) ?? []).length)}`)
+        .toBe(`tentativa ${String(tentativa)}: 1000`);
+    }
+
+    // E a conexão segue viva para outra coisa depois dos três.
+    const depois = await baixarBundle({
+      tables: [{ schema: "public", table: "notas", structure: false, data: true }],
+      format: "sql",
+      data: "insert",
+    });
+    expect(depois.status).toBe(200);
+    expect(await depois.text()).toContain("INSERT INTO");
+  }, 60_000);
+
+  /** Os outros formatos escapavam por acidente; que continuem escapando. */
+  it("zip e json também terminam com múltiplo exato", async () => {
+    for (const format of ["csv", "json"] as const) {
+      const res = await baixarBundle({
+        tables: [{ schema: "public", table: "lote_exato", structure: false, data: true }],
+        format,
+      });
+      expect(`${format}: ${String(res.status)}`).toBe(`${format}: 200`);
+      expect((await res.arrayBuffer()).byteLength).toBeGreaterThan(0);
+    }
+  }, 30_000);
 });

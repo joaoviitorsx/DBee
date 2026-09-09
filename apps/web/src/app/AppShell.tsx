@@ -23,7 +23,7 @@ import { UserChip } from "../features/auth/UserChip";
 import { Trabalhando } from "../features/motion/Trabalhando";
 import { Mascote } from "../features/mascote";
 import { IdiomaToggle } from "../features/idioma/IdiomaToggle";
-import { useT } from "../i18n";
+import { type Tradutor, useT } from "../i18n";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
 import { UpdateBadge } from "../features/update/UpdateBadge";
 import { VersaoChip } from "../features/update/VersaoChip";
@@ -427,7 +427,7 @@ export function AppShell({
       {menuAba !== null ? (
         <ContextMenu
           anchor={menuAba.anchor}
-          sections={tabMenuSections(menuAba.id, visivel.tabs, setWs)}
+          sections={tabMenuSections(menuAba.id, visivel.tabs, setWs, t)}
           onClose={() => { setMenuAba(null); }}
         />
       ) : null}
@@ -440,7 +440,7 @@ export function AppShell({
               items: [
                 {
                   id: "nova-conexao",
-                  label: "Nova conexão",
+                  label: t("arvore.novaConexao"),
                   icon: <Plus aria-hidden className="h-3.5 w-3.5" />,
                   onSelect: onNewConnection,
                 },
@@ -459,15 +459,17 @@ function tabMenuSections(
   id: string,
   tabs: readonly { id: string }[],
   setWs: (fn: (ws: Workspace) => Workspace) => void,
+  t: Tradutor,
 ): MenuSection[] {
-  const outras = tabs.filter((t) => t.id !== id);
+  // `aba` e não `t`: o parâmetro do filtro sombreava o tradutor.
+  const outras = tabs.filter((aba) => aba.id !== id);
   return [
     {
       items: [
-        { id: "close", label: "Fechar", onSelect: () => { setWs((a) => closeTab(a, id)); } },
+        { id: "close", label: t("aba.fechar"), onSelect: () => { setWs((a) => closeTab(a, id)); } },
         {
           id: "close-others",
-          label: "Fechar as outras",
+          label: t("aba.fecharOutras"),
           disabled: outras.length === 0,
           onSelect: () => {
             setWs((a) => outras.reduce((acc, t) => closeTab(acc, t.id), a));
@@ -475,7 +477,7 @@ function tabMenuSections(
         },
         {
           id: "close-all",
-          label: "Fechar todas",
+          label: t("aba.fecharTodas"),
           onSelect: () => { setWs((a) => tabs.reduce((acc, t) => closeTab(acc, t.id), a)); },
         },
       ],
@@ -710,7 +712,7 @@ function TableTabContent({
       size="icon"
       variant="ghost"
       className="h-7 w-7 shrink-0"
-      aria-label={inspectorOpen ? "Fechar inspetor" : "Abrir inspetor"}
+      aria-label={inspectorOpen ? t("inspetor.fechar") : t("inspetor.abrir")}
       aria-pressed={inspectorOpen}
       onClick={onToggleInspector}
     >

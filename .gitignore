@@ -29,3 +29,6 @@ data/
 /CLAUDE.md
 /docs/DBee.md
 /docs/adr/
+
+# Definições de subagente são locais — não vão para o repo.
+/.claude/agents/
