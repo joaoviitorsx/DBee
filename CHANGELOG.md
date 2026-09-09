@@ -2,7 +2,7 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.3.7] — 2026-09-09
 
 ### Corrigido
 - **Não dava para executar consulta em produção.** `crypto.randomUUID is not a
