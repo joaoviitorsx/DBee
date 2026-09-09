@@ -110,7 +110,24 @@ const token = semSessao ? null : mintarSessao();
 
 const lista = (await (await fetch(`${CDP}/json/list`)).json()) as { type: string; url: string; webSocketDebuggerUrl: string }[];
 let alvo = lista.find((t) => t.type === "page" && t.url.includes("localhost:5173"));
-alvo ??= (await (await fetch(`${CDP}/json/new?http://localhost:5173/`)).json()) as typeof lista[number];
+/*
+ * `PUT`, e não `GET`.
+ *
+ * O Chrome passou a exigir PUT em `/json/new` (a mudança fecha um CSRF: uma
+ * página qualquer conseguia abrir abas na instância de depuração por uma
+ * navegação simples). Com `GET` a resposta não é JSON, e o erro que aparece é
+ * `SyntaxError: Failed to parse JSON` nesta linha — que não diz nada sobre o
+ * método, e manda procurar defeito no lugar errado.
+ */
+if (alvo === undefined) {
+  const criada = await fetch(`${CDP}/json/new?http://localhost:5173/`, { method: "PUT" });
+  if (!criada.ok) {
+    throw new Error(
+      `não consegui abrir aba no Chrome de depuração (${String(criada.status)}): ${await criada.text()}`,
+    );
+  }
+  alvo = (await criada.json()) as (typeof lista)[number];
+}
 
 const ws = new WebSocket(alvo.webSocketDebuggerUrl);
 let id = 0;

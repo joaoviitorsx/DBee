@@ -25,6 +25,13 @@ export const FAILURES: Readonly<
     status: 400,
     body: { code: "bad_request", message: "entrada inválida" },
   },
+  engine_not_implemented: {
+    status: 400,
+    body: {
+      code: "engine_not_implemented",
+      message: "o DBee ainda não fala esta engine",
+    },
+  },
   upstream_error: {
     status: 502,
     body: { code: "upstream_error", message: "o banco não respondeu" },

@@ -1,4 +1,5 @@
 import type { Connection, CreateConnection, TestConnectionResult, UpdateConnection } from "@dbee/shared";
+import { engineImplementada } from "@dbee/shared";
 
 import type { ConnectionGrant } from "@dbee/shared";
 
@@ -63,8 +64,24 @@ export class ConnectionsService {
     this.#onChanged(connectionId);
   }
 
-  create(input: CreateConnection): Connection {
-    return this.#repository.create(input);
+  /**
+   * Cria a conexão, recusando engine que o DBee ainda não fala.
+   *
+   * O schema valida a **forma** — `"redis"` é um valor legítimo da união
+   * `Engine`, porque a união declara o alvo do plano e não o que está pronto.
+   * Quem sabe o que está pronto é `ENGINES_IMPLEMENTADAS`, e essa checagem
+   * precisa morar aqui e não no formulário: o seletor da tela só esconde a
+   * opção, e esconder não é impedir — `POST /connections` continua alcançável.
+   *
+   * Sem isto a conexão é guardada e só falha muito depois, quando o driver de
+   * Postgres tenta conversar com um Redis, com erro que não explica nada.
+   *
+   * `?? "postgres"` porque `engine` é opcional na criação (ADR 004 proíbe
+   * `default` em schema de entrada), e o repositório resolve o mesmo padrão.
+   */
+  create(input: CreateConnection): ServiceResult<Connection> {
+    if (!engineImplementada(input.engine ?? "postgres")) return fail("engine_not_implemented");
+    return ok(this.#repository.create(input));
   }
 
   update(id: string, patch: UpdateConnection): ServiceResult<Connection> {

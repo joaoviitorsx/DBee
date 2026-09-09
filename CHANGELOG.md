@@ -5,6 +5,52 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Cada motor tem a sua marca na tela.** O formulário de conexão passou a
+  abrir com um seletor de motor, e a linha da conexão na árvore mostra de qual
+  banco ela é.
+
+  Os sete glifos são desenhados aqui (`components/IconeEngine.tsx`), de uma cor
+  só, herdando `currentColor`. Não são as logos coloridas de propósito: a tela
+  já gasta cor em **estado** — âmbar é o acento e é o que significa modo
+  escrita — e trazer sete paletas de marca colocaria sete cores novas
+  competindo com as que já querem dizer alguma coisa. A divisão é **a forma diz
+  qual motor é, a cor diz em que estado ele está**.
+
+  Na árvore, a marca ocupa o lugar da tomada genérica que estava ali. Um ícone
+  entra e um sai, então a densidade da linha não muda — e a tomada dizia "isto é
+  uma conexão", que a árvore de conexões já dizia, enquanto a marca diz qual
+  banco está do outro lado, que não estava escrito em lugar nenhum.
+
+  Os motores ainda não implementados **aparecem apagados e não selecionáveis**.
+  Sete opções iguais prometeriam sete conexões que funcionam, e hoje só uma
+  funciona; o `disabled` do rádio nativo também os tira da navegação por setas.
+  Quando uma engine entra, ela acende sozinha — a fonte é
+  `ENGINES_IMPLEMENTADAS`.
+
+  Em edição o seletor vira um selo fixo: `engine` é imutável por causa do
+  ADR 005, e um seletor que não seleciona seria a tela mentindo.
+
+  Há teste travando que **toda** engine da união aparece no seletor. É o furo
+  que o typecheck não fecha: `GLIFOS` e `NOME_ENGINE` são `Record<Engine, …>` e
+  quebram sozinhos, mas a lista de ordem é um array e uma lista incompleta é um
+  array válido — dava para somar uma engine à união e a tela simplesmente não a
+  desenhar, sem erro em lugar nenhum.
+
+  Bundle: 312,40 → 314,25 kB gzip. TypeBox segue ausente (0 ocorrências).
+
+- **`POST /connections` recusa engine que o DBee ainda não fala** (400
+  `engine_not_implemented`).
+
+  Achado ao revisar o seletor: a tela esconde as engines não implementadas, e
+  esconder não é impedir — a rota continua alcançável por quem chama a API
+  direto. O schema também não pega, porque a união `Engine` declara o alvo do
+  plano e `"redis"` tem a forma certa. Sem a recusa a conexão era guardada e só
+  quebrava muito depois, quando o driver de Postgres tentasse conversar com um
+  Redis, com um erro que não explica nada.
+
+  A checagem mora no serviço, não na rota nem no formulário, que é onde ela vale
+  para qualquer chamador.
+
 - **A conexão passou a saber qual banco está do outro lado** (`engine`), ainda
   com uma engine só. É a primeira fatia do multi-engine, e ela deliberadamente
   **não** adiciona engine nenhuma: o campo, a migration, a tabela de capacidades

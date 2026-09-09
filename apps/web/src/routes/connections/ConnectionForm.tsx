@@ -6,6 +6,7 @@ import { Plug, X } from "lucide-react";
 import { useState, type ComponentProps } from "react";
 
 import { Button, Field, Input } from "../../components/ui";
+import { SeletorDeEngine } from "./SeletorDeEngine";
 import { AcessoDaConexao } from "../../features/usuarios/AcessoDaConexao";
 import { useT } from "../../i18n";
 import type { ChaveI18n } from "../../i18n/pt";
@@ -55,8 +56,8 @@ interface ConnectionFormProps {
 
 function initialDraft(editing: Connection | null): ConnectionDraft {
   return {
-    // Conexão nova nasce Postgres — é a única engine implementada, e o seletor
-    // de engine não é renderizado enquanto for assim (ver `mostra`).
+    // Conexão nova nasce Postgres — a única implementada, e a única que o
+    // seletor deixa escolher (ver `SeletorDeEngine`).
     engine: editing?.engine ?? "postgres",
     name: editing?.name ?? "",
     host: editing?.host ?? "",
@@ -162,6 +163,18 @@ export function ConnectionForm({
 
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
             <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              {/*
+                * O motor vem antes do nome porque é ele que decide o resto do
+                * formulário: `capacidadesDe` governa quais campos aparecem
+                * abaixo. Perguntar o motor depois faria os campos trocarem
+                * debaixo de algo que a pessoa já preencheu.
+                */}
+              <SeletorDeEngine
+                valor={draft.engine ?? "postgres"}
+                onChange={(engine) => { set("engine", engine); }}
+                desabilitado={isEdit}
+              />
+
               <Field label={t("form.nome")} htmlFor="name" hint={t("form.nomeAjuda")}>
                 <Input
                   id="name"

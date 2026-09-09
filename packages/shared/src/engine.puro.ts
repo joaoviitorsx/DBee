@@ -9,6 +9,15 @@
  */
 import type { Engine } from "./engine";
 
+/**
+ * `Engine` como **tipo**, alcançável por quem importa `@dbee/shared/puro`.
+ *
+ * A união mora em `engine.ts` porque lá ela também é schema TypeBox. Aqui só o
+ * tipo é reexportado, e `export type` some na compilação — o front ganha o tipo
+ * sem que a Elysia volte ao bundle, que é a razão de este arquivo existir.
+ */
+export type { Engine };
+
 /** As que o DBee de fato fala hoje. O resto está declarado, não implementado. */
 export const ENGINES_IMPLEMENTADAS: readonly Engine[] = ["postgres"];
 

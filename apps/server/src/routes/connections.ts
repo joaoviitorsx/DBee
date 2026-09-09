@@ -54,11 +54,28 @@ export const connectionsRoutes = (service: ConnectionsService, users: UsersRepos
           const { status: code, body: payload } = USER_FAILURES.admin_required;
           return status(code, payload);
         }
-        return status(201, service.create(body));
+        const result = service.create(body);
+        if (result.ok) return status(201, result.value);
+        /*
+         * 400 literal, e não `FAILURES[result.failure].status`.
+         *
+         * `FAILURES` é anotado como `Record<ServiceFailure, …>`, então indexá-lo
+         * alarga o status para a união inteira (`400 | 404 | 500 | 502`) e a
+         * rota passaria a declarar respostas que não tem como devolver — é o
+         * mesmo alargamento que levou `AUTH_FAILURES` a usar
+         * `as const satisfies`. Criar só falha por engine não implementada.
+         */
+        return status(400, FAILURES.engine_not_implemented.body);
       },
       {
         body: CreateConnection,
-        response: { 201: Connection, 401: ErrorResponse, 403: ErrorResponse },
+        response: {
+          201: Connection,
+          // 400: engine que o schema aceita e o DBee ainda não fala.
+          400: ErrorResponse,
+          401: ErrorResponse,
+          403: ErrorResponse,
+        },
       },
     )
 

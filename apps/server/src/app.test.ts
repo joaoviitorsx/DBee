@@ -49,6 +49,32 @@ describe("GET /api/health", () => {
 });
 
 describe("CRUD de conexões", () => {
+  /*
+   * O seletor da tela só ESCONDE as engines que o DBee não fala, e esconder não
+   * é impedir: `POST /api/connections` continua alcançável por quem chama a API
+   * direto. Sem esta recusa a conexão é guardada e só quebra muito depois,
+   * quando o driver de Postgres tenta conversar com um Redis.
+   *
+   * O schema não pega isso: a união `Engine` declara o alvo do plano, e
+   * `"redis"` tem a forma certa. Quem sabe o que está pronto é
+   * `ENGINES_IMPLEMENTADAS`.
+   */
+  it("recusa com 400 engine que o schema aceita e o DBee ainda não fala", async () => {
+    for (const engine of ["mysql", "mariadb", "sqlite", "libsql", "mongodb", "redis"]) {
+      const res = await call("/api/connections", json({ ...NOVA, name: `x-${engine}`, engine }));
+      expect(res.status).toBe(400);
+      expect((await res.json()) as { code: string }).toMatchObject({
+        code: "engine_not_implemented",
+      });
+    }
+  });
+
+  it("aceita postgres explícito, e a conexão nasce com essa engine", async () => {
+    const res = await call("/api/connections", json({ ...NOVA, name: "pg-explicito", engine: "postgres" }));
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as Connection).engine).toBe("postgres");
+  });
+
   it("cria com 201 e aplica os defaults", async () => {
     const res = await call("/api/connections", json(NOVA));
     expect(res.status).toBe(201);

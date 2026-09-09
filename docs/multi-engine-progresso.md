@@ -13,7 +13,7 @@ arqueologia na terceira sessão.
 |---|---|---|
 | 0b — o campo `engine` existe | migration 007, tipo, capacidades, `engine` na API | **concluída** |
 | 0a — fronteira do driver | ~~interface `Driver` antes da 2ª engine~~ | **absorvida na fase 2**, ver nota |
-| 1 — papéis documentados | `docs/papeis-mysql.md` | não começou |
+| 1 — papéis documentados | `docs/papeis-mysql.md`, medido | **concluída** |
 | 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | não começou |
 | 3 — libSQL | URL + token, read-only por JWT | não começou |
 | 4 — MongoDB | vista de documentos | descrito, não agendado |
@@ -53,6 +53,39 @@ arqueologia na terceira sessão.
 (fora os testes novos acima) e os quatro screenshots batem com os de hoje. É o
 que torna esta fatia barata e verificável — e o que prova que quem só usa
 Postgres não perdeu nada.
+
+## Fase 1 — concluída
+
+- [x] `docs/papeis-mysql.md`, medido contra MySQL 8.4.11 e MariaDB 11.8.9 com
+      `GRANT SELECT` e nada mais. A credencial segura exatamente onde a
+      transação falhava: `TRUNCATE` e `CREATE USER` voltam 1142 e 1227, e os
+      dados ficam intactos depois da bateria inteira.
+- [x] Três achados que o plano não previa, todos no documento: MariaDB permite
+      `SELECT … FOR UPDATE` ao usuário de leitura e o MySQL não (medido: lock de
+      linha travando um `UPDATE` do root com 1205); view com `SQL SECURITY
+      DEFINER` no banco concedido lê de banco sem grant; e no MySQL uma consulta
+      cortada por `max_execution_time` pode voltar **sem erro**.
+- [x] `KILL QUERY` na própria sessão e o timeout de statement sobrevivem ao
+      papel restrito — cancelamento e limite de tempo seguem viáveis.
+
+## Fatia de interface — o motor tem cara
+
+Fora da ordem das fases, mas dentro do multi-engine: o formulário abre com um
+seletor de motor e a linha da árvore mostra de qual banco a conexão é.
+
+- [x] Sete glifos de uma cor só (`components/IconeEngine.tsx`), `currentColor`.
+      A forma diz qual motor é; a cor diz em que estado ele está. Sete paletas
+      de marca competiriam com o âmbar que já significa escrita.
+- [x] Motores não implementados aparecem apagados e não selecionáveis; o rádio
+      nativo `disabled` também os tira da navegação por setas.
+- [x] Teste travando que **toda** engine da união aparece no seletor — o furo
+      que o typecheck não fecha, porque a lista de ordem é um array e uma lista
+      incompleta é um array válido.
+- [x] `POST /connections` recusa engine não implementada (400). Esconder na tela
+      não é impedir na API.
+- [x] Screenshots nos quatro breakpoints, nos dois temas. A primeira versão eram
+      cartões altos e a captura em 375px os reprovou: a grade comia a tela
+      inteira antes do campo Nome. Viraram chips de uma linha.
 
 ## Por que a 0a foi absorvida na fase 2
 

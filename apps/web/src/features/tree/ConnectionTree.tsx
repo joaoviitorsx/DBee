@@ -8,7 +8,6 @@ import {
   Loader2,
   MoreHorizontal,
   Pencil,
-  Plug,
   Plus,
   Search,
   Table2,
@@ -18,6 +17,7 @@ import {
 import { useMemo, useState } from "react";
 
 import { Button, Input } from "../../components/ui";
+import { IconeEngine, NOME_ENGINE } from "../../components/IconeEngine";
 import { anchorFromEvent, anchorFromRect, type MenuAnchor } from "../../components/ContextMenu";
 import { HoneycombCluster } from "../../components/HoneycombCluster";
 import { useT } from "../../i18n";
@@ -463,7 +463,28 @@ function ConnectionBranch({
             <span className={cn("h-1.5 w-1.5 rounded-full", HEALTH_DOT[saude === "ok" ? "ok" : "untested"])} />
           )}
         </span>
-        <Plug aria-hidden className={cn("h-3.5 w-3.5 shrink-0", perigo ? "text-danger-ink" : "text-muted")} />
+        {/*
+          * A marca do motor no lugar onde havia uma tomada genérica.
+          *
+          * A tomada dizia "isto é uma conexão" — que a árvore já diz por ser a
+          * árvore de conexões. A marca diz **qual banco está do outro lado**,
+          * que é informação que não estava em lugar nenhum da linha. Um ícone
+          * entra e um sai: a densidade da linha não muda.
+          */}
+        <span className="flex shrink-0 items-center" title={NOME_ENGINE[connection.engine]}>
+          {/*
+            * Sempre `text-muted`, inclusive com escrita habilitada.
+            *
+            * A tomada que estava aqui virava rosa no estado de perigo, e a
+            * marca herdou isso por um momento. Está errado: qual motor é não
+            * muda porque a escrita foi habilitada, e o rosa a três pixels do
+            * ponto de saúde lê como "esta conexão deu erro". O estado já é dito
+            * pela borda âmbar, pelo fundo e pelo selo do lápis — três vezes.
+            * Aqui a regra do conjunto vale: a forma diz qual, a cor diz como.
+            */}
+          <IconeEngine engine={connection.engine} className="h-3.5 w-3.5 text-muted" />
+          <span className="sr-only">{NOME_ENGINE[connection.engine]}</span>
+        </span>
         <span className="truncate text-sm font-medium text-ink">{connection.name}</span>
         <span className="sr-only">{t(HEALTH_LABEL[saude])}</span>
         {/*
