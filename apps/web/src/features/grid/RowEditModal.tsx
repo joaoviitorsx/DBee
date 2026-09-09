@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import {
   construirDelete,
   construirUpdate,
+  type TiposDeColuna,
   type RowDeleteRequest,
   type RowUpdateRequest,
 } from "@dbee/shared";
@@ -69,10 +70,17 @@ function erroDaResposta(error: unknown): Error & { code?: string } {
 export function RowEditModal({
   connectionId,
   pendente,
+  tipos,
   onClose,
 }: {
   readonly connectionId: string;
   readonly pendente: Pendente;
+  /**
+   * Tipos das colunas, só para o preview sair igual ao que o servidor executa.
+   * Vazio degrada para a forma sem cast — o preview fica menos exato, a
+   * execução não muda (quem manda no SQL executado é o servidor).
+   */
+  readonly tipos?: TiposDeColuna;
   readonly onClose: () => void;
 }) {
   const { t } = useIdioma();
@@ -105,7 +113,9 @@ export function RowEditModal({
   }, [pendente, comoNull]);
 
   const literal =
-    corpo.kind === "update" ? construirUpdate(corpo.body).literal : construirDelete(corpo.body).literal;
+    corpo.kind === "update"
+      ? construirUpdate(corpo.body, tipos).literal
+      : construirDelete(corpo.body, tipos).literal;
 
   const aplicar = useMutation({
     mutationFn: async () => {

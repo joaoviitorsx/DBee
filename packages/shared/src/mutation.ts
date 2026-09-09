@@ -110,7 +110,59 @@ const lit = (v: CellValue): string => (v === null ? "NULL" : `'${v.replace(/'/g,
 
 const rel = (schema: string, table: string): string => `${qid(schema)}.${qid(table)}`;
 
-export function construirUpdate(req: RowUpdateRequest): SqlConstruido {
+/**
+ * Tipo de cada coluna, como `format_type` do catálogo o escreve
+ * (`character(14)`, `numeric(12,2)`, `timestamp with time zone`).
+ *
+ * Vem **do servidor**, lido do `pg_attribute` da conexão em uso, nunca da
+ * requisição: o tipo é interpolado no SQL, e aceitar do cliente seria injeção.
+ * Coluna ausente do mapa cai na forma antiga — degrada, não quebra.
+ */
+export type TiposDeColuna = ReadonlyMap<string, string>;
+
+/**
+ * A guarda otimista de uma coluna.
+ *
+ * ## O bug que esta função existe para não repetir
+ *
+ * A guarda era `col::text = $n`, e a justificativa estava certa pela metade:
+ * `json` e `xml` não têm operador `=`, e o valor lido já veio como texto. O que
+ * ninguém conferiu é que **`col::text` não é o que o driver entregou**. Medido
+ * contra Postgres real, três tipos divergem:
+ *
+ * | tipo            | o grid recebeu   | `col::text` dá   |
+ * |-----------------|------------------|------------------|
+ * | `character(14)` | `"1234567890    "` (preenchido) | `"1234567890"` |
+ * | `boolean`       | `"t"`            | `"true"`         |
+ * | `inet`          | `"10.0.0.1"`     | `"10.0.0.1/32"`  |
+ *
+ * Nos três a guarda casava **zero** linhas, sempre. E zero linha não vira erro
+ * técnico: vira `row_changed`, que diz à pessoa "a linha mudou desde que você a
+ * leu — recarregue e refaça". Mentira, e inacionável: recarregar traz o mesmo
+ * valor e falha de novo, para sempre. Como a guarda do DELETE cobre TODAS as
+ * colunas não-PK, um único `char(n)` preenchido ou um `boolean` tornava a
+ * tabela inteira impossível de excluir.
+ *
+ * ## A forma que passa em todos
+ *
+ * `col::text = $n::<tipo>::text` — os dois lados atravessam exatamente a mesma
+ * conversão. O parâmetro volta a ser o tipo da coluna (é dela que ele saiu, e
+ * por isso o cast nunca falha) e só então vira texto, do mesmo jeito que o lado
+ * esquerdo. Varridos 25 tipos contra Postgres real: os 25 casam, incluindo
+ * `json`, `xml` e `point`, que **não têm `=`** e por isso derrubariam a
+ * alternativa óbvia (`col = $n::<tipo>`).
+ *
+ * A PK continua sem cast nenhum, para seguir usando o índice.
+ */
+function guarda(coluna: string, valor: CellValue, tipos: TiposDeColuna, ph: (v: CellValue) => string): string {
+  // `= NULL` nunca casa; a ausência é comparada com `IS NULL`.
+  if (valor === null) return `${qid(coluna)} IS NULL`;
+  const tipo = tipos.get(coluna);
+  if (tipo === undefined) return `${qid(coluna)}::text = ${ph(valor)}`;
+  return `${qid(coluna)}::text = ${ph(valor)}::${tipo}::text`;
+}
+
+export function construirUpdate(req: RowUpdateRequest, tipos: TiposDeColuna = new Map()): SqlConstruido {
   const params: CellValue[] = [];
   const ph = (v: CellValue): string => {
     params.push(v);
@@ -126,22 +178,10 @@ export function construirUpdate(req: RowUpdateRequest): SqlConstruido {
     whereSql.push(`${qid(p.column)} = ${ph(p.value)}`);
     whereLit.push(`${qid(p.column)} = ${lit(p.value)}`);
   }
-  // Guarda otimista: os valores originais das colunas alteradas. NULL vira
-  // `IS NULL` — `= NULL` nunca casa.
-  //
-  // A comparação é sobre `col::text`, não `col = $n`: `json` e `xml` (entre
-  // outros) não têm operador `=`, e o valor lido já veio como texto de qualquer
-  // forma. Casar `col::text` contra esse texto detecta a mudança sem depender de
-  // o tipo ter igualdade — e vale para todos os tipos. A PK fica sem cast, para
-  // continuar usando o índice.
+  // Guarda otimista: os valores originais das colunas alteradas. Ver `guarda`.
   for (const c of req.changes) {
-    if (c.from === null) {
-      whereSql.push(`${qid(c.column)} IS NULL`);
-      whereLit.push(`${qid(c.column)} IS NULL`);
-    } else {
-      whereSql.push(`${qid(c.column)}::text = ${ph(c.from)}`);
-      whereLit.push(`${qid(c.column)}::text = ${lit(c.from)}`);
-    }
+    whereSql.push(guarda(c.column, c.from, tipos, ph));
+    whereLit.push(guarda(c.column, c.from, tipos, lit));
   }
 
   const alvo = rel(req.schema, req.table);
@@ -171,7 +211,7 @@ export function construirInsert(req: RowInsertRequest): SqlConstruido {
   };
 }
 
-export function construirDelete(req: RowDeleteRequest): SqlConstruido {
+export function construirDelete(req: RowDeleteRequest, tipos: TiposDeColuna = new Map()): SqlConstruido {
   const params: CellValue[] = [];
   const ph = (v: CellValue): string => {
     params.push(v);
@@ -184,17 +224,10 @@ export function construirDelete(req: RowDeleteRequest): SqlConstruido {
     whereSql.push(`${qid(p.column)} = ${ph(p.value)}`);
     whereLit.push(`${qid(p.column)} = ${lit(p.value)}`);
   }
-  // Guarda otimista, mesmos moldes do UPDATE: `col::text = valor` (json/xml não
-  // têm operador `=`, e o valor lido já veio como texto); NULL vira `IS NULL`. A
-  // PK acima fica sem cast, para usar o índice.
+  // Guarda otimista, mesmos moldes do UPDATE. Ver `guarda`.
   for (const g of req.guard) {
-    if (g.value === null) {
-      whereSql.push(`${qid(g.column)} IS NULL`);
-      whereLit.push(`${qid(g.column)} IS NULL`);
-    } else {
-      whereSql.push(`${qid(g.column)}::text = ${ph(g.value)}`);
-      whereLit.push(`${qid(g.column)}::text = ${lit(g.value)}`);
-    }
+    whereSql.push(guarda(g.column, g.value, tipos, ph));
+    whereLit.push(guarda(g.column, g.value, tipos, lit));
   }
 
   const alvo = rel(req.schema, req.table);

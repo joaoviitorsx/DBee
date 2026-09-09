@@ -106,6 +106,23 @@ export function DataTab({
   const linhas = useMemo(() => paginas.flatMap((p) => p.rows), [paginas]);
   const colunas = primeira?.columns ?? [];
 
+  /*
+   * Os tipos das colunas, para o PREVIEW da edição bater com o que executa.
+   *
+   * Vêm do schema (`introspect`, que usa `format_type(atttypid, atttypmod)`),
+   * não de `columns[].dataTypeName` do resultado: aquele é resolvido com
+   * `format_type(oid, NULL)`, **sem** o typmod, e devolve `character` no lugar
+   * de `character(14)` — castar por ele truncaria o valor a um caractere.
+   *
+   * Isto é só desenho de tela. O SQL que executa é montado no servidor, com o
+   * tipo lido do catálogo lá — tipo vindo do cliente entraria no SQL e seria
+   * injeção.
+   */
+  const tiposDeColuna = useMemo(
+    () => new Map((colunasSchema ?? []).map((c) => [c.name, c.dataType])),
+    [colunasSchema],
+  );
+
   const ordenarPor = (nome: string): void => {
     if (orderBy === nome) {
       setOrderDirection((d) => (d === "asc" ? "desc" : "asc"));
@@ -387,6 +404,7 @@ export function DataTab({
         <RowEditModal
           connectionId={target.connectionId}
           pendente={pendente}
+          tipos={tiposDeColuna}
           onClose={() => { setPendente(null); }}
         />
       ) : null}

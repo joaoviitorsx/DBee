@@ -7,11 +7,14 @@ import {
   type RowMutationResult,
   type RowUpdateRequest,
   type SqlConstruido,
+  type TiposDeColuna,
 } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
+import type { PoolClient } from "pg";
+
 import type { PoolManager } from "../pg/pool";
 import { type MutationResult, mutFail, mutOk } from "./result";
 
@@ -66,7 +69,9 @@ export class MutationService {
     request: RowUpdateRequest,
     ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
-    return this.#aplicar(connectionId, request.database, ator, construirUpdate(request));
+    return this.#aplicar(connectionId, request.database, ator, request, (tipos) =>
+      construirUpdate(request, tipos),
+    );
   }
 
   delete(
@@ -74,7 +79,9 @@ export class MutationService {
     request: RowDeleteRequest,
     ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
-    return this.#aplicar(connectionId, request.database, ator, construirDelete(request));
+    return this.#aplicar(connectionId, request.database, ator, request, (tipos) =>
+      construirDelete(request, tipos),
+    );
   }
 
   insert(
@@ -84,14 +91,47 @@ export class MutationService {
   ): Promise<MutationResult<RowMutationResult>> {
     // Reusa #aplicar: um INSERT de uma linha afeta exatamente 1 (ou o Postgres
     // recusa por constraint, e o erro vai inteiro para a tela).
-    return this.#aplicar(connectionId, request.database, ator, construirInsert(request));
+    //
+    // `null` no alvo: INSERT não tem guarda otimista, então não precisa dos
+    // tipos — e não paga a ida ao catálogo.
+    return this.#aplicar(connectionId, request.database, ator, null, () =>
+      construirInsert(request),
+    );
+  }
+
+  /**
+   * Os tipos das colunas da tabela alvo, do catálogo da conexão em uso.
+   *
+   * **Lido do servidor, dentro da transação** — nunca aceito da requisição. O
+   * tipo é interpolado no SQL da guarda; vindo do cliente seria injeção. E
+   * lido agora, não do schema em cache: cache velho daria um cast que não
+   * corresponde à coluna.
+   *
+   * `format_type` já devolve identificador citado quando precisa, então um
+   * tipo com nome hostil sai escapado (há teste que trava isso).
+   */
+  static async #tiposDaTabela(
+    client: PoolClient,
+    schema: string,
+    table: string,
+  ): Promise<TiposDeColuna> {
+    const res = await client.query<{ nome: string; tipo: string }>(
+      `SELECT a.attname AS nome, format_type(a.atttypid, a.atttypmod) AS tipo
+         FROM pg_attribute a
+         JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped`,
+      [schema, table],
+    );
+    return new Map(res.rows.map((r) => [r.nome, r.tipo]));
   }
 
   async #aplicar(
     connectionId: string,
     database: string,
     ator: Ator,
-    construido: SqlConstruido,
+    alvo: { readonly schema: string; readonly table: string } | null,
+    montar: (tipos: TiposDeColuna) => SqlConstruido,
   ): Promise<MutationResult<RowMutationResult>> {
     const inicio = performance.now();
 
@@ -107,10 +147,17 @@ export class MutationService {
     // negada vai ao query_log: escrita barrada é justamente o evento que uma
     // auditoria existe para registrar. O SQL literal já traz a intenção completa.
     if (!connection.writeEnabled) {
+      /*
+       * Negado antes de tocar o banco — então não há catálogo para consultar, e
+       * o literal registrado sai com a guarda na forma sem tipo. Nada executou:
+       * o que a auditoria precisa provar (tabela, colunas, valores, ator) é
+       * idêntico, e abrir conexão só para enfeitar o log de uma escrita
+       * recusada seria o custo pelo lado errado.
+       */
       this.#registrar(
         connectionId,
         database,
-        construido.literal,
+        montar(new Map()).literal,
         "error",
         "escrita negada: write_enabled desligado na conexão",
         null,
@@ -120,12 +167,25 @@ export class MutationService {
       return mutFail("write_forbidden");
     }
 
+    /*
+     * O SQL só fica pronto DENTRO da transação, porque a guarda depende dos
+     * tipos das colunas e eles vêm do catálogo da conexão.
+     *
+     * A variável nasce com a forma sem tipo para que o `catch` sempre tenha um
+     * literal para registrar — inclusive se a falha for a própria leitura do
+     * catálogo, antes de qualquer statement.
+     */
+    let construido: SqlConstruido = montar(new Map());
+
     try {
       const rowCount = await this.#pools.withTransaction(
         connection,
         database,
         false,
         async (client) => {
+          if (alvo !== null) {
+            construido = montar(await MutationService.#tiposDaTabela(client, alvo.schema, alvo.table));
+          }
           const res = await client.query(construido.text, construido.params);
           const rc = res.rowCount ?? 0;
           if (rc !== 1) throw new CardinalidadeError(rc);

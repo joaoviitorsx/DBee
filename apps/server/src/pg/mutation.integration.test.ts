@@ -117,6 +117,25 @@ beforeAll(async () => {
         INSERT INTO tipos VALUES
           (1, 1.0, 1.0, 0.1, '2026-03-01 12:00:00+00', '{"b":2,"a":1}'),
           (2, 1.0, 1.0, 0.1, '2026-03-01 12:00:00+00', '{"b":2,"a":1}');
+
+        -- Tipos cuja REPRESENTAÇÃO NO FIO diverge de \`col::text\`. Com a guarda
+        -- antiga a comparação casava zero SEMPRE, e a tela dizia "a linha
+        -- mudou desde que você a leu" — mentira, e sem saída: recarregar traz
+        -- o mesmo valor e falha de novo.
+        --   char(n) → fio '1234567890    ' (preenchido) · ::text tira o branco
+        --   boolean → fio 't'                           · ::text 'true'
+        --   inet    → fio '10.0.0.1'                    · ::text '10.0.0.1/32'
+        CREATE TABLE divergentes (
+          id int PRIMARY KEY,
+          cnpj char(14),
+          ativo boolean,
+          ip inet,
+          obs text
+        );
+        INSERT INTO divergentes VALUES
+          (1, '1234567890', true,  '10.0.0.1', 'um'),
+          (2, '0000000001', false, '10.0.0.2', 'dois'),
+          (3, '5555555555', true,  '10.0.0.3', 'tres');
       `),
     },
   );
@@ -411,5 +430,102 @@ describe.skipIf(!temDocker)("auditoria de escrita negada", () => {
     }
     // O SQL literal da intenção foi preservado (não é uma linha vazia).
     expect(negadas.some((e) => e.sql.length > 0)).toBe(true);
+  });
+});
+
+/**
+ * A guarda otimista contra tipos cuja representação no fio diverge de `::text`.
+ *
+ * Estes três estavam **quebrados em produção** e ninguém os viu, porque a falha
+ * não parece falha: `rowCount = 0` vira `row_changed`, e `row_changed` diz à
+ * pessoa que outra pessoa mexeu na linha. Não mexeu. Recarregar traz o mesmo
+ * valor e falha igual, para sempre.
+ *
+ * Como a guarda do DELETE cobre TODAS as colunas não-PK, bastava **uma**
+ * coluna `char(n)` preenchida — CNPJ em `char(14)`, código em `char(11)`, UF em
+ * `char(5)` — ou **um** `boolean` para a tabela inteira virar impossível de
+ * excluir. Em escritório contábil isso é o schema comum, não o exótico.
+ */
+describe.skipIf(!temDocker)("guarda otimista — tipos que divergem de ::text", () => {
+  it("apaga linha com char(n) preenchido, boolean e inet", async () => {
+    const res = await call(`/api/connections/${connWrite}/rows/delete`, {
+      ...alvo, table: "divergentes",
+      pk: [{ column: "id", value: "1" }],
+      // Os valores EXATAMENTE como o grid os recebe pelo driver: o char(14)
+      // vem com o branco de preenchimento, o boolean vem 't', o inet vem sem
+      // a máscara. É isso que o front devolve na guarda.
+      guard: [
+        { column: "cnpj", value: "1234567890    " },
+        { column: "ativo", value: "t" },
+        { column: "ip", value: "10.0.0.1" },
+        { column: "obs", value: "um" },
+      ],
+    });
+    expect(`${String(res.status)} ${JSON.stringify(await res.clone().json())}`).toStartWith("200");
+    expect(valorDireto("SELECT count(*) FROM divergentes WHERE id = 1")).toBe("0");
+  });
+
+  it("edita a própria coluna char(n), com o valor preenchido na guarda", async () => {
+    const res = await call(`/api/connections/${connWrite}/rows/update`, {
+      ...alvo, table: "divergentes",
+      pk: [{ column: "id", value: "2" }],
+      changes: [{ column: "cnpj", from: "0000000001    ", to: "9999999999" }],
+    });
+    expect(res.status).toBe(200);
+    expect(valorDireto("SELECT btrim(cnpj) FROM divergentes WHERE id = 2")).toBe("9999999999");
+  });
+
+  it("edita boolean, cujo fio é 't' e o ::text é 'true'", async () => {
+    const res = await call(`/api/connections/${connWrite}/rows/update`, {
+      ...alvo, table: "divergentes",
+      pk: [{ column: "id", value: "3" }],
+      changes: [{ column: "ativo", from: "t", to: "false" }],
+    });
+    expect(res.status).toBe(200);
+    expect(valorDireto("SELECT ativo FROM divergentes WHERE id = 3")).toBe("f");
+  });
+
+  /**
+   * O que o conserto NÃO pode ter feito: afrouxar a guarda.
+   *
+   * Um cast a mais que casasse "qualquer coisa" transformaria a proteção contra
+   * escrita concorrente em enfeite — e num DELETE isso não volta atrás.
+   */
+  it("continua recusando quando um terceiro alterou a linha", async () => {
+    psql("UPDATE divergentes SET ativo = false WHERE id = 3 AND ativo IS NOT NULL");
+    psql("UPDATE divergentes SET obs = 'mexido' WHERE id = 3");
+    const res = await call(`/api/connections/${connWrite}/rows/delete`, {
+      ...alvo, table: "divergentes",
+      pk: [{ column: "id", value: "3" }],
+      guard: [
+        { column: "cnpj", value: "5555555555    " },
+        { column: "ativo", value: "f" },
+        { column: "ip", value: "10.0.0.3" },
+        { column: "obs", value: "tres" }, // desatualizado: já é 'mexido'
+      ],
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("row_changed");
+    expect(valorDireto("SELECT count(*) FROM divergentes WHERE id = 3")).toBe("1");
+  });
+
+  /**
+   * O tipo entra no SQL por interpolação — então ele **não pode** vir do
+   * cliente, e o que vem do catálogo tem de sair escapado.
+   */
+  it("tipo com nome hostil sai citado pelo format_type, não quebra o SQL", async () => {
+    psql(`CREATE DOMAIN public."ti""po; DROP TABLE divergentes; --" AS text`);
+    psql(`CREATE TABLE hostil (id int PRIMARY KEY, v public."ti""po; DROP TABLE divergentes; --")`);
+    psql(`INSERT INTO hostil VALUES (1, 'ok')`);
+
+    const res = await call(`/api/connections/${connWrite}/rows/delete`, {
+      ...alvo, table: "hostil",
+      pk: [{ column: "id", value: "1" }],
+      guard: [{ column: "v", value: "ok" }],
+    });
+    expect(res.status).toBe(200);
+    // A tabela que o nome do tipo mandava derrubar continua existindo — é o
+    // que o `DROP TABLE` embutido no nome do tipo teria levado.
+    expect(valorDireto("SELECT to_regclass('public.divergentes') IS NOT NULL")).toBe("t");
   });
 });

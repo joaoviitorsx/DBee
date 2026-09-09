@@ -28,6 +28,31 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   vivas, rearme estável em quatro alternâncias, e a variante de raiz cobrindo a
   janela nos dois temas.
 
+### Corrigido
+- **Linha com `char(n)`, `boolean` ou `inet` não podia ser excluída nem
+  editada — e a tela culpava um terceiro que não existia.** A guarda otimista
+  comparava `col::text = $n`, e `col::text` **não é o que o driver entregou**:
+
+  | tipo | o grid recebeu | `col::text` dá |
+  |---|---|---|
+  | `character(14)` | `"1234567890    "` (preenchido) | `"1234567890"` |
+  | `boolean` | `"t"` | `"true"` |
+  | `inet` | `"10.0.0.1"` | `"10.0.0.1/32"` |
+
+  Nos três a guarda casava **zero** linhas, sempre. Zero não vira erro técnico:
+  vira `row_changed`, que diz "a linha mudou desde que você a leu — recarregue e
+  refaça". Mentira, e sem saída — recarregar traz o mesmo valor e falha de novo.
+  Como a guarda do DELETE cobre **todas** as colunas não-PK, um único CNPJ em
+  `char(14)` ou um `boolean` tornava a tabela inteira impossível de excluir.
+  Schema contábil legado é feito disso.
+
+  A guarda passou a `col::text = $n::<tipo>::text`: os dois lados atravessam a
+  mesma conversão. Varridos 25 tipos contra Postgres real — os 25 casam,
+  inclusive `json`, `xml` e `point`, que não têm operador `=` e por isso
+  derrubariam a alternativa óbvia (`col = $n::<tipo>`). O tipo é lido do
+  catálogo **no servidor**, dentro da transação: vindo do cliente entraria no
+  SQL e seria injeção. A guarda continua recusando alteração de terceiro — há
+  teste para isso, porque afrouxar a proteção seria pior que o defeito.
 ## [0.3.1] — 2026-09-08
 
 ### Adicionado
