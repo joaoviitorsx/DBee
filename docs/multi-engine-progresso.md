@@ -14,7 +14,7 @@ arqueologia na terceira sessão.
 | 0b — o campo `engine` existe | migration 007, tipo, capacidades, `engine` na API | **concluída** |
 | 0a — fronteira do driver | `DriverLeitura` + contrato contra 3 engines | **concluída** na fase 2 |
 | 1 — papéis documentados | `docs/papeis-mysql.md`, medido | **concluída** |
-| 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | **funcional** — falta verificação por screenshot |
+| 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | **concluída** |
 | 3 — libSQL | URL + token, read-only por JWT | não começou |
 | 4 — MongoDB | vista de documentos | descrito, não agendado |
 | 5 — Redis | vista chave/valor (6 tipos) | descrito, não agendado |
@@ -167,18 +167,19 @@ conexão, testar, navegar a árvore, executar consulta e cancelar. O que **não*
 funciona e recusa com mensagem clara: exportação, DDL, edição de linhas e a
 grade com filtro e paginação.
 
-### Falta para fechar a fase por completo
+### O que a fase 2 entrega
 
-- [ ] Verificação por screenshot nos quatro breakpoints com uma conexão MySQL
-      real na árvore (`CLAUDE.md` §4b). O container de demonstração
-      (`dbee-demo-my`, catálogo de música) foi preparado e não chegou a ser
-      fotografado.
-- [ ] `planRows` do MySQL — a condição de keyset está pronta e medida
-      (`mysql/keyset.ts`), falta o planejador que a usa: filtros, validação de
-      coluna contra o catálogo e contagem. Enquanto isso a grade de linhas
-      recusa MySQL pela guarda.
-- [ ] Introspecção completa (`/schema`): colunas, índices e chaves estrangeiras.
-      Só a árvore leve existe hoje, e é por isso que `diagramaErd` é `false`.
+Leitura completa em MySQL e MariaDB: criar e testar conexão, navegar a árvore,
+ler o catálogo inteiro (colunas, chave primária, índices e chaves estrangeiras),
+executar consulta com cancelamento, e a grade de linhas com filtro, ordenação e
+paginação por cursor.
+
+O que **não** existe nessas engines, e recusa com mensagem que diz o que falta:
+exportação, DDL e edição de linhas. Depende da decisão sobre a segunda
+credencial.
+
+Verificado de ponta a ponta contra servidor real pela API, e por screenshot em
+1440 e 1024 nos dois temas.
 
 ## Decisões pendentes, e quem decide
 

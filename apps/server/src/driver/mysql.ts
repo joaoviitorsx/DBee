@@ -1,12 +1,22 @@
 import { splitStatements } from "@dbee/shared/puro";
-import type { DatabaseInfo, DatabaseTree, Engine, StatementResult, TestConnectionResult } from "@dbee/shared";
+import type {
+  DatabaseInfo,
+  DatabaseSchema,
+  DatabaseTree,
+  Engine,
+  Relation,
+  RowsRequest,
+  StatementResult,
+  TestConnectionResult,
+} from "@dbee/shared";
 
 import type { ResolvedConnection } from "../db/connections.repo";
 import { erroDeConsulta, executarUm } from "../mysql/executor";
-import { introspectarArvore, listarDatabases } from "../mysql/introspect";
+import { introspectarArvore, introspectarCompleto, listarDatabases } from "../mysql/introspect";
 import { PoolMysql } from "../mysql/pool";
+import { lerLinhas, planejarLinhas } from "../mysql/rows";
 import { testConnectionMysql } from "../mysql/test-connection";
-import type { DriverLeitura, OpcoesExecucao, ResultadoExecucao } from "./tipos";
+import type { DriverLeitura, OpcoesExecucao, ResultadoExecucao, ResultadoLinhas } from "./tipos";
 
 /**
  * O driver de MySQL e MariaDB, em leitura.
@@ -47,6 +57,32 @@ export class DriverMysql implements DriverLeitura {
     const alvo = this.#em(conexao, database);
     return await this.#pool.usar(alvo, async (c) => ({
       valor: await introspectarArvore(c, database),
+      descartarConexao: false,
+    }));
+  }
+
+  async esquema(conexao: ResolvedConnection, database: string): Promise<DatabaseSchema> {
+    const alvo = this.#em(conexao, database);
+    return await this.#pool.usar(alvo, async (c) => ({
+      valor: await introspectarCompleto(c, database),
+      descartarConexao: false,
+    }));
+  }
+
+  async linhas(
+    conexao: ResolvedConnection,
+    database: string,
+    // O MySQL não tem nível de schema: o database já qualifica a tabela.
+    _schema: string,
+    relacao: Relation,
+    pedido: RowsRequest,
+  ): Promise<ResultadoLinhas> {
+    const alvo = this.#em(conexao, database);
+    // Montado antes de executar, como no Postgres: a auditoria registra o
+    // comando mesmo quando a execução falha.
+    const sql = planejarLinhas(relacao, database, pedido).sql;
+    return await this.#pool.usar<ResultadoLinhas>(alvo, async (c) => ({
+      valor: { resposta: await lerLinhas(c, relacao, database, pedido), sql },
       descartarConexao: false,
     }));
   }

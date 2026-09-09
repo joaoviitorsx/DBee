@@ -5,6 +5,54 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **A fase 2 fechada: introspecção completa e grade de linhas no
+  MySQL/MariaDB.**
+
+  O catálogo inteiro — colunas com tipo canônico (`varchar(120)`, não
+  `varchar`), chave primária, índices e chaves estrangeiras — e a grade com
+  filtro, ordenação e paginação por cursor. `diagramaErd` virou `true` **quando
+  as FKs passaram a ser lidas**, e não antes: capacidade é o que a engine faz,
+  não o que se pretende que ela faça.
+
+  Três defeitos meus que a medição pegou:
+
+  1. **O `dataTypeId` do catálogo não casava com o da consulta.** O protocolo
+     tem dois números para varchar — `VARCHAR` (15) e `VAR_STRING` (253) — e o
+     servidor manda 253; o mesmo vale para `decimal` (0 contra **246**). O mapa
+     inverso caía nos antigos por ordem de iteração, e a tela não conseguia
+     ligar a coluna do catálogo à do resultado. Sem erro nenhum. Há teste
+     comparando as duas pontas contra servidor real.
+  2. **O erro de coluna inexistente virava `502 upstream_error`.** O planejador
+     de MySQL definiu uma classe de erro própria, e o serviço só reconhecia a do
+     Postgres — um erro do usuário, com mensagem pronta, aparecia como se o
+     servidor tivesse caído. A classe mudou para `driver/erros.ts`: o conceito é
+     da grade, não de uma engine.
+  3. **A introspecção lia a linha por nome** enquanto as conexões do driver vêm
+     com `rowsAsArray` — o mesmo descompasso que o teste de contrato já tinha
+     pegado uma vez, repetido por mim ao escrever um teste novo.
+
+  Divergências medidas que entram no registro:
+
+  - `TABLE_COMMENT` de uma **view** vem literalmente `"VIEW"` — não é comentário
+    de ninguém. Sem filtrar, toda view mostraria um comentário falso.
+  - MariaDB reporta `year(4)`; MySQL, `year`.
+  - MariaDB devolve o default de literal **com** aspas (`'BR'`); MySQL, **sem**.
+    A forma do MariaDB é a mesma convenção do Postgres. Nada é normalizado:
+    tirar aspas às cegas quebraria `CURRENT_TIMESTAMP`.
+  - A busca por trecho **casa mais coisas aqui**: a collation padrão do MySQL 8
+    é insensível a acento, então procurar `ö` traz `Milton`. O `ILIKE` do
+    Postgres respeita acento. É a collation do banco decidindo o que "igual"
+    significa, e é a resposta que qualquer cliente daria naquele servidor.
+  - O `information_schema` do MySQL **não entra no snapshot da transação**,
+    então as quatro consultas de catálogo não têm o `repeatable-read` que o
+    Postgres usa. A janela existe, é de milissegundos, e está registrada em vez
+    de escondida.
+
+  Verificado de ponta a ponta contra um MySQL real, pela API de verdade: criar
+  conexão, testar, árvore, catálogo completo, consulta e grade paginada. E por
+  screenshot em 1440 e 1024, nos dois temas — a árvore mostra as tabelas
+  **direto sob o database**, sem o nível de schema que o MySQL não tem.
+
 - **MySQL e MariaDB acesos no seletor — a fase 2 do multi-engine, em leitura.**
 
   Os serviços passaram a despachar por engine: teste de conexão, árvore, lista

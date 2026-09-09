@@ -1,7 +1,17 @@
 import type { Connection, RowDataPacket } from "mysql2/promise";
 
-import type { DatabaseTree, RelationKind, RelationTree } from "@dbee/shared";
+import type {
+  Column,
+  DatabaseSchema,
+  ForeignKey,
+  Index,
+  DatabaseTree,
+  Relation,
+  RelationKind,
+  RelationTree,
+} from "@dbee/shared";
 
+import { numeroDoTipo } from "./colunas";
 import { linhasDeTexto, type CampoMysql } from "./tipos";
 
 /**
@@ -141,6 +151,194 @@ export async function introspectarArvore(
   return {
     database,
     // O nó único que ocupa o lugar do schema que o MySQL não tem.
+    schemas: [{ name: database, relations }],
+    fetchedAt: new Date().toISOString(),
+    cached: false,
+  };
+}
+
+/**
+ * Comentário de tabela — com a armadilha do MySQL descontada.
+ *
+ * Medido: `TABLE_COMMENT` de uma **view** vem literalmente `"VIEW"`. Não é
+ * comentário de ninguém, é o servidor dizendo o que o objeto é no campo errado.
+ * Sem este filtro, toda view do catálogo apareceria com um comentário falso.
+ */
+function comentarioDeTabela(bruto: string | null, especie: RelationKind): string | null {
+  if (bruto === null || bruto === "") return null;
+  if (especie === "view" && bruto === "VIEW") return null;
+  return bruto;
+}
+
+const TABELAS_SQL = `
+  SELECT TABLE_NAME AS nome, TABLE_TYPE AS tipo, TABLE_ROWS AS linhas,
+         TABLE_COMMENT AS comentario
+    FROM information_schema.TABLES
+   WHERE TABLE_SCHEMA = ?
+   ORDER BY TABLE_NAME
+`;
+
+/**
+ * `COLUMN_TYPE` e não `DATA_TYPE`: o primeiro traz `varchar(80)` e
+ * `decimal(18,4)`, que é o que a pessoa escreveu no `CREATE TABLE` e o
+ * equivalente do `format_type` do Postgres. O segundo traz só `varchar`, e a
+ * tela perderia o tamanho.
+ *
+ * `DATA_TYPE` ainda é lido, mas para outra coisa: casar com o número do tipo do
+ * protocolo, que é como a tela liga catálogo e resultado de consulta.
+ */
+const COLUNAS_SQL = `
+  SELECT TABLE_NAME AS tabela, COLUMN_NAME AS nome, COLUMN_TYPE AS tipo,
+         DATA_TYPE AS familia, IS_NULLABLE AS anulavel, COLUMN_DEFAULT AS padrao,
+         ORDINAL_POSITION AS posicao, COLUMN_KEY AS chave, COLUMN_COMMENT AS comentario
+    FROM information_schema.COLUMNS
+   WHERE TABLE_SCHEMA = ?
+   ORDER BY TABLE_NAME, ORDINAL_POSITION
+`;
+
+/**
+ * `NON_UNIQUE = 0` significa único — o nome da coluna é a negação, e ler ao
+ * contrário é o erro que ela convida.
+ */
+const INDICES_SQL = `
+  SELECT TABLE_NAME AS tabela, INDEX_NAME AS nome, SEQ_IN_INDEX AS ordem,
+         COLUMN_NAME AS coluna, NON_UNIQUE AS naoUnico
+    FROM information_schema.STATISTICS
+   WHERE TABLE_SCHEMA = ?
+   ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX
+`;
+
+/**
+ * Chaves estrangeiras, com as colunas na ordem da constraint.
+ *
+ * `ORDINAL_POSITION` é o que mantém `columns[i]` casando com
+ * `referencedColumns[i]` numa chave composta — trocar a ordem faz o salto da
+ * tela ir para a linha errada, e nada acusa.
+ */
+const FKS_SQL = `
+  SELECT CONSTRAINT_NAME AS nome, TABLE_NAME AS tabela, COLUMN_NAME AS coluna,
+         REFERENCED_TABLE_SCHEMA AS refSchema, REFERENCED_TABLE_NAME AS refTabela,
+         REFERENCED_COLUMN_NAME AS refColuna, ORDINAL_POSITION AS ordem
+    FROM information_schema.KEY_COLUMN_USAGE
+   WHERE TABLE_SCHEMA = ? AND REFERENCED_TABLE_NAME IS NOT NULL
+   ORDER BY CONSTRAINT_NAME, ORDINAL_POSITION
+`;
+
+/** Agrupa linhas por uma chave, preservando a ordem de chegada. */
+function agrupar<T>(linhas: readonly T[], chave: (l: T) => string): Map<string, T[]> {
+  const mapa = new Map<string, T[]>();
+  for (const l of linhas) {
+    const k = chave(l);
+    const atual = mapa.get(k);
+    if (atual === undefined) mapa.set(k, [l]);
+    else atual.push(l);
+  }
+  return mapa;
+}
+
+/**
+ * A introspecção **completa** de um database: colunas, chave primária, índices
+ * e chaves estrangeiras.
+ *
+ * Quatro consultas ao `information_schema`, uma por assunto, filtradas pelo
+ * database. Não são cinco nem uma: juntar tudo num `JOIN` multiplicaria linhas
+ * (uma coluna que participa de três índices apareceria três vezes) e separar
+ * mais faria uma ida ao servidor por tabela.
+ *
+ * A permissão vem aplicada pelo próprio `information_schema` — medido: um papel
+ * com `GRANT SELECT` numa tabela só vê aquela tabela. Vale para as quatro.
+ */
+export async function introspectarCompleto(
+  conexao: Connection,
+  database: string,
+): Promise<DatabaseSchema> {
+  /*
+   * Em sequência, e **sem snapshot consistente** — a diferença com o Postgres
+   * merece ser dita.
+   *
+   * Lá as quatro consultas rodam em `repeatable-read`, então um DDL no meio não
+   * produz relação sem coluna. Aqui isso não tem equivalente: o
+   * `information_schema` do MySQL é gerado do dicionário de dados e **não entra
+   * no snapshot da transação**, então `START TRANSACTION WITH CONSISTENT
+   * SNAPSHOT` não protegeria nada. A janela existe, é de milissegundos, e
+   * fingir que ela não existe seria pior que registrá-la.
+   *
+   * Sequencial e não `Promise.all` pelo mesmo motivo do lado Postgres: a
+   * conexão executa uma por vez de qualquer jeito, e paralelizar só embaralha o
+   * relatório de erro.
+   */
+  const tabelas = await consultar(conexao, TABELAS_SQL, [database]);
+  const colunas = await consultar(conexao, COLUNAS_SQL, [database]);
+  const indices = await consultar(conexao, INDICES_SQL, [database]);
+  const fks = await consultar(conexao, FKS_SQL, [database]);
+
+  const colunasPorTabela = agrupar(colunas, (l) => l["tabela"] ?? "");
+  const indicesPorTabela = agrupar(indices, (l) => l["tabela"] ?? "");
+  const fksPorTabela = agrupar(fks, (l) => l["tabela"] ?? "");
+
+  const relations: Relation[] = tabelas.map((t) => {
+    const nome = t["nome"] ?? "";
+    const especie = especieDe(t["tipo"] ?? null);
+
+    const cols = colunasPorTabela.get(nome) ?? [];
+    const columns: Column[] = cols.map((c) => ({
+      name: c["nome"] ?? "",
+      // `COLUMN_TYPE`: traz o tamanho, como o `format_type` do Postgres.
+      dataType: c["tipo"] ?? "",
+      dataTypeId: numeroDoTipo(c["familia"] ?? ""),
+      nullable: c["anulavel"] === "YES",
+      defaultValue: c["padrao"] ?? null,
+      position: Number.parseInt(c["posicao"] ?? "0", 10),
+      isPrimaryKey: c["chave"] === "PRI",
+      comment: c["comentario"] === "" ? null : (c["comentario"] ?? null),
+    }));
+
+    const primaryKey = columns.filter((c) => c.isPrimaryKey).map((c) => c.name);
+
+    const porIndice = agrupar(indicesPorTabela.get(nome) ?? [], (l) => l["nome"] ?? "");
+    const indexes: Index[] = [...porIndice].map(([indice, partes]) => {
+      const colunasDoIndice = partes.map((p) => p["coluna"] ?? "");
+      // `NON_UNIQUE = 0` é único. A negação no nome do campo é a armadilha.
+      const unico = partes[0]?.["naoUnico"] === "0";
+      return {
+        name: indice,
+        columns: colunasDoIndice,
+        isUnique: unico,
+        isPrimary: indice === "PRIMARY",
+        // O MySQL não guarda a definição textual do índice como o
+        // `pg_get_indexdef`. Montar uma equivalente é honesto e é o que a tela
+        // mostra quando o índice não cabe numa lista de colunas.
+        definition:
+          `${unico && indice !== "PRIMARY" ? "UNIQUE " : ""}KEY \`${indice}\` ` +
+          `(${colunasDoIndice.map((c) => `\`${c}\``).join(", ")})`,
+      };
+    });
+
+    const porFk = agrupar(fksPorTabela.get(nome) ?? [], (l) => l["nome"] ?? "");
+    const foreignKeys: ForeignKey[] = [...porFk].map(([constraint, partes]) => ({
+      name: constraint,
+      columns: partes.map((p) => p["coluna"] ?? ""),
+      // O MySQL não tem schema: o "schema referenciado" é o database, e é o que
+      // mantém o salto da tela apontando para o lugar certo.
+      referencedSchema: partes[0]?.["refSchema"] ?? database,
+      referencedTable: partes[0]?.["refTabela"] ?? "",
+      referencedColumns: partes.map((p) => p["refColuna"] ?? ""),
+    }));
+
+    return {
+      name: nome,
+      kind: especie,
+      comment: comentarioDeTabela(t["comentario"] ?? null, especie),
+      estimatedRows: estimativa(t["linhas"] ?? null),
+      columns,
+      primaryKey,
+      foreignKeys,
+      indexes,
+    };
+  });
+
+  return {
+    database,
     schemas: [{ name: database, relations }],
     fetchedAt: new Date().toISOString(),
     cached: false,

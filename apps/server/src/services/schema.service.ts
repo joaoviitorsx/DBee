@@ -9,7 +9,7 @@ import type {
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { Drivers } from "../driver/registro";
-import { introspect, listActivity, overviewDatabases } from "../pg/introspect";
+import { listActivity, overviewDatabases } from "../pg/introspect";
 import type { PoolManager } from "../pg/pool";
 import { type ServiceResult, fail, ok } from "./result";
 
@@ -88,6 +88,10 @@ export class SchemaService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
+    // Sem driver não há catálogo. Só acontece em teste que monta o serviço sem
+    // eles; a aplicação sempre passa.
+    const drivers = this.#drivers;
+    if (drivers === undefined) return fail("bad_request");
 
     // Sem `?database`, usa o database da própria conexão.
     const target = database ?? connection.database;
@@ -206,11 +210,12 @@ export class SchemaService {
   ): Promise<DatabaseSchema> {
     let voo = this.#emVoo.get(emVooKey);
     if (voo === undefined) {
-      voo = this.#pools
-        // repeatable-read: as quatro consultas de catalogo precisam ver o mesmo
-        // instante, senao um DDL no meio produz relacao sem coluna.
-        .withReadOnly(connection, target, (client) => introspect(client, target), "repeatable-read")
-        .then((fresh) => {
+      const drivers = this.#drivers;
+      if (drivers === undefined) throw new Error("sem driver para esta engine");
+      voo = drivers
+        .para(connection.engine)
+        .esquema(connection, target)
+        .then((fresh: DatabaseSchema) => {
           let byDatabase = this.#cache.get(connectionId);
           if (byDatabase === undefined) {
             byDatabase = new Map();

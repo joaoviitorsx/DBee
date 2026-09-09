@@ -110,3 +110,63 @@ export function colunasDoResultado(
     dataTypeName: nomeDoTipo(campo),
   }));
 }
+
+/**
+ * O caminho inverso: do nome SQL para o número do protocolo.
+ *
+ * O catálogo (`information_schema.COLUMNS.DATA_TYPE`) fala em nomes; o
+ * resultado de uma consulta fala em números. A tela usa `dataTypeId` para casar
+ * a coluna do catálogo com a coluna do resultado, então os dois lados precisam
+ * chegar ao mesmo número — e o mapa daqui é o mesmo de cima, lido ao contrário,
+ * para não haver duas tabelas divergindo com o tempo.
+ *
+ * Tipo desconhecido vira `0`, que é `DECIMAL` no protocolo mas nunca aparece
+ * como `DATA_TYPE`: serve de "não sei" sem colidir com um tipo real.
+ */
+/**
+ * Nomes que o protocolo representa por **dois** números, com o que o servidor
+ * de fato manda.
+ *
+ * Medido comparando catálogo e resultado de consulta:
+ *
+ * | nome | números do protocolo | o que o servidor manda |
+ * |---|---|---|
+ * | `varchar` | `VARCHAR` 15, `VAR_STRING` 253 | **253** |
+ * | `decimal` | `DECIMAL` 0, `NEWDECIMAL` 246 | **246** |
+ *
+ * Os números antigos (15 e 0) são de versões que ninguém mais roda, e o mapa
+ * inverso caía neles por ordem de iteração. O efeito era mudo: a tela não
+ * conseguia casar a coluna do catálogo com a do resultado, sem erro nenhum.
+ */
+const PREFERIDOS: ReadonlyMap<string, number> = new Map([
+  ["varchar", 253],
+  ["decimal", 246],
+]);
+
+const NUMERO_POR_NOME: ReadonlyMap<string, number> = (() => {
+  const mapa = new Map<string, number>(PREFERIDOS);
+  /*
+   * `NOME_POR_CHARSET` **primeiro**, e a ordem é o conserto de um defeito real.
+   *
+   * O protocolo tem dois números para varchar: `VARCHAR` (15) e `VAR_STRING`
+   * (253). O servidor manda **253** — medido — e o 15 praticamente não aparece.
+   * A primeira versão deste mapa lia `NOME_DIRETO` antes, então o catálogo
+   * devolvia 15 e o resultado da consulta devolvia 253: a tela não conseguia
+   * casar a coluna do catálogo com a do resultado, e nada acusava.
+   *
+   * Há um teste comparando os dois lados contra servidor real, que é o único
+   * jeito de isso não voltar.
+   */
+  for (const [numero, par] of Object.entries(NOME_POR_CHARSET)) {
+    if (!mapa.has(par.binario)) mapa.set(par.binario, Number(numero));
+    if (!mapa.has(par.texto)) mapa.set(par.texto, Number(numero));
+  }
+  for (const [numero, nome] of Object.entries(NOME_DIRETO)) {
+    if (!mapa.has(nome)) mapa.set(nome, Number(numero));
+  }
+  return mapa;
+})();
+
+export function numeroDoTipo(nomeSql: string): number {
+  return NUMERO_POR_NOME.get(nomeSql.toLowerCase()) ?? 0;
+}

@@ -41,6 +41,13 @@ const SEED: readonly string[] = [
   t_timestamp TIMESTAMP NULL, t_time TIME, t_year YEAR,
   t_json JSON, t_enum ENUM('a','b'), t_set SET('x','y'), t_nulo INT
 )`,
+`CREATE TABLE textos (
+  id INT PRIMARY KEY,
+  latim VARCHAR(40), cjk VARCHAR(40), emoji VARCHAR(40), misto VARCHAR(80)
+) CHARACTER SET utf8mb4`,
+`INSERT INTO textos VALUES (
+  1, 'Björk · Céu · ação', '坂本龍一', '🎧🇧🇷', 'Ryuichi 坂本 · 100% ✓'
+)`,
 `INSERT INTO tipos VALUES (
   1, 127, TRUE, 32767, 2147483647,
   9223372036854775807, 12345.6789, 1.5, 2.25,
@@ -217,5 +224,52 @@ for (const s of SERVIDORES) {
       expect(eh("t_text")).toBe(false);
       expect(eh("t_char")).toBe(false);
     });
+  });
+}
+
+/*
+ * Regra 10 com texto que **não é ASCII**.
+ *
+ * Este caso nasceu de um susto real: a demonstração mostrou `BjÃ¶rk` na tela.
+ * Medido, o mojibake estava **gravado** — o cliente de linha de comando que
+ * semeou os dados conectou com charset errado — e o driver devolvia fielmente
+ * o que existia. Ainda assim, é exatamente o modo de falha que a regra 10
+ * existe para pegar, e ele não tinha teste: os 24 tipos eram todos ASCII.
+ *
+ * Latim acentuado, CJK e emoji cobrem os três tamanhos de sequência UTF-8 que
+ * importam (2, 3 e 4 bytes). O emoji só passa em `utf8mb4`, e é ele que pega o
+ * `utf8` de três bytes que o MySQL chamou de UTF-8 por anos.
+ */
+for (const s of SERVIDORES) {
+  describe(`texto não-ASCII contra ${s.nome} real`, () => {
+    it("acento, CJK e emoji voltam byte a byte iguais ao que foi gravado", async () => {
+      if (!temDocker) return;
+      const c = await mysql.createConnection({
+        host: "127.0.0.1", port: s.porta, user: "root", password: SENHA, database: "loja",
+        charset: "utf8mb4",
+        // O MESMO contrato do driver. Abrir sem `rowsAsArray` faz a linha vir
+        // como objeto, e indexar por posição devolve null — foi assim que a
+        // primeira versão deste caso falhou, repetindo o descompasso que o
+        // teste de contrato do driver já tinha pegado uma vez.
+        rowsAsArray: true,
+        typeCast: (campo) => campo.buffer(),
+      });
+      const [linhas, campos] = await c.query<mysql.RowDataPacket[]>("SELECT * FROM textos");
+      const meta = campos as unknown as CampoMysql[];
+      const bruta = (linhas as unknown as (Buffer | null)[][])[0] ?? [];
+      const valores: Record<string, string | null> = {};
+      meta.forEach((campo, i) => { valores[campo.name] = paraTexto(bruta[i] ?? null, campo); });
+      await c.end();
+
+      expect(valores["latim"]).toBe("Björk · Céu · ação");
+      expect(valores["cjk"]).toBe("坂本龍一");
+      expect(valores["emoji"]).toBe("🎧🇧🇷");
+      expect(valores["misto"]).toBe("Ryuichi 坂本 · 100% ✓");
+
+      // E o comprimento em caracteres, não em bytes: `Björk` tem 5, e um
+      // mojibake teria 6. É a mesma checagem que expôs o susto.
+      expect(Array.from(valores["latim"] ?? "").length).toBe(Array.from("Björk · Céu · ação").length);
+      expect(Array.from(valores["cjk"] ?? "").length).toBe(4);
+    }, 60_000);
   });
 }

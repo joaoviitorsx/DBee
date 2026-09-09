@@ -1,11 +1,20 @@
-import type { DatabaseInfo, DatabaseTree, Engine, TestConnectionResult } from "@dbee/shared";
+import type {
+  DatabaseInfo,
+  DatabaseSchema,
+  DatabaseTree,
+  Engine,
+  Relation,
+  RowsRequest,
+  TestConnectionResult,
+} from "@dbee/shared";
 
 import type { ResolvedConnection } from "../db/connections.repo";
 import { execute } from "../pg/executor";
-import { introspectTree, listDatabases } from "../pg/introspect";
+import { introspect, introspectTree, listDatabases } from "../pg/introspect";
+import { fetchRows, planRows } from "../pg/rows";
 import type { PoolManager } from "../pg/pool";
 import { testConnection } from "../pg/test-connection";
-import type { DriverLeitura, OpcoesExecucao, ResultadoExecucao } from "./tipos";
+import type { DriverLeitura, OpcoesExecucao, ResultadoExecucao, ResultadoLinhas } from "./tipos";
 
 /**
  * O driver de PostgreSQL, em leitura.
@@ -42,6 +51,41 @@ export class DriverPostgres implements DriverLeitura {
     return await this.#pools.withReadOnly(conexao, database, async (client) =>
       introspectTree(client, database),
     );
+  }
+
+  async esquema(conexao: ResolvedConnection, database: string): Promise<DatabaseSchema> {
+    /*
+     * `repeatable-read`: as quatro consultas de catálogo precisam ver o mesmo
+     * instante, senão um DDL no meio produz relação sem coluna. O MySQL não tem
+     * equivalente — o `information_schema` dele não entra no snapshot — e essa
+     * diferença está documentada em `mysql/introspect.ts`.
+     */
+    return await this.#pools.withReadOnly(
+      conexao,
+      database,
+      async (client) => introspect(client, database),
+      "repeatable-read",
+    );
+  }
+
+  async linhas(
+    conexao: ResolvedConnection,
+    database: string,
+    schema: string,
+    relacao: Relation,
+    pedido: RowsRequest,
+  ): Promise<ResultadoLinhas> {
+    const inicio = performance.now();
+    // Montado antes de executar: se a execução falhar, a auditoria ainda
+    // registra o comando que teria rodado.
+    const sql = planRows(relacao, schema, pedido).sql;
+    const parcial = await this.#pools.withReadOnly(conexao, database, async (client) =>
+      fetchRows(client, relacao, schema, pedido),
+    );
+    return {
+      resposta: { ...parcial, durationMs: Math.round(performance.now() - inicio) },
+      sql,
+    };
   }
 
   async executar(conexao: ResolvedConnection, opcoes: OpcoesExecucao): Promise<ResultadoExecucao> {

@@ -127,9 +127,10 @@ export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capa
    * (`docs/papeis-mysql.md`), e um interruptor que não liga nada é a tela
    * mentindo.
    *
-   * `diagramaErd: false` porque a introspecção desta fase lê a árvore, não as
-   * chaves estrangeiras. Vira `true` quando ler — e não antes, senão a aba
-   * abriria vazia.
+   * `diagramaErd` virou `true` quando a introspecção completa passou a ler
+   * chaves estrangeiras de `KEY_COLUMN_USAGE`. Antes disso era `false`, porque
+   * a aba abriria vazia — capacidade é o que a engine FAZ, não o que se
+   * pretende que ela faça.
    */
   mysql: {
     niveis: "conexao/database/tabela",
@@ -142,7 +143,7 @@ export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capa
     portaPadrao: 3306,
     sqlLivre: true,
     cancelarQuery: true,
-    diagramaErd: false,
+    diagramaErd: true,
   },
 
   /*
@@ -162,7 +163,7 @@ export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capa
     portaPadrao: 3306,
     sqlLivre: true,
     cancelarQuery: true,
-    diagramaErd: false,
+    diagramaErd: true,
   },
 };
 

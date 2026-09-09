@@ -1,6 +1,10 @@
 import type {
   DatabaseInfo,
+  DatabaseSchema,
   DatabaseTree,
+  Relation,
+  RowsRequest,
+  RowsResponse,
   Engine,
   QueryError,
   StatementResult,
@@ -52,6 +56,19 @@ export interface OpcoesExecucao {
   readonly aoIniciar?: (token: number) => void;
 }
 
+/**
+ * A página da grade, e o SQL que a produziu.
+ *
+ * O SQL sobe junto porque a auditoria o registra: o `query_log` sem o comando
+ * que rodou é auditoria pela metade, e o comando agora é montado **dentro** do
+ * driver. Ele não entra na resposta da API — o serviço o consome e devolve só a
+ * página.
+ */
+export interface ResultadoLinhas {
+  readonly resposta: RowsResponse;
+  readonly sql: string;
+}
+
 export interface ResultadoExecucao {
   readonly results: StatementResult[];
   readonly error: (QueryError & { index: number }) | null;
@@ -68,6 +85,35 @@ export interface DriverLeitura {
 
   /** A árvore leve de navegação de um database. */
   arvore(conexao: ResolvedConnection, database: string): Promise<DatabaseTree>;
+
+  /**
+   * O catálogo completo: colunas, chave primária, índices e chaves
+   * estrangeiras. É o que alimenta o inspetor e o diagrama.
+   */
+  esquema(conexao: ResolvedConnection, database: string): Promise<DatabaseSchema>;
+
+  /**
+   * Uma página da grade de linhas, com filtro, ordenação e cursor.
+   *
+   * A relação vem do catálogo, e é ela que autoriza cada nome de coluna que o
+   * pedido menciona — nome vindo do usuário nunca entra no SQL sem passar por
+   * ali.
+   */
+  linhas(
+    conexao: ResolvedConnection,
+    database: string,
+    /**
+     * O schema da relação.
+     *
+     * No Postgres é o schema de verdade. No MySQL não existe nível de schema, e
+     * o driver de lá o ignora — o database já qualifica a tabela. O parâmetro
+     * existe porque **o Postgres precisa dele**, e escondê-lo dentro do pedido
+     * (que não o declara) seria contrabando.
+     */
+    schema: string,
+    relacao: Relation,
+    pedido: RowsRequest,
+  ): Promise<ResultadoLinhas>;
 
   /** Executa o SQL do usuário, statement a statement, parando no primeiro erro. */
   executar(conexao: ResolvedConnection, opcoes: OpcoesExecucao): Promise<ResultadoExecucao>;

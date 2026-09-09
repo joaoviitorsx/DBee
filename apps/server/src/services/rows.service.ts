@@ -3,16 +3,16 @@ import type { RowsRequest, RowsResponse } from "@dbee/shared";
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
-import type { PoolManager } from "../pg/pool";
-import { RowsError, fetchRows, planRows } from "../pg/rows";
+import type { Drivers } from "../driver/registro";
+import { RowsError } from "../pg/rows";
 import type { SchemaService } from "./schema.service";
-import { exigirPostgres } from "./engine.guarda";
 import { type ServiceResult, fail, ok } from "./result";
 
 
 export interface RowsServiceDeps {
+  /** Quem sabe falar com cada engine. */
+  readonly drivers?: Drivers;
   readonly repository: ConnectionsRepository;
-  readonly pools: PoolManager;
   readonly schema: SchemaService;
   readonly log: QueryLogRepository;
 }
@@ -30,14 +30,15 @@ export interface RowsServiceDeps {
  */
 export class RowsService {
   readonly #repository: ConnectionsRepository;
-  readonly #pools: PoolManager;
   readonly #schema: SchemaService;
   readonly #log: QueryLogRepository;
 
-  constructor({ repository, pools, schema, log }: RowsServiceDeps) {
+  readonly #drivers: Drivers | undefined;
+
+  constructor({ repository, schema, log, drivers }: RowsServiceDeps) {
     this.#repository = repository;
-    this.#pools = pools;
     this.#schema = schema;
+    this.#drivers = drivers;
     this.#log = log;
   }
 
@@ -63,14 +64,6 @@ export class RowsService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
-    /*
-     * Só o Postgres faz isto. Sem esta guarda, uma conexão MySQL faria o
-     * `PoolManager` do Postgres falar protocolo de Postgres com a porta 3306,
-     * e o erro seria de handshake — sem relação com a verdade, que é
-     * "isto não existe aqui".
-     */
-    const semSuporte = exigirPostgres<never>(connection.engine, "a grade de linhas com filtro e paginação");
-    if (semSuporte !== null) return semSuporte;
 
     const database = request.database ?? connection.database;
 
@@ -90,11 +83,17 @@ export class RowsService {
     let sqlExecutado = "";
 
     try {
-      sqlExecutado = planRows(relation, schemaName, request).sql;
-
-      const parcial = await this.#pools.withTransaction(connection, database, true, (client) =>
-        fetchRows(client, relation, schemaName, request),
-      );
+      /*
+       * O driver da engine monta e executa. O SQL sobe junto porque a auditoria
+       * o registra — o `query_log` sem o comando é auditoria pela metade — e
+       * ele é montado antes de executar, para a falha também ficar registrada
+       * com o comando que teria rodado.
+       */
+      if (this.#drivers === undefined) return fail("bad_request");
+      const { resposta: parcial, sql } = await this.#drivers
+        .para(connection.engine)
+        .linhas(connection, database, schemaName, relation, request);
+      sqlExecutado = sql;
 
       const durationMs = Math.round(performance.now() - inicio);
       this.#log.record({
