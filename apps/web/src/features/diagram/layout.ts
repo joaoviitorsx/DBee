@@ -199,48 +199,79 @@ export function calcularLayout(schema: DatabaseSchema): DiagramLayout {
 
   let larguraGrafo = 0;
   let alturaGrafo = 0;
+  /** O que o dagre não posicionou — por não ter aresta, ou por ter falhado. */
+  let paraGrade: NodeBox[] = soltos;
+  let dagrePosicionou = false;
 
   if (conectados.length > 0) {
-    const g = new Graph({ multigraph: true });
+    /*
+     * **Dígrafo simples, não multigrafo.** Duas FKs da mesma tabela para a
+     * mesma tabela (`origem_id` e `destino_id` apontando para `empresas`) são
+     * duas arestas entre o mesmo par. Junto com uma FK na direção contrária,
+     * isso levava o dagre a `Not possible to find intersection inside of the
+     * rectangle` — a aba do diagrama derrubava o app inteiro, em produção.
+     *
+     * O grafo simples torna o caso **estruturalmente impossível**: `setEdge`
+     * do mesmo par sobrescreve em vez de acumular. E não perde nada: o dagre
+     * só é consultado para POSTO, e a segunda aresta entre o mesmo par não
+     * muda posto nenhum. As arestas desenhadas continuam sendo todas — quem
+     * desenha lê `edges`, não este grafo.
+     *
+     * Medido: 121 falhas em 6.000 grafos aleatórios com multigrafo; 0 em
+     * 6.000 com uma aresta por par (`layout.test.ts`).
+     */
+    const g = new Graph();
     g.setGraph({ rankdir: "LR", nodesep: 40, ranksep: 90, marginx: MARGEM, marginy: MARGEM });
     g.setDefaultEdgeLabel(() => ({}));
 
     for (const no of conectados) g.setNode(no.id, { width: no.width, height: no.height });
     for (const e of edges) {
       // Só liga o que dagre conhece; `to → from` deixa o pai à esquerda.
-      if (ligados.has(e.from) && ligados.has(e.to)) g.setEdge(e.to, e.from, {}, e.id);
+      if (ligados.has(e.from) && ligados.has(e.to)) g.setEdge(e.to, e.from, {});
     }
 
-    dagreLayout(g);
-
-    // dagre devolve o CENTRO de cada nó; o resto do código usa o canto.
-    for (const no of conectados) {
-      const dn = g.node(no.id) as { x: number; y: number } | undefined;
-      if (dn === undefined) continue;
-      no.x = dn.x - no.width / 2;
-      no.y = dn.y - no.height / 2;
+    /*
+     * E ainda assim protegido.
+     *
+     * O caso conhecido está fechado acima, mas o `dagre` **lança** em vez de
+     * degradar, e este cálculo roda num `useMemo` — sem fronteira de erro no
+     * app, uma exceção aqui não estraga o diagrama, estraga a sessão inteira
+     * de quem está trabalhando. Se ele falhar por qualquer outro motivo, as
+     * tabelas caem na grade: o diagrama fica pior, e continua existindo.
+     */
+    try {
+      dagreLayout(g);
+      dagrePosicionou = true;
+    } catch {
+      paraGrade = nodes;
     }
 
-    const graph = g.graph() as { width?: number; height?: number };
-    larguraGrafo = graph.width ?? 0;
-    alturaGrafo = graph.height ?? 0;
+    if (dagrePosicionou) {
+      // dagre devolve o CENTRO de cada nó; o resto do código usa o canto.
+      for (const no of conectados) {
+        const dn = g.node(no.id) as { x: number; y: number } | undefined;
+        if (dn === undefined) continue;
+        no.x = dn.x - no.width / 2;
+        no.y = dn.y - no.height / 2;
+      }
+
+      const graph = g.graph() as { width?: number; height?: number };
+      larguraGrafo = graph.width ?? 0;
+      alturaGrafo = graph.height ?? 0;
+    }
   }
 
   // As soltas vão **abaixo** do grafo ligado: em cima fica o que tem estrutura
   // para ler, embaixo o inventário do resto.
-  const grade = assentarEmGrade(
-    soltos,
-    MARGEM,
-    conectados.length > 0 ? alturaGrafo + GRADE_GAP : MARGEM,
-  );
+  const grade = assentarEmGrade(paraGrade, MARGEM, dagrePosicionou ? alturaGrafo + GRADE_GAP : MARGEM);
 
   return {
     nodes,
     edges,
     width: Math.max(larguraGrafo, grade.largura + MARGEM * 2, 400),
     height: Math.max(
-      conectados.length > 0 ? alturaGrafo : 0,
-      (conectados.length > 0 ? alturaGrafo + GRADE_GAP : 0) + grade.altura + MARGEM,
+      dagrePosicionou ? alturaGrafo : 0,
+      (dagrePosicionou ? alturaGrafo + GRADE_GAP : 0) + grade.altura + MARGEM,
       300,
     ),
   };

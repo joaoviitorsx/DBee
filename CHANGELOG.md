@@ -18,6 +18,24 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   - O deslocamento escreve `scrollLeft`/`scrollTop` direto no nó. Um `setState`
     por `pointermove` re-renderizaria a grade a cada quadro, no caminho mais
     caro do app.
+### Corrigido
+- **A aba Diagrama derrubava o app inteiro.** `Uncaught Error: Not possible to
+  find intersection inside of the rectangle`, lançado pelo `dagre` dentro do
+  `useMemo` do layout. Sem fronteira de erro no front, a exceção não estragava
+  o diagrama — estragava a sessão de quem estava trabalhando.
+
+  O gatilho não é o tamanho do schema, é a **forma**: duas FKs da mesma tabela
+  para a mesma tabela (`empresa_origem_id` e `empresa_destino_id` apontando
+  para `empresas`) viram arestas paralelas; somadas a uma FK na direção
+  contrária, o dagre falha ao calcular a interseção da aresta com a caixa.
+  Esquema contábil legado tem essa forma o tempo todo.
+
+  O grafo de posicionamento passou a ser **dígrafo simples**, o que torna a
+  aresta paralela estruturalmente impossível — e não perde nada, porque o dagre
+  só é consultado para posto, e as FKs desenhadas continuam sendo todas. Fuzz:
+  121 falhas em 6.000 grafos aleatórios com multigrafo, 0 com uma aresta por
+  par. Além disso, o layout agora **degrada para a grade** se o dagre falhar
+  por qualquer outro motivo: diagrama pior é melhor que sessão perdida.
 
 ## [0.3.0] — 2026-09-08
 

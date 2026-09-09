@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import { Graph, layout as dagreLayout } from "@dagrejs/dagre";
+
 import type { DatabaseSchema } from "@dbee/shared";
 
 import { calcularLayout, construirGrafo, nodeId } from "./layout";
@@ -173,5 +175,85 @@ describe("layout", () => {
     const l = calcularLayout(schema([]));
     expect(l.nodes).toHaveLength(0);
     expect(l.width).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A tabela que derrubava o app.
+ *
+ * Relatado em produção ao abrir a aba Diagrama: `Uncaught Error: Not possible
+ * to find intersection inside of the rectangle`, lançado pelo dagre dentro do
+ * `useMemo` — sem fronteira de erro no app, a sessão inteira ia junto.
+ *
+ * A causa não é o tamanho do schema, é a FORMA: duas FKs da mesma tabela para
+ * a mesma tabela (duas arestas entre o mesmo par) somadas a uma FK na direção
+ * contrária. Esquema contábil legado tem isso o tempo todo — `origem_id` e
+ * `destino_id` apontando para `empresas`, e `empresas` apontando de volta.
+ */
+describe("regressão: FKs paralelas com volta", () => {
+  const CONTABIL = schema([
+    {
+      name: "public",
+      relations: [
+        rel("grupos", [col("id", true)]),
+        rel(
+          "empresas",
+          [col("id", true), col("grupo_id"), col("lancamento_padrao_id")],
+          [
+            fk("grupo_id", "public", "grupos", "id"),
+            fk("lancamento_padrao_id", "public", "lancamentos", "id"),
+          ],
+        ),
+        rel(
+          "lancamentos",
+          [col("id", true), col("empresa_origem_id"), col("empresa_destino_id"), col("grupo_id")],
+          [
+            fk("empresa_origem_id", "public", "empresas", "id"),
+            fk("empresa_destino_id", "public", "empresas", "id"),
+            fk("grupo_id", "public", "grupos", "id"),
+          ],
+        ),
+      ],
+    },
+  ]);
+
+  it("as duas FKs paralelas continuam sendo DESENHADAS — só o dagre vê uma", () => {
+    // A correção é no grafo de posicionamento, não no diagrama: perder uma das
+    // arestas seria esconder uma FK que existe no banco.
+    const { edges } = construirGrafo(CONTABIL);
+    const paralelas = edges.filter(
+      (e) => e.from === nodeId("public", "lancamentos") && e.to === nodeId("public", "empresas"),
+    );
+    expect(paralelas).toHaveLength(2);
+  });
+
+  it("não lança, e assenta todas as tabelas", () => {
+    const l = calcularLayout(CONTABIL);
+    expect(l.nodes).toHaveLength(3);
+    for (const n of l.nodes) {
+      expect(`${n.relation}: ${String(Number.isFinite(n.x) && Number.isFinite(n.y))}`).toBe(
+        `${n.relation}: true`,
+      );
+    }
+  });
+
+  /**
+   * Sem esta asserção o teste acima passaria mesmo se a correção fosse
+   * revertida por outro caminho: ela prova que a FORMA é o gatilho, e que era
+   * o multigrafo que a transformava em exceção.
+   */
+  it("a mesma forma AINDA quebra o dagre quando as paralelas viram multigrafo", () => {
+    const g = new Graph({ multigraph: true });
+    g.setGraph({ rankdir: "LR", nodesep: 40, ranksep: 90, marginx: 40, marginy: 40 });
+    g.setDefaultEdgeLabel(() => ({}));
+    for (const n of ["grupos", "empresas", "lancamentos"]) {
+      g.setNode(n, { width: 220, height: 100 });
+    }
+    g.setEdge("grupos", "empresas", {}, "e1");
+    g.setEdge("empresas", "lancamentos", {}, "e2");
+    g.setEdge("empresas", "lancamentos", {}, "e3"); // a paralela
+    g.setEdge("lancamentos", "empresas", {}, "e4"); // a volta
+    g.setEdge("grupos", "lancamentos", {}, "e5");
+    expect(() => { dagreLayout(g); }).toThrow("Not possible to find intersection");
   });
 });
