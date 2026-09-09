@@ -1,6 +1,7 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Switch from "@radix-ui/react-switch";
-import type { Connection, CreateConnection, SslMode } from "@dbee/shared";
+import type { CampoConexao, Connection, CreateConnection, SslMode } from "@dbee/shared";
+import { capacidadesDe } from "@dbee/shared/puro";
 import { Plug, X } from "lucide-react";
 import { useState, type ComponentProps } from "react";
 
@@ -54,6 +55,9 @@ interface ConnectionFormProps {
 
 function initialDraft(editing: Connection | null): ConnectionDraft {
   return {
+    // Conexão nova nasce Postgres — é a única engine implementada, e o seletor
+    // de engine não é renderizado enquanto for assim (ver `mostra`).
+    engine: editing?.engine ?? "postgres",
     name: editing?.name ?? "",
     host: editing?.host ?? "",
     port: editing?.port ?? 5432,
@@ -87,6 +91,23 @@ export function ConnectionForm({
   const set = <K extends keyof ConnectionDraft>(field: K, value: ConnectionDraft[K]): void => {
     setDraft((current) => ({ ...current, [field]: value }));
   };
+
+  /*
+   * Qual campo aparece é decisão da ENGINE, não deste arquivo.
+   *
+   * Antes era fixo, e ficar fixo é o que faria o formulário oferecer `timezone`
+   * num SQLite (que não tem fuso de sessão) ou o interruptor de escrita num
+   * MySQL (cuja garantia é da credencial, não da transação — medido). A
+   * capacidade governa **visibilidade**, e não `disabled`: campo desabilitado
+   * ainda afirma "isto existe aqui, você só não pode mexer".
+   *
+   * Com `postgres` a lista contém todos os campos de hoje, na ordem de hoje —
+   * é o que faz esta fatia não mudar nada para quem só usa Postgres, e o que
+   * torna a mudança verificável por screenshot.
+   */
+  const capacidades = capacidadesDe(draft.engine ?? "postgres");
+  const mostra = (campo: CampoConexao): boolean =>
+    capacidades === null || capacidades.campos.includes(campo);
 
   const handleSubmit: NonNullable<ComponentProps<"form">["onSubmit"]> = (event) => {
     event.preventDefault();
@@ -183,6 +204,7 @@ export function ConnectionForm({
                 um eixo que ninguém espera dentro de um formulário. O
                 `CreateDatabaseDialog` já fazia assim.
               */}
+              {mostra("host") || mostra("port") ? (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_7rem]">
 
                 <Field label={t("form.host")} htmlFor="host">
@@ -208,7 +230,9 @@ export function ConnectionForm({
                   />
                 </Field>
               </div>
+              ) : null}
 
+              {mostra("database") || mostra("username") ? (
               <div className="grid grid-cols-2 gap-3">
                 <Field label={t("form.database")} htmlFor="database">
                   <Input
@@ -229,7 +253,9 @@ export function ConnectionForm({
                   />
                 </Field>
               </div>
+              ) : null}
 
+              {mostra("password") ? (
               <Field
                 label={t("form.senha")}
                 htmlFor="password"
@@ -244,7 +270,9 @@ export function ConnectionForm({
                   onChange={(e) => { set("password", e.target.value); }}
                 />
               </Field>
+              ) : null}
 
+              {mostra("sslMode") ? (
               <Field label={t("form.criptografia")} htmlFor="ssl" hint={sslHint}>
                 <select
                   id="ssl"
@@ -259,7 +287,9 @@ export function ConnectionForm({
                   ))}
                 </select>
               </Field>
+              ) : null}
 
+              {mostra("timezone") ? (
               <Field label={t("form.timezone")} htmlFor="timezone" hint={t("form.timezoneAjuda")}>
                 <select
                   id="timezone"
@@ -280,8 +310,17 @@ export function ConnectionForm({
                   ))}
                 </select>
               </Field>
+              ) : null}
 
-              {/* Escrita: o estado perigoso, e o formulário diz o que ele custa. */}
+              {/*
+                Escrita: o estado perigoso, e o formulário diz o que ele custa.
+
+                Só existe onde a garantia é da TRANSAÇÃO. Onde ela é da
+                credencial — MySQL, MariaDB, libSQL, Mongo, Redis, todos
+                medidos — não há nada por execução para ligar ou desligar, e um
+                interruptor ali prometeria uma proteção inexistente.
+              */}
+              {mostra("writeEnabled") ? (
               <div className="flex items-start justify-between gap-4 rounded-[6px] border border-line bg-sunken p-3">
                 <div>
                   <label htmlFor="write" className="text-sm font-medium text-ink">
@@ -300,6 +339,7 @@ export function ConnectionForm({
                   <Switch.Thumb className="block h-4 w-4 translate-x-1 rounded-full bg-muted transition-transform duration-150 data-[state=checked]:translate-x-6 data-[state=checked]:bg-accent-ink" />
                 </Switch.Root>
               </div>
+              ) : null}
 
               {/*
                 Acesso só existe para conexão que já existe: uma conexão nova

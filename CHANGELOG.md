@@ -21,6 +21,16 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   binário anterior continua abrindo um banco v7, então rollback de deploy segue
   sendo opção.
 
+  O formulário passou a derivar **quais campos existem** das capacidades da
+  engine, em vez de tê-los fixos. Com `postgres` o resultado é idêntico ao de
+  hoje — mesmos nove campos, mesma ordem — e é isso que torna a mudança
+  verificável: a suíte passa sem alteração de teste e os screenshots batem nos
+  quatro breakpoints.
+
+  A capacidade governa **visibilidade**, não `disabled`. Campo desabilitado
+  ainda afirma "isto existe aqui, você só não pode mexer", e para `timezone`
+  num SQLite isso seria falso.
+
 ### Segurança
 - **O `SAVEPOINT` do executor é a trava que impede o `COMMIT` do usuário de
   furar o modo somente-leitura — e isso não estava escrito em lugar nenhum.**

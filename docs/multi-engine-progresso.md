@@ -11,8 +11,8 @@ arqueologia na terceira sessão.
 
 | fase | o que entrega | estado |
 |---|---|---|
-| **0b — o campo `engine` existe** | migration 007, tipo, capacidades, `engine` na API | **em andamento** |
-| 0a — fronteira do driver | interface `Driver`, serviços deixam de importar `pg/` | não começou |
+| 0b — o campo `engine` existe | migration 007, tipo, capacidades, `engine` na API | **concluída** |
+| **0a — fronteira do driver** | interface `Driver`, serviços deixam de importar `pg/` | **a seguir** |
 | 1 — papéis documentados | `docs/papeis-mysql.md` | não começou |
 | 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | não começou |
 | 3 — libSQL | URL + token, read-only por JWT | não começou |
@@ -36,10 +36,18 @@ arqueologia na terceira sessão.
 - [x] Teste: `engine` fora do schema de atualização, dentro do de criação
       (opcional) e obrigatório na resposta. Verificado revertendo: mover
       `engine` para dentro de `FIELDS` quebra o teste.
-- [ ] Formulário derivando visibilidade de campo das capacidades, em vez de
-      tê-las fixas. Resultado com `postgres` idêntico ao de hoje.
-- [ ] Screenshots nos quatro breakpoints, comparados com os atuais.
-- [ ] `CHANGELOG.md`.
+- [x] `engine.puro.ts` — as capacidades vivem fora do módulo de schema, senão
+      importá-las no formulário traria o TypeBox de volta ao bundle (os 60 kB
+      gzip que já saíram uma vez). Conferido: `TypeBox`/`Kind`/`sinclair` = 0
+      ocorrências no bundle, 312,40 kB contra 311,62 antes.
+- [x] Formulário derivando visibilidade das capacidades. Com `postgres`
+      renderiza os mesmos nove campos, na mesma ordem: Nome, Tag, Host, Porta,
+      Database, Usuário, Senha, Criptografia, Timezone, Permitir escrita.
+- [x] Screenshots nos quatro breakpoints — 375, 768, 1024 e 1440 — e
+      `check-responsivo` limpo nas oito larguras.
+- [x] `CHANGELOG.md`.
+
+**Fase 0b concluída.**
 
 **Critério de pronto da fase**: a suíte inteira passa **sem alteração de teste**
 (fora os testes novos acima) e os quatro screenshots batem com os de hoje. É o
