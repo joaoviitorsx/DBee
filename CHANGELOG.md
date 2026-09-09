@@ -2,6 +2,32 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Adicionado
+- **Fronteira de erro.** Exceção em render, no React, desmonta a árvore inteira
+  — não é degradação, é tela branca. Foi assim que a aba Diagrama derrubou a
+  sessão de quem estava trabalhando: o defeito era de um diagrama, o dano foram
+  as abas abertas, o SQL não salvo e a posição na tabela.
+
+  Três fronteiras, uma por região independente: o **conteúdo da aba** (a que
+  mais importa — a aba quebrada mostra o painel de recuperação e a barra de
+  abas, a árvore e o cabeçalho seguem vivos), a **árvore** (que lê catálogo de
+  bancos de terceiros, a superfície mais exposta a schema inesperado) e a
+  **raiz**, como última rede.
+
+  A tela mostra a mensagem real do erro, não "algo deu errado": o DBee é usado
+  por um time de desenvolvimento, e é a mesma decisão que o projeto já toma
+  sobre erro do Postgres. Tem "Copiar detalhes" com a pilha, e o
+  `componentDidCatch` sempre escreve no console — a fronteira não engole nada.
+
+  Trocar de aba **rearma** a fronteira (`resetKey` é o id da aba): sem isso, a
+  aba seguinte, sadia, nasceria mostrando o painel de falha da anterior.
+
+  Verificado no navegador com falha injetada: painel isolado com árvore e abas
+  vivas, rearme estável em quatro alternâncias, e a variante de raiz cobrindo a
+  janela nos dois temas.
+
 ## [0.3.1] — 2026-09-08
 
 ### Adicionado

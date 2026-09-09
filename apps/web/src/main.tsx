@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
+import { FronteiraDeErro } from "./components/FronteiraDeErro";
 import { IdiomaProvider } from "./i18n";
 import { aplicarIdiomaGuardado } from "./lib/idioma";
 import { queryClient } from "./lib/query";
@@ -23,7 +24,19 @@ createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <IdiomaProvider>
-        <App />
+        {/*
+          A fronteira fica DENTRO do `IdiomaProvider`, não fora.
+
+          A tela de recuperação usa `useT` para falar o idioma da pessoa, e uma
+          fronteira acima do provedor renderizaria um fallback que quebra ao
+          montar — erro dentro do fallback sobe para a fronteira de cima, que
+          aqui não existe: tela branca de novo, agora por causa da rede de
+          segurança. O que sobra descoberto é o próprio provedor, e para ele
+          não há rede possível sem duplicar as strings fora do dicionário.
+        */}
+        <FronteiraDeErro variante="tela">
+          <App />
+        </FronteiraDeErro>
       </IdiomaProvider>
     </QueryClientProvider>
   </StrictMode>,

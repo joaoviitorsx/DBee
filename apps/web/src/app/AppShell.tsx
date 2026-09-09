@@ -32,6 +32,7 @@ import { DataTab } from "../features/tabs/DataTab";
 import { IndexesTab } from "../features/tabs/IndexesTab";
 import { StructureTab } from "../features/tabs/StructureTab";
 import { SubTabButtons, SubTabs, TabStrip } from "../features/tabs/TabStrip";
+import { FronteiraDeErro } from "../components/FronteiraDeErro";
 import { ConnectionTree, type ConnectionHealth, type TreeTarget } from "../features/tree/ConnectionTree";
 import { treeMenuSections, treeMenuTitle, type TreeMenuActions } from "../features/tree/treeMenu";
 import { useSchema, useTreeExpansion } from "../features/tree/useTree";
@@ -282,17 +283,25 @@ export function AppShell({
                 ),
           )}
         >
-          <ConnectionTree
-            connections={connections}
-            health={health}
-            warnings={warnings}
-            tree={tree}
-            onOpenRelation={(alvo) => { abrir(alvo); if (!largo) setArvoreAberta(false); }}
-            onNewConnection={onNewConnection}
-            onContextMenu={(target, anchor) => { setMenu({ target, anchor }); }}
-            onBackgroundContextMenu={setMenuFundo}
-            activeTarget={abaTabela?.target ?? null}
-          />
+          {/*
+            A árvore lê o catálogo de bancos que não são deste projeto, então é
+            a superfície mais exposta a schema de forma inesperada. Fronteira
+            própria: catálogo hostil derruba a navegação, não as abas abertas
+            nem o SQL que está sendo escrito ao lado.
+          */}
+          <FronteiraDeErro variante="painel">
+            <ConnectionTree
+              connections={connections}
+              health={health}
+              warnings={warnings}
+              tree={tree}
+              onOpenRelation={(alvo) => { abrir(alvo); if (!largo) setArvoreAberta(false); }}
+              onNewConnection={onNewConnection}
+              onContextMenu={(target, anchor) => { setMenu({ target, anchor }); }}
+              onBackgroundContextMenu={setMenuFundo}
+              activeTarget={abaTabela?.target ?? null}
+            />
+          </FronteiraDeErro>
         </aside>
 
         {largo ? (
@@ -318,6 +327,20 @@ export function AppShell({
             }
           />
 
+          {/*
+            A fronteira que mais importa.
+
+            É aqui que o defeito de UMA aba deixa de ser a sessão inteira: a
+            aba Diagrama derrubou o app em produção porque uma exceção em
+            render desmonta a árvore toda. Com a fronteira, a barra de abas, a
+            árvore e o cabeçalho continuam vivos — as outras abas não são nem
+            tocadas, porque só a ativa está montada.
+
+            `resetKey` é o id da aba: trocar de aba rearma. Sem isso, a
+            fronteira ficaria presa no estado de erro e a aba seguinte, sadia,
+            nasceria mostrando o painel de falha da anterior.
+          */}
+          <FronteiraDeErro variante="painel" resetKey={aba?.id ?? null}>
           {abaCluster !== null ? (
             abaCluster.kind === "overview" ? (
               <DatabasesOverviewTab key={abaCluster.id} connectionId={abaCluster.connectionId} />
@@ -384,6 +407,7 @@ export function AppShell({
               onToggleInspector={() => { setWs(toggleInspector); }}
             />
           )}
+          </FronteiraDeErro>
         </main>
 
         {/*
