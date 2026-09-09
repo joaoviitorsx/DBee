@@ -2,6 +2,29 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Corrigido
+- **A animação de export nunca completava, e às vezes nem aparecia.** Três
+  causas, todas confirmadas:
+
+  1. O componente sabe se completar — tem um estado `concluido` que enche as
+     sete células — mas **o chamador nunca o passava**. Ao terminar o download o
+     favo era simplesmente desmontado, no meio do preenchimento.
+  2. A escala estava calibrada para o export que não existe: `log2` saturando
+     em **4 GB**. Medido contra o servidor real, o que o DBee exporta é outra
+     ordem de grandeza — uma tabela dá 44 kB (1 de 7 células), três tabelas em
+     zip dão 1,9 MB (3 de 7), o dump SQL completo dá 8 MB (4 de 7). O favo
+     nunca enchia no uso real.
+  3. Não havia piso por tempo. Um export de 44 kB chega em 4 pedaços e 64 ms;
+     só por bytes o favo dava um salto e sumia.
+
+  Agora: a escala satura em ~64 MB, um piso por tempo decorrido garante
+  movimento visível mesmo no export pequeno, a última célula é sempre do
+  `concluido` — a animação só afirma "terminou" quando terminou — e o favo
+  cheio fica na tela por 1,6 s, tempo de o mel terminar de descer (900 ms) e
+  ainda ser lido.
+
 ## [0.3.5] — 2026-09-09
 
 ### Adicionado

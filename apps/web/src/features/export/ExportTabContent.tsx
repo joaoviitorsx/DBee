@@ -7,7 +7,7 @@ import type {
 } from "@dbee/shared";
 import { PREVIEW_MAX_BYTES } from "@dbee/shared/puro";
 import { Download, Info, Search, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button, Input } from "../../components/ui";
 import { useIdioma } from "../../i18n";
@@ -68,6 +68,19 @@ export function ExportTabContent({
   const [previa, setPrevia] = useState<string | null>(null);
   const [escolhas, setEscolhas] = useState<Readonly<Record<string, Escolha>>>({});
   const [baixando, setBaixando] = useState(false);
+  /*
+   * O favo **termina** de encher antes de sair da tela.
+   *
+   * Antes, o componente sumia no instante em que o download acabava, e como o
+   * `concluido` nunca era passado ele nunca chegava a completar: o favo
+   * desaparecia no meio. Somado a um export que termina em 64 ms, o efeito era
+   * o relatado — a animação nem chegava a aparecer.
+   *
+   * `concluindo` mantém o favo montado por um tempo curto depois do fim, com
+   * todas as células cheias. É o único momento em que a animação afirma
+   * "terminou", e ela só afirma isso quando terminou de verdade.
+   */
+  const [concluindo, setConcluindo] = useState(false);
   /** Bytes já escritos em disco. Vem do `onProgress` — dado, não estimativa. */
   const [bytes, setBytes] = useState(0);
   const [erro, setErro] = useState<string | null>(null);
@@ -155,8 +168,26 @@ export function ExportTabContent({
         if (e instanceof ExportCancelado) return;
         setErro(e instanceof Error ? e.message : t("erro.bad_request"));
       })
-      .finally(() => { setBaixando(false); });
+      .finally(() => {
+        setBaixando(false);
+        setConcluindo(true);
+      });
   };
+
+  /*
+   * Quanto o favo cheio fica visível antes de sair.
+   *
+   * O mel de cada célula leva 900 ms para descer (ver `FavoDeExport`). Com
+   * 1100 ms sobrava um piscar de 200 ms com o favo de fato cheio — tempo de
+   * ver que encheu, não de registrar. 1600 ms deixa o despejo terminar e ainda
+   * dá uma batida de leitura.
+   */
+  const MS_CONCLUIDO = 1600;
+  useEffect(() => {
+    if (!concluindo) return;
+    const id = setTimeout(() => { setConcluindo(false); }, MS_CONCLUIDO);
+    return () => { clearTimeout(id); };
+  }, [concluindo]);
 
   if (arvore.isPending) {
     return <Trabalhando rotulo={t("arvore.lendoCatalogo")} cronometro />;
@@ -394,8 +425,8 @@ export function ExportTabContent({
           rodapé, junto do botão que disparou o export, porque é lá que a
           pessoa está olhando quando clica.
         */}
-        {baixando && output !== "preview" ? (
-          <FavoDeExport bytes={bytes} className="py-1" />
+        {(baixando || concluindo) && output !== "preview" ? (
+          <FavoDeExport bytes={bytes} concluido={!baixando} className="py-1" />
         ) : null}
         {erro !== null ? (
           <p role="alert" className="rounded-[4px] border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">

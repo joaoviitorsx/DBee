@@ -130,15 +130,32 @@ function formatarBytes(bytes: number): string {
 /**
  * Quantas células já estão guardadas.
  *
- * Sem total conhecido, o avanço é **logarítmico**: cada dobra de tamanho enche
- * mais um punhado. Assim um export de 200 kB e um de 2 GB usam o favo inteiro
- * sem que nenhum dos dois encha e pare — o que continua correndo é o pólen, que
- * é o sinal de "ainda vivo".
+ * ## A escala anterior estava calibrada para o export que não existe
+ *
+ * Era `log2(bytes/1024 + 1) / 22`, o que só enchia o favo aos **4 GB**. Medido
+ * contra o servidor de verdade, o que o DBee exporta é outra ordem de grandeza:
+ *
+ *   uma tabela ..........  44 kB  ->  1 de 7 células
+ *   três tabelas (zip) ... 1,9 MB ->  3 de 7
+ *   dump SQL completo ...  8,0 MB ->  4 de 7
+ *
+ * Ou seja: o favo **nunca** enchia no uso real, que foi exatamente o relato.
+ * A escala passa a saturar em ~64 MB, que cobre com folga o que sai daqui, e o
+ * teto continua existindo para o export gigante não estourar a conta.
+ *
+ * ## Bytes não bastam: o tempo também enche
+ *
+ * Um export de 44 kB chega em 4 pedaços e 64 ms. Só com bytes o favo daria um
+ * salto e sumiria. O piso por **tempo decorrido** garante que sempre há
+ * movimento para ver, e nunca chega sozinho ao fim: a última célula é do
+ * `concluido`, senão a animação afirmaria "terminou" antes de ter terminado.
  */
-function guardadas(bytes: number): number {
-  if (bytes <= 0) return 0;
-  const dobras = Math.log2(bytes / 1024 + 1);
-  return Math.min(TOTAL, Math.floor((dobras / 22) * TOTAL));
+function guardadas(bytes: number, decorridoMs: number): number {
+  const porBytes =
+    bytes <= 0 ? 0 : (Math.log2(bytes / 1024 + 1) / 16) * TOTAL;
+  // Uma célula a cada 260 ms, parando em TOTAL - 1.
+  const porTempo = Math.min(TOTAL - 1, decorridoMs / 260);
+  return Math.min(TOTAL - 1, Math.floor(Math.max(porBytes, porTempo)));
 }
 
 export function FavoDeExport({
@@ -153,6 +170,21 @@ export function FavoDeExport({
 }) {
   const t = useT();
   const [taxa, setTaxa] = useState<number | null>(null);
+  /*
+   * Tempo desde que o favo apareceu.
+   *
+   * Serve ao piso de `guardadas`: sem ele um export pequeno encheria uma célula
+   * e ficaria parado até acabar. É um `setState` a cada 260 ms — barato, e só
+   * enquanto a animação está na tela.
+   */
+  const [decorrido, setDecorrido] = useState(0);
+  useEffect(() => {
+    if (concluido) return;
+    const nasceu = performance.now();
+    const id = setInterval(() => { setDecorrido(performance.now() - nasceu); }, 260);
+    return () => { clearInterval(id); };
+  }, [concluido]);
+
   const anterior = useRef({ bytes: 0, quando: 0 });
 
   /**
@@ -207,7 +239,7 @@ export function FavoDeExport({
       ? 2600
       : Math.max(420, Math.min(2600, 2_600_000 / Math.max(1000, taxa)));
 
-  const cheias = concluido ? TOTAL : guardadas(bytes);
+  const cheias = concluido ? TOTAL : guardadas(bytes, decorrido);
 
   return (
     <div className={cn("flex items-center gap-4", className)}>
