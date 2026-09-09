@@ -28,6 +28,42 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   vivas, rearme estável em quatro alternâncias, e a variante de raiz cobrindo a
   janela nos dois temas.
 
+### Desempenho
+- **Auditoria: os filtros varriam a tabela inteira.** O `query_log` nasceu com um
+  índice só, `(executed_at DESC)`, que serve "as últimas N" e mais nada. As
+  outras três perguntas das telas de auditoria caíam em varredura completa com
+  ordenação em B-tree temporária — a tela respondia, só demorava, que é como
+  isso passou despercebido.
+
+  Medido com o SQL que o repositório emite, num `query_log` de 1.000.000 de
+  linhas:
+
+  | consulta | antes | depois | |
+  |---|---|---|---|
+  | filtro por status | 394 ms | 0,093 ms | **4228×** |
+  | filtro por ator | 286 ms | 0,093 ms | **3088×** |
+  | paginação (página 2) | 178 ms | 0,096 ms | **1855×** |
+
+  A migration 006 cria três índices e **derruba** o antigo, que virou prefixo
+  estrito do novo — manter os dois pagaria escrita duas vezes pela mesma
+  ordenação.
+
+  **Três, não quatro.** `connection_id` ficou de fora de propósito: sem índice
+  próprio a consulta por conexão já fica em 0,23 ms a 1M linhas, e 2,5× sobre
+  algo sub-milissegundo não paga o preço. E há preço — o `query_log` recebe
+  `INSERT` a cada query executada: 7,5 µs/linha com um índice, 12,3 com três,
+  15,8 com quatro.
+
+  **O índice sozinho não resolvia a paginação.** Com o `WHERE` na forma canônica
+  em `OR`, o SQLite escolhe `MULTI-INDEX OR` e varre o índice — 46 ms mesmo com
+  ele criado. A comparação de tupla `(executed_at, id) < (?, ?)` vira `SEARCH` e
+  salta direto para a posição. A montagem do SQL saiu para uma função exportada
+  para o teste poder conferir o **plano** do statement real, não o de uma cópia:
+  filtro que vire `SCAN query_log` quebra o teste.
+
+  A busca por substring no SQL continua varrendo, e há teste dizendo isso em voz
+  alta — não é regressão, é o que `instr()` custa.
+
 ### Corrigido
 - **Linha com `char(n)`, `boolean` ou `inet` não podia ser excluída nem
   editada — e a tela culpava um terceiro que não existia.** A guarda otimista

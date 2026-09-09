@@ -61,6 +61,81 @@ describe("migrations", () => {
   });
 });
 
+/**
+ * O caminho que de fato acontece em produção: um banco que JÁ existe sobe para
+ * a versão nova, com dados dentro.
+ *
+ * "Aplica num banco vazio" não prova isso. A 006 derruba um índice e cria
+ * outros três; se o `DROP INDEX` errasse o nome, ou se um `CREATE INDEX`
+ * colidisse com algo já presente, o container entraria em loop de restart — e o
+ * dado do cliente estaria do outro lado dessa falha.
+ */
+describe("subir um banco existente para a 006", () => {
+  /** Um banco parado na v5, com dado dentro, como o de quem roda a v0.3.1. */
+  const bancoNaV5 = (): Database => {
+    const db = new Database(":memory:");
+    const ate5 = MIGRATIONS.filter((m) => m.version <= 5);
+    db.run("BEGIN");
+    for (const m of ate5) db.run(m.sql);
+    db.run(`CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+    db.run(`INSERT OR REPLACE INTO app_meta (key, value) VALUES ('schema_version', '5')`);
+    db.run("COMMIT");
+    db.query(
+      `INSERT INTO connections (id, name, host, port, database, username, password_enc,
+         ssl_mode, created_at, updated_at)
+       VALUES ('c1', 'x', 'h', 5432, 'd', 'u', 'e', 'require', '', '')`,
+    ).run();
+    for (let i = 0; i < 25; i++) {
+      db.query(
+        `INSERT INTO query_log (id, connection_id, database, sql, status, error, row_count,
+           duration_ms, read_only, actor, executed_at)
+         VALUES (?, 'c1', 'd', 'SELECT 1', 'ok', NULL, 1, 5, 1, 'joao', ?)`,
+      ).run(`log_${String(i)}`, new Date(Date.UTC(2025, 0, 1, 0, i)).toISOString());
+    }
+    return db;
+  };
+
+  it("o banco na v5 nasce com o índice antigo, e só com ele", () => {
+    const db = bancoNaV5();
+    const nomes = db
+      .query<{ name: string }, []>(
+        `SELECT name FROM sqlite_master
+          WHERE type='index' AND tbl_name='query_log'
+            -- o autoíndice da PK TEXT não é decisão de ninguém: sai da conta
+            AND name NOT LIKE 'sqlite_autoindex%'`,
+      )
+      .all()
+      .map((r) => r.name);
+    expect(nomes).toEqual(["idx_query_log_recent"]);
+  });
+
+  it("migra para a 006 sem perder linha nenhuma", () => {
+    const db = bancoNaV5();
+    expect(migrate(db)).toBe(latest);
+
+    const n = db.query<{ n: number }, []>("SELECT count(*) AS n FROM query_log").get()?.n;
+    expect(n).toBe(25);
+
+    const nomes = db
+      .query<{ name: string }, []>(
+        `SELECT name FROM sqlite_master
+          WHERE type='index' AND tbl_name='query_log'
+            AND name NOT LIKE 'sqlite_autoindex%'
+          ORDER BY name`,
+      )
+      .all()
+      .map((r) => r.name);
+    expect(nomes).toEqual(["idx_query_log_ator", "idx_query_log_keyset", "idx_query_log_status"]);
+  });
+
+  it("rodar a migração de novo sobre o banco já migrado não estoura", () => {
+    const db = bancoNaV5();
+    migrate(db);
+    expect(migrate(db)).toBe(latest);
+    expect(migrate(db)).toBe(latest);
+  });
+});
+
 describe("ordem das migrations", () => {
   it("aplica por versão, não pela ordem do array", () => {
     // O array é mantido à mão; um rebase de dois branches basta para inverter
