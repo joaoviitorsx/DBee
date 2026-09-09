@@ -53,6 +53,18 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   catálogo **no servidor**, dentro da transação: vindo do cliente entraria no
   SQL e seria injeção. A guarda continua recusando alteração de terceiro — há
   teste para isso, porque afrouxar a proteção seria pior que o defeito.
+- **O export levava tabela que ninguém marcou, e o `.zip` perdia uma.** A
+  identidade de uma tabela na tela era `${schema}.${tabela}`, e identificador do
+  Postgres aceita ponto quando citado: `zz_a` + `"b.c"` e `"zz_a.b"` + `c`
+  colapsavam na mesma chave. Marcar uma caixa marcava as duas, e o `key=` do
+  React reconciliava as duas linhas como uma. É a colisão que o `nodeId` do
+  diagrama já documentava ter corrigido; o export tinha ficado de fora.
+
+  No servidor, o nome da entrada do `.zip` tinha o mesmo problema mais um: nome
+  com barra virava **diretório** dentro do arquivo. Agora separador e byte de
+  controle viram `_`, e o desempate é sufixo numérico — a segunda tabela sai
+  como `nome (2).csv` em vez de sumir na extração.
+
 ## [0.3.1] — 2026-09-08
 
 ### Adicionado

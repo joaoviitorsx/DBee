@@ -110,6 +110,19 @@ linha', 0);
     -- "múltiplo exato de EXPORT_BATCH" abaixo.
     CREATE TABLE lote_exato (id int PRIMARY KEY, texto text NOT NULL);
     INSERT INTO lote_exato SELECT g, 'linha ' || g FROM generate_series(1, 1000) g;
+
+    -- Nomes hostis, todos LEGAIS no Postgres quando citados. O nome da entrada
+    -- do zip era \`schema.tabela.ext\` cru, então:
+    --   \`ponto\`  + \`b.c\`  e  \`ponto.b\` + \`c\`  dão a MESMA entrada
+    --   \`com/barra\` vira um DIRETÓRIO dentro do zip
+    CREATE SCHEMA ponto;
+    CREATE SCHEMA "ponto.b";
+    CREATE TABLE ponto."b.c" (id int PRIMARY KEY, v text);
+    INSERT INTO ponto."b.c" VALUES (1, 'sou a b.c');
+    CREATE TABLE "ponto.b".c (id int PRIMARY KEY, v text);
+    INSERT INTO "ponto.b".c VALUES (1, 'sou a c');
+    CREATE TABLE ponto."com/barra" (id int PRIMARY KEY, v text);
+    INSERT INTO ponto."com/barra" VALUES (1, 'sou a barra');
   `]);
   // Sem esta linha, um seed que falha vira seis testes falhando por
   // "tabela não existe" — o sintoma longe da causa.
@@ -338,6 +351,50 @@ describe.if(temDocker)("formatos", () => {
     expect(clientes.split("\r\n")[0]).toBe("id;nome;apelido;saldo");
     expect(clientes).toContain("O'Brien & Cia");
     expect(await Bun.file(join(dir, "public.notas.csv")).text()).toContain("id;cliente_id;valor");
+  });
+
+  /**
+   * Nome de tabela é entrada do usuário, e o nome da entrada do zip era
+   * `schema.tabela.ext` cru.
+   *
+   * Duas tabelas DIFERENTES — `ponto`/`"b.c"` e `"ponto.b"`/`c` — colidiam na
+   * mesma entrada. O zip aceita duas entradas homônimas sem reclamar, e o
+   * `unzip` sobrescreve: a pessoa pedia duas tabelas e recebia um arquivo, sem
+   * aviso nenhum. A barra, por sua vez, virava um DIRETÓRIO dentro do zip.
+   */
+  it("nomes que colidem viram entradas distintas, e barra não vira diretório", async () => {
+    const res = await baixarBundle({
+      format: "csv",
+      tables: [
+        { schema: "ponto", table: "b.c", structure: false, data: true },
+        { schema: "ponto.b", table: "c", structure: false, data: true },
+        { schema: "ponto", table: "com/barra", structure: false, data: true },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const dir = mkdtempSync(join(tmpdir(), "dbee-bundle-hostil-"));
+    const caminho = join(dir, "d.zip");
+    await Bun.write(caminho, new Uint8Array(await res.arrayBuffer()));
+
+    const listagem = Bun.spawnSync(["unzip", "-Z1", caminho]).stdout.toString();
+    const entradas = listagem.split("\n").filter((l) => l.trim() !== "");
+
+    // Três tabelas pedidas, três entradas — e três nomes DIFERENTES.
+    expect(entradas).toHaveLength(3);
+    expect(new Set(entradas).size).toBe(3);
+    // Nenhuma entrada é caminho: barra viraria pasta na extração.
+    expect(entradas.filter((e) => e.includes("/"))).toEqual([]);
+
+    // E o conteúdo das duas que colidiam continua sendo o de cada uma.
+    Bun.spawnSync(["unzip", "-o", "-q", caminho, "-d", dir]);
+    const conteudos = await Promise.all(
+      entradas.map(async (e) => await Bun.file(join(dir, e)).text()),
+    );
+    const juntos = conteudos.join("\n");
+    expect(juntos).toContain("sou a b.c");
+    expect(juntos).toContain("sou a c");
+    expect(juntos).toContain("sou a barra");
   });
 
   it("csv-comma usa vírgula; tsv usa tabulação", async () => {

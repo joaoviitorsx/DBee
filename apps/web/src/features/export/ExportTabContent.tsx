@@ -13,6 +13,7 @@ import { Button, Input } from "../../components/ui";
 import { useIdioma } from "../../i18n";
 import { cn } from "../../lib/cn";
 import { Trabalhando } from "../motion/Trabalhando";
+import { chaveTabela, rotuloTabela } from "./chave";
 import { useSchema } from "../tree/useTree";
 import { baixarBundle, ExportCancelado, verPrevia } from "./download";
 import { FavoDeExport } from "./FavoDeExport";
@@ -45,7 +46,6 @@ interface Escolha {
   readonly data: boolean;
 }
 
-const CHAVE = (schema: string, tabela: string): string => `${schema}.${tabela}`;
 
 export function ExportTabContent({
   connectionId,
@@ -87,16 +87,16 @@ export function ExportTabContent({
   const visiveis = useMemo(() => {
     const termo = filtro.trim().toLowerCase();
     if (termo === "") return tabelas;
-    return tabelas.filter((tb) => CHAVE(tb.schema, tb.table).toLowerCase().includes(termo));
+    return tabelas.filter((tb) => rotuloTabela(tb.schema, tb.table).toLowerCase().includes(termo));
   }, [tabelas, filtro]);
 
   const escolhaDe = (schema: string, table: string): Escolha =>
-    escolhas[CHAVE(schema, table)] ?? { structure: false, data: false };
+    escolhas[chaveTabela(schema, table)] ?? { structure: false, data: false };
 
   const marcar = (schema: string, table: string, mudanca: Partial<Escolha>): void => {
     setEscolhas((atuais) => ({
       ...atuais,
-      [CHAVE(schema, table)]: { ...escolhaDe(schema, table), ...mudanca },
+      [chaveTabela(schema, table)]: { ...escolhaDe(schema, table), ...mudanca },
     }));
   };
 
@@ -105,7 +105,7 @@ export function ExportTabContent({
     setEscolhas((atuais) => {
       const novo = { ...atuais };
       for (const tb of visiveis) {
-        novo[CHAVE(tb.schema, tb.table)] = { structure: valor, data: valor };
+        novo[chaveTabela(tb.schema, tb.table)] = { structure: valor, data: valor };
       }
       return novo;
     });
@@ -323,7 +323,7 @@ export function ExportTabContent({
                 const marcada = escolha.structure || escolha.data;
                 return (
                   <tr
-                    key={CHAVE(tb.schema, tb.table)}
+                    key={chaveTabela(tb.schema, tb.table)}
                     className={cn(
                       "border-b border-line/50",
                       marcada ? "bg-raised" : "hover:bg-raised/50",
@@ -344,7 +344,7 @@ export function ExportTabContent({
                         type="checkbox"
                         checked={escolha.structure}
                         onChange={(e) => { marcar(tb.schema, tb.table, { structure: e.target.checked }); }}
-                        aria-label={`${t("exp.estrutura")} ${CHAVE(tb.schema, tb.table)}`}
+                        aria-label={`${t("exp.estrutura")} ${rotuloTabela(tb.schema, tb.table)}`}
                         className="h-4 w-4 accent-[var(--color-muted)]"
                       />
                     </td>
@@ -353,7 +353,7 @@ export function ExportTabContent({
                         type="checkbox"
                         checked={escolha.data}
                         onChange={(e) => { marcar(tb.schema, tb.table, { data: e.target.checked }); }}
-                        aria-label={`${t("exp.dados")} ${CHAVE(tb.schema, tb.table)}`}
+                        aria-label={`${t("exp.dados")} ${rotuloTabela(tb.schema, tb.table)}`}
                         className="h-4 w-4 accent-[var(--color-muted)]"
                       />
                     </td>

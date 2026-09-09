@@ -134,11 +134,47 @@ function recipienteSql(): Recipiente {
   };
 }
 
+/**
+ * Nome da entrada no `.zip`, a partir de schema e tabela.
+ *
+ * Era `${schema}.${table}.${ext}` cru, e nome de tabela é **entrada do
+ * usuário**: identificador do Postgres aceita ponto, barra e quase tudo quando
+ * citado. Isso trazia dois problemas de verdade, não hipotéticos — as tabelas
+ * existem no banco de teste:
+ *
+ * - **Barra vira diretório.** `zz_barra/tabela` produzia a entrada
+ *   `zz_hostil.zz_barra/tabela.csv`, isto é, uma pasta dentro do zip. Com `..`
+ *   no nome, o caminho ainda tenta sair dela — o `unzip` do Info-ZIP recusa,
+ *   mas depender da educação do extrator alheio não é contenção.
+ * - **Colisão silenciosa.** `zz_a` + `"b.c"` e `"zz_a.b"` + `c` dão o mesmo
+ *   nome; o zip aceita duas entradas homônimas e, ao extrair, uma sobrescreve a
+ *   outra. A pessoa pediu duas tabelas e recebeu um arquivo, sem aviso.
+ *
+ * Separador some, byte de controle some, e o desempate é sufixo numérico — a
+ * segunda tabela sai como `nome (2).csv` em vez de sumir.
+ */
+function nomeDeEntrada(
+  schema: string,
+  table: string,
+  format: BundleFormat,
+  usados: Set<string>,
+): string {
+  // Separador de caminho e byte de controle viram `_`. O resto fica como
+  // está: acento, espaço e hífen são legítimos num nome de tabela.
+  // eslint-disable-next-line no-control-regex -- o byte de controle é o alvo
+  const limpo = `${schema}.${table}`.replace(/[/\\\u0000-\u001f]/g, "_");
+  const ext = EXTENSAO_BUNDLE[format];
+  let nome = `${limpo}.${ext}`;
+  for (let i = 2; usados.has(nome); i++) nome = `${limpo} (${String(i)}).${ext}`;
+  usados.add(nome);
+  return nome;
+}
+
 function recipienteZip(format: BundleFormat): Recipiente {
   const zip = new ZipWriter();
+  const usados = new Set<string>();
   return {
-    abrirTabela: (plano) =>
-      zip.abrir(`${plano.schema}.${plano.table}.${EXTENSAO_BUNDLE[format]}`),
+    abrirTabela: (plano) => zip.abrir(nomeDeEntrada(plano.schema, plano.table, format, usados)),
     escrever: (texto) => zip.escrever(codificador.encode(texto)),
     fecharTabela: () => zip.fechar(),
     finalizar: () => zip.finalizar(),
