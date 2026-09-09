@@ -48,6 +48,32 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   alerta numa conexão que falha de verdade.
 
 ### Desempenho
+- **O navegador baixava o TypeBox inteiro sem usar nada dele.** O barril do
+  `@dbee/shared` reexporta 16 módulos, e 13 declaram schemas com o `t` da
+  Elysia. `t` é **runtime**: tocar o barril trazia o TypeBox para o bundle,
+  mesmo importando uma função de três linhas.
+
+  Medido com `bun build --minify` a partir do próprio `apps/web`, com os 13
+  valores que o front de fato usa:
+
+  | | bruto | gzip |
+  |---|---|---|
+  | pelo barril | 292.156 B | 79,8 kB |
+  | por módulos livres de Elysia | 1.102 B | 0,48 kB |
+
+  A lógica pura (montar SQL de `UPDATE`/`INSERT`/`DELETE`, DDL, CSV/TSV, split
+  de statements) saiu para módulos `*.puro.ts`, sem `t`, e o pacote ganhou um
+  segundo ponto de entrada, `@dbee/shared/puro`, que o front passou a usar para
+  **valor**. Tipo continua vindo do barril: `import type` some na compilação e
+  não custa byte.
+
+  O bundle do web caiu de **371,90 kB para 311,62 kB gzip (−60,28 kB, −16,2%)**,
+  e o chunk que carregava o TypeBox desapareceu — `grep` por `TypeBox`, `Kind`,
+  `TypeCompiler` e `sinclair` no bundle novo devolve zero.
+
+  Nenhuma função mudou: só a origem do import. Validação continua sendo do
+  servidor, que é onde os schemas têm de estar.
+### Desempenho
 - **O plano do export abria uma transação por tabela.** A busca de índices e
   triggers era feita tabela a tabela, e cada chamada abria a própria transação:
   `BEGIN` + 2 consultas + `COMMIT`, vezes o número de tabelas, cada uma pegando

@@ -1,4 +1,4 @@
-import { tsvLine } from "@dbee/shared";
+import { tsvLine } from "@dbee/shared/puro";
 
 /**
  * Seleção retangular do grid.

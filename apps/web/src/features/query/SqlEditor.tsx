@@ -6,7 +6,7 @@ import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { acceptCompletion, autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import type { DatabaseSchema } from "@dbee/shared";
-import { splitStatements } from "@dbee/shared";
+import { splitStatements } from "@dbee/shared/puro";
 import { useEffect, useMemo, useRef } from "react";
 
 import { construirCompletion } from "./completion";

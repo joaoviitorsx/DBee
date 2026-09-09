@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import type { Column } from "@dbee/shared";
-import { construirInsert } from "@dbee/shared";
+import { construirInsert } from "@dbee/shared/puro";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info, KeyRound, X } from "lucide-react";
 import { useMemo, useState } from "react";

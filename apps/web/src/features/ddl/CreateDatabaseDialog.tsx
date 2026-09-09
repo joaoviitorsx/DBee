@@ -1,10 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import {
-  DdlInvalido,
-  montarCreateDatabase,
-  type CreateDatabaseRequest,
-  type DatabaseEncoding,
-} from "@dbee/shared";
+import { type CreateDatabaseRequest, type DatabaseEncoding } from "@dbee/shared";
+import { DdlInvalido, montarCreateDatabase } from "@dbee/shared/puro";
 import { Info, X } from "lucide-react";
 import { useMemo, useState } from "react";
 

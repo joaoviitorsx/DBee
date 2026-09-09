@@ -5,7 +5,7 @@ import type {
   BundleStructure,
   BundleTable,
 } from "@dbee/shared";
-import { PREVIEW_MAX_BYTES } from "@dbee/shared";
+import { PREVIEW_MAX_BYTES } from "@dbee/shared/puro";
 import { Download, Info, Search, X } from "lucide-react";
 import { useMemo, useState } from "react";
 

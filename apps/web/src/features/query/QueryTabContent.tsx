@@ -1,4 +1,5 @@
-import { splitStatements, type QueryResponse, type SavedQuery, type StatementResult } from "@dbee/shared";
+import { type QueryResponse, type SavedQuery, type StatementResult } from "@dbee/shared";
+import { splitStatements } from "@dbee/shared/puro";
 import { useMutation } from "@tanstack/react-query";
 import { BookmarkPlus, FolderOpen, Play, Square, Table2, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";

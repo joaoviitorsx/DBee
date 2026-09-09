@@ -1,11 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import {
-  construirDelete,
-  construirUpdate,
-  type TiposDeColuna,
-  type RowDeleteRequest,
-  type RowUpdateRequest,
-} from "@dbee/shared";
+import { type TiposDeColuna, type RowDeleteRequest, type RowUpdateRequest } from "@dbee/shared";
+import { construirDelete, construirUpdate } from "@dbee/shared/puro";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Info, TriangleAlert, X } from "lucide-react";
 import { useMemo, useState } from "react";

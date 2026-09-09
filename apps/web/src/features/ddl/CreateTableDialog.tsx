@@ -1,14 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
-import {
-  DdlInvalido,
-  montarCreateTable,
-  TIPOS_COM_PRECISAO,
-  TIPOS_COM_TAMANHO,
-  TIPOS_SERIAIS,
-  type ColumnType,
-  type CreateTableRequest,
-  type NewColumn,
-} from "@dbee/shared";
+import { type ColumnType, type CreateTableRequest, type NewColumn } from "@dbee/shared";
+import { DdlInvalido, montarCreateTable, TIPOS_COM_PRECISAO, TIPOS_COM_TAMANHO, TIPOS_SERIAIS } from "@dbee/shared/puro";
 import { Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 

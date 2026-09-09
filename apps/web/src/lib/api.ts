@@ -1,6 +1,6 @@
 import { treaty } from "@elysiajs/eden";
 
-import { EDEN_CONFIG } from "@dbee/shared";
+import { EDEN_CONFIG } from "@dbee/shared/puro";
 import type { App } from "@dbee/server/src/app";
 
 /**
