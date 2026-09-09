@@ -5,6 +5,34 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **A condição de keyset do MySQL/MariaDB** — que é o **oposto** da do
+  Postgres.
+
+  `(c, pk) > (v, p)` e `c > v OR (c = v AND pk > p)` selecionam as mesmas
+  linhas, e as duas engines discordam sobre qual forma é a boa. Medido na página
+  100 000 de uma tabela de 131 072 linhas, coluna indexada:
+
+  | | comparação de linha | disjunção com `OR` |
+  |---|---|---|
+  | PostgreSQL | `Index Cond`, **0,25 ms** | `Filter`, 76,4 ms |
+  | MySQL 8.4 | `type=index`, 24 ms | `type=range`, **1 ms** |
+  | MariaDB 11.8 | `type=index`, 21 ms | `type=range`, **0 ms** |
+
+  Reusar o planejador do Postgres aqui daria uma paginação vinte vezes mais
+  lenta **sem erro nenhum** — o resultado continua certo, só o plano é ruim. E o
+  `EXPLAIN` mente na direção contrária: para a comparação de linha ele estimou
+  **50** linhas, e para a disjunção, **63 253**. Quem decidir pelo `EXPLAIN`
+  escolhe a forma lenta.
+
+  Os NULL também ficam do outro lado: no MySQL e no MariaDB `ORDER BY v ASC`
+  põe **NULL primeiro**, no Postgres por último, e `NULLS LAST` **não existe**
+  aqui (erro de sintaxe nos dois). A ordem nativa é respeitada em vez de
+  forçada, porque forçá-la exigiria `ORDER BY (v IS NULL), v`, que o índice não
+  cobre.
+
+  Provado revertendo, nos dois pontos: sem o desempate da chave primária a
+  paginação diverge, e com a forma compacta o plano cai para `index`.
+
 - **Cancelamento de consulta no MySQL/MariaDB**, por `KILL QUERY`.
 
   É o equivalente do `pg_cancel_backend`: mata **a consulta**, não a sessão, e

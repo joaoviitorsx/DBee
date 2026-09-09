@@ -138,10 +138,14 @@ da documentação dos drivers.
       configuração de sessão terminar.
 - [x] **Cancelamento** (`PoolMysql.cancelarConsulta`) — `KILL QUERY` por conexão
       à parte, funcionando com a credencial restrita.
+- [x] **Keyset** (`mysql/keyset.ts`) — a forma canônica com `OR`, que aqui é
+      vinte vezes mais rápida e no Postgres é vinte vezes mais lenta. Os NULL
+      ficam do outro lado, e `NULLS LAST` não existe.
 
 Falta para a fase fechar:
 
-- [ ] Leitura de linhas com paginação por keyset, e exportação.
+- [ ] O planejador de linhas completo (filtros, ordenação, contagem) e a
+      exportação. A condição de keyset em si já está pronta e medida.
 - [ ] `CAPACIDADES` de `mysql` e `mariadb`, e as duas entrando em
       `ENGINES_IMPLEMENTADAS` — é o passo que acende os chips do seletor. Só
       depois de tudo acima, senão a tela oferece o que o servidor não faz.
