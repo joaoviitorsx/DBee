@@ -5,6 +5,28 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **O limite de tempo por consulta em MySQL e MariaDB**, com as três
+  divergências medidas concentradas num arquivo só.
+
+  | | variável | unidade | ao cortar |
+  |---|---|---|---|
+  | MySQL 8.4 | `max_execution_time` | milissegundos inteiros | `ER_QUERY_TIMEOUT`, errno 3024 |
+  | MariaDB 11.8 | `max_statement_time` | segundos, float | errno 1969, **sem `code`** |
+
+  `@@max_execution_time` não existe no MariaDB, então não dá para setar as duas
+  e deixar a que valer vencer — há teste provando que cada servidor recusa a
+  variável do outro.
+
+  Duas armadilhas, uma em cada, e a segunda era um defeito meu que a medição
+  pegou: a primeira versão reconhecia o corte pelo **nome** do código de erro, o
+  que funciona no MySQL e falha calado no MariaDB, que não manda nome nenhum. A
+  chave passou a ser o `errno`, que os dois preenchem.
+
+  A outra é do MySQL: `SELECT SLEEP(5)` cortado por tempo volta **sem erro**, em
+  1502 ms, com o valor `1`. Um executor que decida "deu certo" pela ausência de
+  erro relataria sucesso numa consulta que não terminou. Fica travado por teste,
+  para o dia em que o servidor mudar de comportamento.
+
 - **O teste de conexão do MySQL/MariaDB diz o que a conexão _não_ garante.**
 
   No Postgres o teste abre `BEGIN READ ONLY` e com isso já exercita a proteção.
