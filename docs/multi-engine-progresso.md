@@ -12,7 +12,7 @@ arqueologia na terceira sessão.
 | fase | o que entrega | estado |
 |---|---|---|
 | 0b — o campo `engine` existe | migration 007, tipo, capacidades, `engine` na API | **concluída** |
-| **0a — fronteira do driver** | interface `Driver`, serviços deixam de importar `pg/` | **a seguir** |
+| 0a — fronteira do driver | ~~interface `Driver` antes da 2ª engine~~ | **absorvida na fase 2**, ver nota |
 | 1 — papéis documentados | `docs/papeis-mysql.md` | não começou |
 | 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | não começou |
 | 3 — libSQL | URL + token, read-only por JWT | não começou |
@@ -53,6 +53,26 @@ arqueologia na terceira sessão.
 (fora os testes novos acima) e os quatro screenshots batem com os de hoje. É o
 que torna esta fatia barata e verificável — e o que prova que quem só usa
 Postgres não perdeu nada.
+
+## Por que a 0a foi absorvida na fase 2
+
+O plano previa extrair a interface `Driver` **antes** da segunda engine, com o
+argumento de que seria a fase sem risco de regressão. Ao começar, ela bateu de
+frente com uma regra do próprio plano: *não generalizar antes de ter a segunda
+engine funcionando — a forma certa da abstração aparece com o segundo caso, não
+com o primeiro imaginado.*
+
+Extrair `introspectar`, `lerLinhas` e `exportar` agora seria inventar a forma a
+partir de um caso só, e a chance de acertar é a mesma de qualquer palpite. O que
+se ganharia era churn com nome de arquitetura.
+
+**A exceção é a transação.** Ali existe medição de seis engines dizendo que a
+garantia de somente-leitura muda de lugar (`docs/multi-engine.md` §1), então a
+fronteira é justificada por evidência e não por simetria. Ela entra junto com o
+driver do MySQL, com dois casos reais na mão.
+
+Os serviços continuam importando `pg/` até lá. É dívida consciente, e o teste
+que a cobra é o próprio typecheck no dia em que o segundo driver aparecer.
 
 ## Decisões pendentes, e quem decide
 
