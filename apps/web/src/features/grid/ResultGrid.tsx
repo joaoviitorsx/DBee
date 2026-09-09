@@ -97,6 +97,100 @@ export function ResultGrid({
   // O conteúdo do cabeçalho, para acompanhar o scroll horizontal do corpo.
   const cabecalho = useRef<HTMLDivElement>(null);
 
+  /*
+   * Arrastar a grade para navegar (§5.4).
+   *
+   * ## Por que isto não conflita com a seleção
+   *
+   * A seleção de células é `onClick` e `Shift+onClick` — não é mousedown +
+   * move. Então o botão esquerdo arrastando estava livre, e é o gesto que a
+   * pessoa espera numa tabela larga: puxar o conteúdo em vez de mirar numa
+   * barra de 8 px no rodapé.
+   *
+   * Um limiar de 4 px separa as duas intenções. Abaixo dele o gesto é clique e
+   * a seleção acontece; acima, vira arrasto e o clique que o navegador dispara
+   * ao soltar é **engolido** — senão soltar o arrasto mudaria a célula
+   * selecionada, que é exatamente o tipo de efeito que ninguém pediu.
+   *
+   * ## Só mouse
+   *
+   * `pointerType !== "mouse"` sai fora: no toque o navegador já faz rolagem
+   * com inércia, e sequestrar isso trocaria um gesto bom por um pior.
+   *
+   * ## Sem estado do React
+   *
+   * O deslocamento escreve `scrollLeft`/`scrollTop` direto no nó. Um `setState`
+   * por `pointermove` re-renderizaria a grade inteira a cada quadro — no
+   * caminho mais caro do app, medido em 6.400 botões de célula.
+   */
+  const arrasto = useRef<{
+    x0: number;
+    y0: number;
+    esquerda: number;
+    topo: number;
+    passouLimiar: boolean;
+  } | null>(null);
+  /** Engole o `click` que o navegador dispara ao soltar um arrasto. */
+  const engolirClique = useRef(false);
+
+  const LIMIAR_ARRASTO = 4;
+
+  const iniciarArrasto = (e: React.PointerEvent<HTMLDivElement>): void => {
+    if (e.pointerType !== "mouse") return;
+    // Esquerdo ou do meio. O do meio é a convenção de pan e não seleciona nada.
+    if (e.button !== 0 && e.button !== 1) return;
+    const el = scroller.current;
+    if (el === null) return;
+    // O puxador de largura de coluna já parou a propagação; se algo mais vier a
+    // querer o gesto, o `defaultPrevented` é o contrato.
+    if (e.defaultPrevented) return;
+
+    arrasto.current = {
+      x0: e.clientX,
+      y0: e.clientY,
+      esquerda: el.scrollLeft,
+      topo: el.scrollTop,
+      passouLimiar: false,
+    };
+  };
+
+  const moverArrasto = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const a = arrasto.current;
+    const el = scroller.current;
+    if (a === null || el === null) return;
+
+    const dx = e.clientX - a.x0;
+    const dy = e.clientY - a.y0;
+
+    if (!a.passouLimiar) {
+      if (Math.abs(dx) < LIMIAR_ARRASTO && Math.abs(dy) < LIMIAR_ARRASTO) return;
+      a.passouLimiar = true;
+      // Só aqui o cursor muda e a seleção de texto é suspensa: fazer isso no
+      // `pointerdown` piscaria a cada clique simples.
+      el.style.cursor = "grabbing";
+      el.style.userSelect = "none";
+      el.setPointerCapture(e.pointerId);
+    }
+
+    // O conteúdo segue o dedo: puxar para a esquerda revela o que está à
+    // direita, então o scroll anda no sentido oposto ao ponteiro.
+    el.scrollLeft = a.esquerda - dx;
+    el.scrollTop = a.topo - dy;
+  };
+
+  const soltarArrasto = (e: React.PointerEvent<HTMLDivElement>): void => {
+    const a = arrasto.current;
+    const el = scroller.current;
+    arrasto.current = null;
+    if (a === null || el === null) return;
+    if (!a.passouLimiar) return;
+
+    el.style.cursor = "";
+    el.style.userSelect = "";
+    if (el.hasPointerCapture(e.pointerId)) el.releasePointerCapture(e.pointerId);
+    engolirClique.current = true;
+  };
+
   // Clique define a âncora, Shift+clique estende. É a convenção de planilha, e
   // o grid é lido como planilha.
   const [ancora, setAncora] = useState<Celula | null>(null);
@@ -353,7 +447,23 @@ export function ResultGrid({
         </div>
       ) : null}
 
-      <div ref={scroller} onScroll={sincronizarScroll} className="min-h-0 flex-1 overflow-auto">
+      <div
+        ref={scroller}
+        onScroll={sincronizarScroll}
+        onPointerDown={iniciarArrasto}
+        onPointerMove={moverArrasto}
+        onPointerUp={soltarArrasto}
+        onPointerCancel={soltarArrasto}
+        // Fase de captura: chega antes do `onClick` da célula, que é quem
+        // mudaria a seleção ao soltar o arrasto.
+        onClickCapture={(e) => {
+          if (!engolirClique.current) return;
+          engolirClique.current = false;
+          e.stopPropagation();
+          e.preventDefault();
+        }}
+        className="min-h-0 flex-1 overflow-auto"
+      >
         <div style={{ height: virtual.getTotalSize(), position: "relative", minWidth: "max-content" }}>
           {itens.map((item) => {
             const linha = rows[item.index];

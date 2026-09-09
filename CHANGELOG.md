@@ -4,6 +4,21 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+### Adicionado
+- **Arrastar a grade para navegar.** Puxar o conteúdo com o botão esquerdo rola
+  nos dois eixos, em vez de mirar numa barra de 8 px no rodapé. Numa tabela de
+  30 colunas o conteúdo mede 6200 px numa janela de 1016 px — a barra é o
+  caminho pior.
+  - **Não conflita com a seleção** porque ela é `onClick`/`Shift+onClick`, não
+    mousedown+move. Um limiar de 4 px separa as intenções, e o `click` que o
+    navegador dispara ao soltar o arrasto é engolido na fase de captura —
+    senão soltar mudaria a célula selecionada.
+  - Só mouse: no toque o navegador já rola com inércia, e sequestrar isso
+    trocaria um gesto bom por um pior.
+  - O deslocamento escreve `scrollLeft`/`scrollTop` direto no nó. Um `setState`
+    por `pointermove` re-renderizaria a grade a cada quadro, no caminho mais
+    caro do app.
+
 ## [0.3.0] — 2026-09-08
 
 ### Segurança
