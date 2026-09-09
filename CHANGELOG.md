@@ -5,6 +5,33 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **O pool de conexões MySQL/MariaDB**, próprio em vez do que o `mysql2`
+  oferece — e a razão está no fonte deles.
+
+  A configuração de sessão do DBee é assíncrona: descobrir o sabor por
+  `VERSION()`, aplicar o limite de tempo com o nome de variável certo, aplicar o
+  fuso com queda para deslocamento. O pool do `mysql2` avisa a conexão nova pelo
+  evento `connection` e **não espera** o ouvinte — em `lib/base/pool.js` o
+  `emit('connection', …)` é seguido na linha seguinte por
+  `cb(null, connection)`. A primeira consulta do usuário correria com o `SET` de
+  fuso e às vezes ganharia: datas erradas de forma intermitente.
+
+  Aqui a conexão só entra em circulação depois que a sessão está pronta, e o
+  pool decide entre devolver e fechar a partir do que a tarefa devolve — o mesmo
+  `descartarConexao` que o executor produz, para quem chama não poder esquecer.
+
+  Escrevi o pool errado duas vezes, e as duas estão travadas por teste:
+
+  1. O fechamento não acordava quem esperava vaga. Com o teto ocupado por
+     tarefas que descartam, o pedido seguinte **travava para sempre** — o teste
+     que reintroduz isso estoura por tempo limite nos dois servidores.
+  2. A devolução recriava o grupo apagado pelo `evict`, e uma conexão em uso
+     durante o descarte voltava ao pool falando com o servidor antigo. A
+     primeira versão do teste olhava a contabilidade do pool e **não pegava** o
+     defeito, porque a conexão vaza para um grupo que ninguém mais lê. O que
+     acontece de verdade é uma conexão **aberta no servidor** que nunca fecha, e
+     é isso que o teste passou a medir, pelo `information_schema.PROCESSLIST`.
+
 - **O fuso da sessão no MySQL/MariaDB**, com plano B para servidor sem tabelas
   de fuso.
 

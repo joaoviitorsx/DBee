@@ -129,10 +129,16 @@ da documentação dos drivers.
 - [x] **Nomes de tipo** (`mysql/colunas.ts`) — o número do protocolo virando o
       nome do SQL, conferido contra `information_schema.COLUMNS` dos dois
       servidores.
+- [x] **Executor** (`mysql/executor.ts`) — streaming com parada antecipada, sem
+      cursor e sem injetar `LIMIT`. Parar cedo **custa a conexão**, e o
+      resultado carrega `descartarConexao` por isso.
+- [x] **Fuso** (`mysql/sessao.ts`) — nome IANA primeiro, deslocamento numérico
+      como queda para servidor sem tabelas de fuso.
+- [x] **Pool** (`mysql/pool.ts`) — próprio, porque o do `mysql2` não espera a
+      configuração de sessão terminar.
 
 Falta para a fase fechar:
 
-- [ ] Pool de conexões e execução de consulta (o `PoolManager` equivalente).
 - [ ] Leitura de linhas com paginação por keyset, e exportação.
 - [ ] Cancelamento por `KILL QUERY` — medido como viável com a credencial
       restrita, falta a fiação. O limite de tempo já está em `sessao.ts`.
