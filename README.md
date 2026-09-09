@@ -1,191 +1,141 @@
 <p align="center">
-  <img src="assets/readme-banner.png" alt="DBee — Cliente PostgreSQL web, self-hosted" width="820">
+  <img src="assets/readme-banner.png" alt="DBee" width="820">
 </p>
 
-# DBee
+<h1 align="center">DBee</h1>
 
-Cliente PostgreSQL web, self-hosted, para uso diário em produção. Bun + Elysia +
-React, um único container.
+<p align="center">
+  <strong>Cliente PostgreSQL web, self-hosted.</strong><br>
+  Um container, sem agente, sem SaaS — e read-only até você dizer o contrário.
+</p>
 
-O que faz hoje: autenticação com sessão e usuários individuais, CRUD de conexões
-com senha cifrada, árvore de schema navegável, editor SQL com autocomplete e
-execução read-only, grid virtualizado com paginação por keyset, export
-CSV/JSON/NDJSON em stream, diagrama ERD, histórico e auditoria pesquisável,
-interface em PT/EN. Read-only por padrão — escrita é opt-in por conexão: edição
-de célula, INSERT e DELETE de linha com diff antes de aplicar e concorrência
-otimista, além do cancelamento de query em execução.
+<p align="center">
+  <a href="https://github.com/joaoviitorsx/DBee/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/joaoviitorsx/DBee?style=flat-square&color=E9A319&labelColor=2a251f"></a>
+  <img alt="Bun" src="https://img.shields.io/badge/Bun-1.3-E9A319?style=flat-square&labelColor=2a251f">
+  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-E9A319?style=flat-square&labelColor=2a251f">
+  <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-um%20container-E9A319?style=flat-square&labelColor=2a251f">
+</p>
 
-## Instalar e rodar
+---
 
-O DBee sobe como um container. O caminho abaixo é para um servidor próprio com
-Docker; para o Dokploy, veja a seção seguinte.
+O DBee nasceu porque abrir um cliente pesado para responder "quantas notas essa
+empresa emitiu em março?" é caro demais, e mandar o banco do cliente para uma
+ferramenta SaaS não é uma opção. Ele roda na sua infraestrutura, o time acessa
+pelo navegador, e **nenhuma escrita acontece por acidente**: toda transação
+nasce `BEGIN READ ONLY`, e escrever exige ligar a conexão *e* a permissão da
+pessoa.
 
-### 1. Gere o `APP_SECRET`
+Está em produção diária num escritório contábil desde a v0.1.
 
-Ele deriva a chave que cifra as senhas das conexões. **Gere uma vez e guarde
-num gerenciador de segredos** — perdê-lo torna as conexões ilegíveis (ver o
-aviso abaixo).
+<p align="center">
+  <img src="assets/grid.webp" alt="Grid de resultados do DBee, com árvore de schema à esquerda" width="900">
+</p>
+<p align="center"><sub>Grade virtualizada — 100 mil linhas sem travar, paginação por keyset, arraste para navegar.</sub></p>
+
+<table>
+<tr>
+<td width="50%"><img src="assets/sql.webp" alt="Editor SQL com dois resultados" width="100%"></td>
+<td width="50%"><img src="assets/diagrama.webp" alt="Diagrama ERD gerado do schema" width="100%"></td>
+</tr>
+<tr>
+<td><sub><strong>Editor SQL</strong> — autocomplete de tabela e coluna, vários statements por execução, tempo de cada um, erro do Postgres inteiro (com a posição destacada).</sub></td>
+<td><sub><strong>Diagrama ERD</strong> — gerado do catálogo, layout em camadas pelas FKs. Tabelas sem relação vão para uma grade abaixo, em vez de virar uma coluna de 13 mil pixels.</sub></td>
+</tr>
+</table>
+
+## O que ele faz
+
+**Explorar**
+- Árvore de conexões → bancos → schemas → tabelas, com busca
+- Grade virtualizada com ordenação, filtro e paginação por keyset
+- Estrutura, índices e diagrama ERD por tabela
+- Salto por FK: clicar numa chave estrangeira abre a tabela referenciada já filtrada
+- Visão do cluster: bancos, processos ativos (`pg_stat_activity`) e auditoria
+
+**Consultar**
+- Editor SQL com autocomplete alimentado pelo catálogo real
+- Vários statements por execução, cada um com seu resultado e tempo
+- Cancelamento de query em andamento
+- Queries salvas e histórico pesquisável
+
+**Escrever — quando você deixa**
+- Read-only por padrão: `BEGIN READ ONLY` na transação, não um `SET` que a
+  sessão pode desfazer
+- Editar célula, inserir e excluir linha, **sempre com o SQL na tela antes de
+  aplicar**
+- Concorrência otimista: se outra pessoa mexeu na linha entre a leitura e o
+  clique, a operação aborta em vez de sobrescrever
+- Cardinalidade provada dentro da transação — diferente de 1 linha reverte
+
+**Exportar**
+- CSV, TSV, JSON, NDJSON e SQL, em stream (a memória não cresce com a tabela)
+- Várias tabelas de uma vez, num `.zip`, tudo do mesmo instante consistente
+- Os mesmos filtros e ordenação da tela — o arquivo é o que você está vendo
+
+**Operar**
+- Contas individuais com papéis, e permissão **por conexão**
+- Auditoria de toda escrita: SQL literal, quem fez e quando
+- PT/EN, tema claro/escuro, responsivo de 320 px para cima
+- Aviso de versão nova e atualização por webhook do orquestrador
+
+## Subir em três passos
 
 ```bash
+# 1. O segredo que cifra as senhas das conexões. Guarde num cofre.
 openssl rand -hex 32
-```
 
-### 2. Puxe a imagem
-
-A imagem é publicada no GHCR a cada tag. O **pacote é tornado público** após o
-primeiro publish — a imagem carrega só o binário compilado e os assets, sem
-segredo — então o pull não precisa de autenticação:
-
-```bash
-docker pull ghcr.io/joaoviitorsx/dbee:latest
-```
-
-O pacote nasce **privado** por padrão no GHCR; torne-o público uma vez, em
-`github.com/users/joaoviitorsx/packages` → o pacote `dbee` → *Package settings* →
-*Change visibility*. Evita cadastrar um PAT permanente no Dokploy para cada
-redeploy.
-
-> **Alternativa — manter privado.** Se preferir não expor o pacote, deixe-o
-> privado e autentique antes do pull com um PAT com escopo `read:packages` (no
-> Dokploy, como *registry credential*):
-> ```bash
-> echo "$GITHUB_TOKEN" | docker login ghcr.io -u joaoviitorsx --password-stdin
-> docker pull ghcr.io/joaoviitorsx/dbee:latest
-> ```
-
-### 3. Suba
-
-```bash
+# 2. Suba o container (sem -p: veja Segurança)
 docker run -d --name dbee \
-  -e APP_SECRET="<o hex de 32 bytes do passo 1>" \
+  -e APP_SECRET="<o hex do passo 1>" \
   -v dbee-data:/data \
   ghcr.io/joaoviitorsx/dbee:latest
-```
 
-Sem `-p`: o DBee **não deve** ter porta publicada na internet (ver Segurança). O
-acesso é pela tailnet ou por um proxy interno.
-
-### 4. Leia o token de setup do volume
-
-No primeiro boot, sem nenhuma conta, o DBee entra em **modo setup**: grava um
-token aleatório em `/data/setup-token` e loga só o **caminho**, nunca o token —
-senha em log é senha visível para quem tem o painel. Leia o token do volume:
-
-```bash
+# 3. Leia o token do primeiro acesso
 docker exec dbee cat /data/setup-token
 ```
 
-### 5. Crie a primeira conta
+Abra o DBee pelo IP da tailnet ou pelo proxy interno, informe o token e escolha
+seu usuário e senha. O token é apagado do volume nesse instante — **nenhuma
+senha é gerada nem impressa em log**.
 
-Abra o DBee pelo IP da tailnet (`http://100.x.y.z:3001`) ou pelo proxy. A tela de
-**primeiro acesso** pede o token que você leu, mais o usuário e a senha que você
-escolhe. Ao criar a conta, o token é apagado do volume e você já entra logado —
-não há senha gerada nem impressa em lugar nenhum.
+> ### ⚠️ Perder o `APP_SECRET` **ou** o volume `/data` = conexões perdidas
+>
+> As senhas das conexões são cifradas com uma chave derivada do `APP_SECRET` e
+> de um salt que vive **dentro do SQLite**, no volume. São dois pontos únicos de
+> falha, e não há recuperação — só recadastrar tudo.
+>
+> Guarde o `APP_SECRET` no gerenciador de segredos e **declare o volume**.
 
-## Deploy no Dokploy
-
-Serviço com provider Git apontando para este repo, branch `main`, Compose Path
-`deploy/docker-compose.yml`, trigger On Push. O GitHub App do Dokploy precisa de
-acesso explícito a este repo. Defina `APP_SECRET` nos secrets do serviço.
-Para criar a primeira conta, leia o token de `/data/setup-token` pelo terminal do
-serviço no painel do Dokploy (`cat /data/setup-token`) e informe-o na tela de
-primeiro acesso.
-
-A imagem é **amd64** (`bun build --target bun-linux-x64`) — o host do Dokploy
-precisa ser amd64. Numa VM arm64 o container não sobe.
-
-### Checklist antes de apertar o deploy
-
-Prepare tudo isto **antes** do primeiro deploy — cada item que faltar aparece
-como uma falha diferente e obscura:
-
-**Segredos a gerar**
-- [ ] `APP_SECRET` — `openssl rand -hex 32`, guardado nos secrets do serviço no
-  Dokploy (não em `.env` versionado). É o que cifra as senhas das conexões;
-  perdê-lo é irreversível.
-
-**Acessos a conceder**
-- [ ] GitHub App do Dokploy com acesso **explícito** a `joaoviitorsx/Dbee` (o
-  acesso amplo à conta não basta — conecte o repo no serviço).
-- [ ] Credencial de registry no Dokploy para puxar do GHCR: o pacote nasce
-  **privado**. Ou um PAT com `read:packages` configurado como registry credential
-  no Dokploy, **ou** tornar o pacote público em `github.com/users/joaoviitorsx/
-  packages` depois do primeiro publish. Sem isso o pull falha com "denied" — e o
-  erro não diz que é permissão de pacote.
-
-**Valores a preencher no painel**
-- [ ] `APP_SECRET` no serviço (secret).
-- [ ] Domínio/rota do serviço apontando a **porta interna 3001** (ou as labels de
-  Traefik do compose — não as duas).
-- [ ] Volume nomeado `dbee-data` persistido (já no compose; confirmar que o
-  Dokploy não recria sem ele — perder `/data` = perder as conexões).
-
-**Rede**
-- [ ] `dokploy-network` externa existe (padrão do Dokploy).
-- [ ] Restrição de porta pela tailnet, se publicar porta em vez de usar o Traefik
-  (ver Segurança, padrão `DOCKER-USER`).
-
-**Primeira vez que a tag roda o CI**
-- [ ] A imagem só é publicada ao empurrar uma tag `vX.Y.Z` (o workflow dispara em
-  `v*`). O nome publicado é `ghcr.io/joaoviitorsx/dbee` (o
-  `docker/metadata-action` normaliza `github.repository` para minúsculas) — é
-  exatamente o que o compose consome.
-- [ ] Depois do primeiro publish, conferir que o pacote existe em GHCR e aplicar
-  a credencial/visibilidade do item acima antes de mandar o Dokploy puxar.
+Deploy no Dokploy, checklist de primeira subida e as regras de firewall estão em
+[`docs/operacao.md`](docs/operacao.md).
 
 ## Variáveis de ambiente
 
 | Variável | Obrigatória | Para quê |
 |---|---|---|
-| `APP_SECRET` | **sim, em produção** | Deriva a chave AES-256-GCM que cifra as senhas das conexões. O boot **aborta** se faltar com `NODE_ENV=production`. Em dev usa um segredo fixo e avisa alto. |
-| `DBEE_DATA_DIR` | não | Onde ficam o SQLite e o salt de cifra. Default `/data` no container. **Precisa de volume persistente** (ver aviso). |
+| `APP_SECRET` | **em produção, sim** | Deriva a chave AES-256-GCM que cifra as senhas das conexões. O boot **aborta** se faltar com `NODE_ENV=production`. Em dev usa um segredo fixo e avisa alto. |
+| `DBEE_DATA_DIR` | não | Onde ficam o SQLite e o salt de cifra. Default `/data`. **Precisa de volume persistente.** |
 | `PORT` | não | Porta do servidor. Default `3001`. Valor inválido aborta o boot. |
-| `DBEE_CA_CERT` | não | CA em PEM para `sslmode=verify-full` contra um CA privado. Vazio é tratado como ausente (não zera o CA store do sistema). |
-| `DBEE_COOKIE_SECURE` | não | Marca o cookie de sessão como `Secure`. Sem a env, segue o protocolo da requisição (`https` ⇒ `Secure`, `http` ⇒ sem). Acesso por IP da tailnet sobre `http` **não precisa de nada** — funciona. Só defina `true` quando o **TLS termina no proxy** (Traefik/Dokploy com domínio): o app vê `http` internamente, mas o usuário está em `https`. Não afeta `HttpOnly` nem `SameSite=Strict`. |
+| `DBEE_CA_CERT` | não | CA em PEM para `sslmode=verify-full` contra um CA privado. Vazio é tratado como ausente. |
+| `DBEE_COOKIE_SECURE` | não | Marca o cookie de sessão como `Secure`. Sem a env, segue o protocolo da requisição. Só defina `true` quando o **TLS termina no proxy**. |
 
-> **Não existem `ADMIN_PASSWORD` nem `DOKPLOY_DEPLOY_WEBHOOK`.** Versões antigas
-> deste README as citavam; o código não as lê. A primeira conta nasce pela tela
-> de setup, com o token de `/data/setup-token` (passos 4–5) — **nenhuma senha é
-> gerada nem impressa**. A URL de deploy do Dokploy **também não é variável de
-> ambiente**: cola-se uma vez na própria tela de atualização (ver abaixo), e ela
-> fica cifrada no SQLite.
->
-> `DBEE_PUBLIC_DIR` (opcional) aponta o diretório do web estático que o binário
-> serve; default `./public` a partir do diretório de trabalho (no container,
-> `/app/public`). Em dev o web é servido pelo Vite, não por esta variável.
+> Não existem `ADMIN_PASSWORD` nem `DOKPLOY_DEPLOY_WEBHOOK`: a primeira conta
+> nasce pela tela de setup, e a URL de deploy é colada uma vez na própria
+> interface, ficando cifrada no SQLite.
 
-### Atualizar
+## Segurança
 
-O DBee consulta as releases do repo uma vez por dia e mostra um selo no
-cabeçalho quando há versão nova. Clicar abre o diálogo com o link das notas.
+O app **não é exposto à internet**. Roda como usuário não-root (uid 10001) e
+**não** monta o socket do Docker. O acesso é pelo proxy interno (Traefik do
+Dokploy) ou por uma porta bindada no IP da tailnet — nunca em `0.0.0.0`.
 
-Para atualizar **pelo próprio app**, cole uma vez a URL de deploy do serviço:
-no Dokploy, seu serviço → aba **Deployments** → **Webhook URL**. Ela fica
-guardada cifrada, e a partir daí atualizar é só o botão. Sem ela, o aviso de
-versão continua funcionando e o botão simplesmente não aparece.
-
-O container **não** se atualiza por dentro: o botão pede o redeploy ao Dokploy,
-que puxa a imagem nova e recria o container. Nada de socket do Docker montado.
-O porquê está no [ADR 009](docs/adr/009-atualizacao-por-webhook-do-orquestrador.md).
-
-> **`pull_policy: always` no compose é obrigatório.** Sem ele, o redeploy reusa
-> a `:latest` que já está em cache no host e não traz a versão nova — o botão
-> diria sucesso sem atualizar. O `deploy/docker-compose.yml` já vem com a linha.
-
-> ### ⚠️ Perder o `APP_SECRET` **ou** o volume `/data` = conexões perdidas
->
-> As senhas das conexões são cifradas com uma chave derivada do `APP_SECRET` e
-> de um salt que vive **dentro do SQLite** (em `DBEE_DATA_DIR`, o volume
-> `/data`). São **dois** pontos únicos de falha:
->
-> - **`APP_SECRET` mudou ou se perdeu** → as conexões ficam ilegíveis em
->   definitivo.
-> - **o volume `/data` se perdeu** (recriar o container sem volume nomeado, por
->   exemplo) → perde o salt e o banco: mesmo efeito, mesmo com o `APP_SECRET`
->   certo.
->
-> Guarde o `APP_SECRET` no gerenciamento de segredos e **declare o volume**.
-> Não há recuperação — só recadastrar tudo.
+A proteção contra escrita acidental é o modo da transação, declarado no próprio
+`BEGIN` — não um parser de SQL, que sempre tem um caso que escapa. Ela é
+proteção contra o acidente comum, **não** caixa de contenção contra um papel
+privilegiado: num superusuário, `COPY … TO PROGRAM` continua executando comando
+no host do Postgres. O DBee detecta o papel privilegiado ao testar a conexão e
+avisa. Como criar papéis restritos está em
+[`docs/papeis-postgres.md`](docs/papeis-postgres.md).
 
 ## Desenvolvimento
 
@@ -196,52 +146,19 @@ bun run typecheck
 bun run lint
 bun test
 bun run build        # web (Vite) + binário do server (bun build --compile)
-```
-
-## Container, local
-
-```bash
 docker build -t dbee .
-docker run --rm -e APP_SECRET="$(openssl rand -hex 32)" -v dbee-data:/data dbee
-docker exec <container> cat /data/setup-token          # token do primeiro acesso
 ```
 
-## Segurança
-
-O app **não é exposto à internet**. Roda como usuário não-root (uid 10001), sem
-socket do Docker montado. Duas formas de acesso, nunca uma porta pública:
-
-**1. Via Traefik do Dokploy (preferido).** Sem porta publicada; o Traefik alcança
-o container pela `dokploy-network` e o domínio é configurado na UI do serviço
-apontando a porta interna `3001`. É o que o `deploy/docker-compose.yml` assume.
-
-**2. Porta bindada no IP da tailnet + `DOCKER-USER`.** Se publicar a porta em vez
-de usar o Traefik, **bind no IP `100.x` do Tailscale**, nunca em `0.0.0.0`:
-
-```yaml
-    ports:
-      - "100.x.y.z:3001:3001"   # só o IP da tailnet, nunca 0.0.0.0
-```
-
-O bind por si só não basta: o Docker escreve regras de NAT que **furam o UFW**, e
-uma publicação em `0.0.0.0` por engano ficaria aberta. O cinto e suspensório é o
-mesmo padrão `DOCKER-USER` já aplicado na 3000 e na 15672 — só a interface da
-tailnet alcança a 3001, o resto é dropado **antes** do NAT do Docker:
-
-```bash
-# Ordem importa: -I insere no topo, então o ACCEPT (inserido por último) fica
-# ACIMA do DROP. Tráfego que entra pela tailscale0 é aceito; todo o resto cai.
-iptables -I DOCKER-USER -p tcp --dport 3001 -j DROP
-iptables -I DOCKER-USER -i tailscale0 -p tcp --dport 3001 -j ACCEPT
-```
-
-Persista as regras como já faz para as outras portas (o mesmo `iptables-restore`
-/ unit que mantém as regras da 3000 e da 15672). Confirmar depois: de fora da
-tailnet, a 3001 não responde; de dentro, sim.
+Stack: **Bun + Elysia + React**, TypeScript strict, TypeBox nas rotas, Eden
+Treaty ligando os dois lados, `bun:sqlite` para o estado local. Sem ORM, sem
+módulo nativo — o binário tem que compilar com `bun build --compile`.
 
 ## Documentação
 
-- [`docs/arquitetura.md`](docs/arquitetura.md) — estrutura de pastas e fluxo do erro do Postgres até a UI.
-- [`docs/design-system.md`](docs/design-system.md) — paleta, tipografia e semântica de cor.
-- [`docs/papeis-postgres.md`](docs/papeis-postgres.md) — SQL para papéis restritos no Postgres do cliente.
-- [`CHANGELOG.md`](CHANGELOG.md) — histórico de versões.
+| | |
+|---|---|
+| [`docs/operacao.md`](docs/operacao.md) | Deploy, checklist de subida e firewall |
+| [`docs/arquitetura.md`](docs/arquitetura.md) | Estrutura de pastas e o caminho do erro do Postgres até a tela |
+| [`docs/design-system.md`](docs/design-system.md) | Paleta, tipografia e semântica de cor |
+| [`docs/papeis-postgres.md`](docs/papeis-postgres.md) | SQL para papéis restritos no banco do cliente |
+| [`CHANGELOG.md`](CHANGELOG.md) | Histórico de versões |
