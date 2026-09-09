@@ -122,15 +122,20 @@ da documentação dos drivers.
       nó de schema sintético; `information_schema` já filtra por grant.
 - [x] **Teste de conexão** (`mysql/test-connection.ts`) — os dois avisos de
       credencial, somando as quatro tabelas de privilégio.
+- [x] **Sessão** (`mysql/sessao.ts`) — o limite de tempo por consulta, com a
+      variável, a unidade e a forma do erro divergindo nos dois. Aqui a medição
+      pegou um defeito meu: reconhecer o corte pelo **nome** do código de erro
+      funciona no MySQL e falha calado no MariaDB, que só manda `errno`.
+- [x] **Nomes de tipo** (`mysql/colunas.ts`) — o número do protocolo virando o
+      nome do SQL, conferido contra `information_schema.COLUMNS` dos dois
+      servidores.
 
 Falta para a fase fechar:
 
 - [ ] Pool de conexões e execução de consulta (o `PoolManager` equivalente).
 - [ ] Leitura de linhas com paginação por keyset, e exportação.
-- [ ] Cancelamento por `KILL QUERY` e limite de tempo por statement — as duas
-      capacidades já foram medidas como viáveis com a credencial restrita, mas
-      o MySQL corta `SELECT SLEEP` **sem levantar erro**, e o driver precisa
-      tratar isso.
+- [ ] Cancelamento por `KILL QUERY` — medido como viável com a credencial
+      restrita, falta a fiação. O limite de tempo já está em `sessao.ts`.
 - [ ] `CAPACIDADES` de `mysql` e `mariadb`, e as duas entrando em
       `ENGINES_IMPLEMENTADAS` — é o passo que acende os chips do seletor. Só
       depois de tudo acima, senão a tela oferece o que o servidor não faz.

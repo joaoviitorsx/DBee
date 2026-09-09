@@ -5,6 +5,30 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Os nomes de tipo das colunas de resultado no MySQL/MariaDB**, conferidos
+  contra a resposta do próprio servidor.
+
+  O `mysql2` expõe o número do tipo do **protocolo** — `LONG`, `VAR_STRING`,
+  `BLOB` — e ninguém escreve `LONG` num `CREATE TABLE`. A tela usa
+  `dataTypeName` para decidir alinhamento e formatação, então precisa do nome
+  do SQL: `int`, `varchar`, `text`.
+
+  O mapa não é uma tabela escrita de memória: o teste pergunta ao MySQL e ao
+  MariaDB, por `information_schema.COLUMNS.DATA_TYPE`, como cada coluna se
+  chama, e exige que o mapa concorde — 216 asserções, quem tem razão é o
+  servidor.
+
+  Três coisas que a medição decidiu: `ENUM` e `SET` chegam como `STRING` e só os
+  flags 256/2048 os separam de um `CHAR`; `BLOB` e `TEXT` compartilham o tipo e
+  só o charset os separa; e `BINARY_FLAG` continua inútil para isso, porque vem
+  ligado em `DATE`, `DATETIME`, `TIMESTAMP` e `TIME`.
+
+  Um limite fica dito em voz alta em vez de escondido: **`TEXT` e `LONGTEXT`
+  chegam idênticos no fio** — o tamanho não viaja no metadado do resultado. Os
+  dois viram `text`, que é a informação que de fato existe; chutar `longtext`
+  acertaria metade das vezes. Há teste travando o limite, para o dia em que o
+  protocolo mudar.
+
 - **O limite de tempo por consulta em MySQL e MariaDB**, com as três
   divergências medidas concentradas num arquivo só.
 
