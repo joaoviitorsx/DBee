@@ -5,6 +5,27 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **Os três modos de TLS do MySQL/MariaDB**, com o único que não dá para
+  entregar por IP recusado em voz alta em vez de fingido.
+
+  `disable` e `require` funcionam por IP. `verify-full` só por hostname DNS: o
+  `mysql2` descarta o nome do servidor quando o host é numérico, e a conferência
+  de identidade passa a comparar contra `localhost` — recusaria até um
+  certificado com `IP:<host>` entre os SANs. A saída que o `pg/ssl.ts` usa (um
+  `checkServerIdentity` próprio) está fechada aqui, porque o driver a
+  sobrescreve.
+
+  Conectar sem conferir identidade e chamar de `verify-full` seria mentira com
+  consequência: qualquer certificado da mesma CA se faria passar pelo servidor,
+  e a senha do banco vai no fio **depois** do TLS subir. Então a combinação é
+  recusada, com o motivo escrito — incluindo as duas saídas, e o aviso de que
+  `require` criptografa sem autenticar.
+
+  `verify-full` **não** foi tirado da engine: por hostname ele funciona de
+  verdade, medido. Um teste de integração contra MySQL com TLS real trava as
+  três situações, e o terceiro caso é um alarme — no dia em que o `mysql2`
+  passar a validar SAN de IP, ele falha e avisa que a recusa pode cair.
+
 - **A camada de tipos do MySQL/MariaDB, medida** — primeira peça da fase 2 do
   multi-engine. Ainda não conecta banco nenhum pela interface; é a trava que a
   regra 10 (todo valor de célula trafega como string) exige antes do driver.
