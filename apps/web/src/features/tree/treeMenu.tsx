@@ -5,10 +5,11 @@ import type { TableTarget } from "../../app/workspace";
 import { api } from "../../lib/api";
 import type { TreeTarget } from "./ConnectionTree";
 import type { Tradutor } from "../../i18n";
+import { copiarTexto } from "../../lib/navegador";
 
 /** Copia para a área de transferência, em silêncio se o navegador recusar. */
 function copiar(texto: string): void {
-  void navigator.clipboard.writeText(texto).catch(() => undefined);
+  void copiarTexto(texto);
 }
 
 /**

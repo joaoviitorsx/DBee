@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
+import { copiarTexto } from "../../lib/navegador";
 import { dicaVista, marcarDicaVista } from "./dicaArrasto";
 import { type Celula, contaCelulas, dentro, faixaEntre, recorteTsv } from "./selecao";
 
@@ -352,8 +353,21 @@ export function ResultGrid({
     if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "c") return;
     if (faixa === null) return;
     e.preventDefault();
-    void navigator.clipboard.writeText(recorteTsv(rows, faixa)).then(() => {
-      setCopiado(true);
+    /*
+     * `copiarTexto`, e não `navigator.clipboard` direto.
+     *
+     * O DBee é alcançado pelo IP da tailnet, em `http://`, que **não é contexto
+     * seguro** — e sem ele `navigator.clipboard` é `undefined`. O Ctrl+C não
+     * copiava nada e ainda estourava no console; a grade parecia não ter a
+     * função, quando a função existia e o ambiente é que a escondia. Ver
+     * `lib/navegador.ts`.
+     *
+     * O "copiado" só acende quando copiou de verdade: dizer que copiou sem ter
+     * copiado é pior que não dizer nada, porque a pessoa vai colar o conteúdo
+     * antigo sem desconfiar.
+     */
+    void copiarTexto(recorteTsv(rows, faixa)).then((ok) => {
+      if (ok) setCopiado(true);
     });
   };
 

@@ -18,6 +18,7 @@ import { useSchema } from "../tree/useTree";
 import type { QueryTab, TableTarget } from "../../app/workspace";
 import type { RowFilter } from "@dbee/shared";
 import { SqlEditor } from "./SqlEditor";
+import { uuidV4 } from "../../lib/navegador";
 
 /**
  * Aba de query — **andaime deliberado**.
@@ -80,7 +81,7 @@ export function QueryTabContent({
     mutationFn: async (aExecutar: string): Promise<QueryResponse> => {
       // Um id por execução, guardado no ref antes do request: é o que o Cancelar
       // usa para achar o backend certo enquanto a query roda.
-      const queryId = crypto.randomUUID();
+      const queryId = uuidV4();
       queryIdRef.current = queryId;
       const { data, error } = await api.api.connections({ id: tab.connectionId }).query.post({
         sql: aExecutar,

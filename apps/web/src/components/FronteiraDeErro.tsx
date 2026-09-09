@@ -4,6 +4,7 @@ import { RotateCcw, TriangleAlert } from "lucide-react";
 import { useT } from "../i18n";
 import { cn } from "../lib/cn";
 import { Button } from "./ui/Button";
+import { copiarTexto } from "../lib/navegador";
 
 /**
  * Fronteira de erro — o que impede que um defeito local vire sessão perdida.
@@ -181,7 +182,7 @@ function TelaDeRecuperacao({ erro, pilha, variante, onTentar }: TelaProps) {
           size="sm"
           variant="secondary"
           onClick={() => {
-            void navigator.clipboard.writeText(detalhes).then(() => { setCopiado(true); });
+            void copiarTexto(detalhes).then((ok) => { if (ok) setCopiado(true); });
           }}
         >
           {copiado ? t("fronteira.copiado") : t("fronteira.copiar")}

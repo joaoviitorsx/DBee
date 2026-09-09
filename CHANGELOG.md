@@ -2,6 +2,49 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Corrigido
+- **Não dava para executar consulta em produção.** `crypto.randomUUID is not a
+  function` derrubava o clique inteiro de executar. A causa não é o código do
+  DBee, é onde ele roda: `crypto.randomUUID` e `navigator.clipboard` só existem
+  em **contexto seguro**, e a produção é alcançada pelo IP da tailnet em
+  `http://` — um IP nunca é "potencialmente confiável" como `localhost`.
+
+  Medido num origin `http://<ip>:porta` de verdade:
+
+  | | |
+  |---|---|
+  | `isSecureContext` | `false` |
+  | `crypto.randomUUID` | **ausente** |
+  | `crypto.getRandomValues` | presente |
+  | `navigator.clipboard` | **ausente** |
+  | `document.execCommand` | presente |
+
+  O `queryId` passou a vir de um `uuidV4` próprio, apoiado em
+  `getRandomValues` — que **não** exige contexto seguro. A aleatoriedade
+  continua sendo a do sistema: o `queryId` identifica a consulta a cancelar, e
+  trocar CSPRNG por `Math.random` faria uma colisão cancelar a consulta de
+  outra pessoa.
+
+  O tipo do `lib.dom` é parte da causa e está registrado no código: ele declara
+  `crypto.randomUUID` como **sempre presente**, e foi essa promessa falsa que
+  deixou a chamada passar por typecheck, lint e revisão para quebrar só em
+  produção.
+- **Ctrl+C na grade não copiava nada** — mesma raiz. Sem contexto seguro,
+  `navigator.clipboard` é `undefined`, e o Ctrl+C estourava no console em vez
+  de copiar. A cópia passou a tentar a API moderna e cair no `execCommand`
+  legado quando ela não existe. O aviso "copiado" só acende quando copiou de
+  verdade: dizer que copiou sem ter copiado faria a pessoa colar o conteúdo
+  antigo sem desconfiar.
+
+  Vale por igual na conexão só-leitura e na de escrita habilitada. Verificado
+  no navegador, servindo o app por IP sem TLS: clicar na célula, Ctrl+C, e
+  Ctrl+V num campo devolveu o conteúdo da célula.
+
+  O mesmo conserto vale para "copiar detalhes" da fronteira de erro e para as
+  cópias do menu da árvore, que tinham o mesmo defeito silencioso.
+
 ## [0.3.6] — 2026-09-09
 
 ### Corrigido
