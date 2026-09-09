@@ -494,6 +494,66 @@ describe.if(temDocker)("formatos", () => {
     expect(sem).not.toContain("idx_clientes_nome");
   });
 
+  /**
+   * Os extras de cada tabela têm que ficar com a SUA tabela.
+   *
+   * A busca de índices e triggers passou a ser uma consulta só para todas as
+   * tabelas do bundle, agrupada por `(schema, tabela)`. É a troca que derruba
+   * 240 idas ao banco para 4 — e é também a que, se o agrupamento errar, dá os
+   * índices de uma tabela para outra sem quebrar nada visível: o dump sai,
+   * roda, e recria o schema errado.
+   */
+  it("com várias tabelas, cada uma leva só os próprios índices e triggers", async () => {
+    psql(["-c", `
+      CREATE INDEX IF NOT EXISTS idx_a_nome ON clientes (nome);
+      CREATE INDEX IF NOT EXISTS idx_b_valor ON notas (valor);
+      CREATE OR REPLACE FUNCTION marca() RETURNS trigger LANGUAGE plpgsql AS
+        'BEGIN RETURN NEW; END';
+      DROP TRIGGER IF EXISTS tg_a ON clientes;
+      DROP TRIGGER IF EXISTS tg_b ON notas;
+      CREATE TRIGGER tg_a BEFORE UPDATE ON clientes FOR EACH ROW EXECUTE FUNCTION marca();
+      CREATE TRIGGER tg_b BEFORE UPDATE ON notas FOR EACH ROW EXECUTE FUNCTION marca();
+    `]);
+
+    const dump = await (
+      await baixarBundle({
+        indexes: true,
+        triggers: true,
+        tables: [
+          { schema: "public", table: "clientes", structure: true, data: false },
+          { schema: "public", table: "notas", structure: true, data: false },
+        ],
+      })
+    ).text();
+
+    // Cada definição aparece, e aparece UMA vez — duplicada seria o sinal de
+    // que o mapa devolveu a mesma lista para as duas tabelas.
+    for (const def of ["idx_a_nome", "idx_b_valor", "tg_a", "tg_b"]) {
+      expect(`${def}: ${String(dump.split(def).length - 1)}`).toBe(`${def}: 1`);
+    }
+
+    // E cada uma está na seção da sua própria tabela: o corte é o CREATE TABLE
+    // seguinte.
+    const secao = (tabela: string): string => {
+      const i = dump.indexOf(`CREATE TABLE "public"."${tabela}"`);
+      expect(i).toBeGreaterThanOrEqual(0);
+      const proximo = dump.indexOf('CREATE TABLE "public"."', i + 1);
+      return proximo === -1 ? dump.slice(i) : dump.slice(i, proximo);
+    };
+    const secaoClientes = secao("clientes");
+    const secaoNotas = secao("notas");
+
+    expect(secaoClientes).toContain("idx_a_nome");
+    expect(secaoClientes).toContain("tg_a");
+    expect(secaoClientes).not.toContain("idx_b_valor");
+    expect(secaoClientes).not.toContain("tg_b");
+
+    expect(secaoNotas).toContain("idx_b_valor");
+    expect(secaoNotas).toContain("tg_b");
+    expect(secaoNotas).not.toContain("idx_a_nome");
+    expect(secaoNotas).not.toContain("tg_a");
+  });
+
   it("funções saem quando pedidas", async () => {
     psql(["-c", "CREATE OR REPLACE FUNCTION dobro(x int) RETURNS int LANGUAGE sql AS 'SELECT x*2'"]);
     const dump = await (

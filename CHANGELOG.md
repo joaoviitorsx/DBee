@@ -29,6 +29,22 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   janela nos dois temas.
 
 ### Desempenho
+- **O plano do export abria uma transação por tabela.** A busca de índices e
+  triggers era feita tabela a tabela, e cada chamada abria a própria transação:
+  `BEGIN` + 2 consultas + `COMMIT`, vezes o número de tabelas, cada uma pegando
+  e devolvendo um lease do pool. Para 60 tabelas eram **240 idas ao banco**.
+
+  Passou a ser uma transação e duas consultas, agrupando por `(schema, tabela)`
+  com `unnest` de dois arrays paralelos — quatro idas, independentemente do
+  número de tabelas. Medido contra Postgres real com 60 tabelas: 86,6 ms →
+  5,9 ms (**14,4×**), com as mesmas 180 definições. O ganho medido é em
+  loopback; numa conexão remota o que domina é o número de idas, não o
+  trabalho.
+
+  O par entra por `unnest` e não por `IN` de strings montadas: o `IN` casa o
+  **par**, não o produto cartesiano de schemas com tabelas, que traria a tabela
+  homônima do schema errado.
+### Desempenho
 - **Auditoria: os filtros varriam a tabela inteira.** O `query_log` nasceu com um
   índice só, `(executed_at DESC)`, que serve "as últimas N" e mais nada. As
   outras três perguntas das telas de auditoria caíam em varredura completa com

@@ -281,7 +281,38 @@ export class ExportService {
     const arvore = await this.#schema.get(connectionId, database, false, ator);
     if (!arvore.ok) return arvore;
 
-    const planos: BundleTablePlan[] = [];
+    /*
+     * Duas passadas, e não uma.
+     *
+     * A montagem era um laço só, com `await #extrasDaTabela(...)` DENTRO dele —
+     * uma transação por tabela, cada uma pegando e devolvendo um lease do pool.
+     * Com 60 tabelas e índices+triggers ligados eram 240 idas ao banco
+     * (BEGIN + 2 consultas + COMMIT, sessenta vezes). Medido contra Postgres
+     * real em loopback: 86,6 ms; numa conexão remota, que é o caso de uso, o
+     * custo é o número de idas, não o trabalho.
+     *
+     * Agora: a primeira passada valida e junta os alvos, uma única transação
+     * busca os extras de TODAS as tabelas, e a segunda passada monta os planos.
+     * Quatro idas ao banco, independentemente do número de tabelas.
+     */
+    // O valor já verificado, num const: dentro de uma função aninhada o
+    // estreitamento do `arvore.ok` acima não vale.
+    const schemasDaArvore = arvore.value.schemas;
+    type Relation = (typeof schemasDaArvore)[number]["relations"][number];
+
+    const acharRelation = (schema: string, table: string): Relation | undefined =>
+      schemasDaArvore.find((sc) => sc.name === schema)?.relations.find((r) => r.name === table);
+
+    interface Escolhido {
+      readonly escolha: (typeof request.tables)[number];
+      readonly relation: Relation;
+      readonly qualified: string;
+      readonly colunas: string[];
+      readonly querEstrutura: boolean;
+      readonly querDados: boolean;
+    }
+
+    const escolhidos: Escolhido[] = [];
     const schemasUsados = new Set<string>();
 
     for (const escolha of request.tables) {
@@ -289,38 +320,48 @@ export class ExportService {
       // que veio junto. Pular é o que a UI espera.
       if (!escolha.structure && !escolha.data) continue;
 
-      const relation = arvore.value.schemas
-        .find((sc) => sc.name === escolha.schema)
-        ?.relations.find((r) => r.name === escolha.table);
+      const relation = acharRelation(escolha.schema, escolha.table);
       if (relation === undefined) {
         return fail("not_found", `${escolha.schema}.${escolha.table} não existe neste database`);
       }
 
       schemasUsados.add(escolha.schema);
-      const qualified = tabelaQualificada(escolha.schema, escolha.table);
-      const colunas = relation.columns.map((c) => c.name);
-
-      // Estrutura só faz sentido em SQL: um CSV não carrega DDL.
-      const querEstrutura = ehSql && escolha.structure && structure !== "none";
-      const querDados = escolha.data && dataMode !== "none";
-
-      planos.push({
-        schema: escolha.schema,
-        table: escolha.table,
-        qualified,
-        ddl: querEstrutura ? montarCreateTable(escolha.schema, escolha.table, relation) : null,
-        extras: querEstrutura
-          ? await this.#extrasDaTabela(connection, database, escolha.schema, escolha.table, request)
-          : [],
-        // Colunas nomeadas, não `SELECT *`: a ordem das linhas tem que casar
-        // com a lista de colunas do cabeçalho.
-        selectSql: querDados
-          ? `SELECT ${colunas.map(sqlIdent).join(", ")} FROM ${qualified}`
-          : null,
-        columns: colunas,
-        dropFirst: structure === "drop-create" && querEstrutura,
+      escolhidos.push({
+        escolha,
+        relation,
+        qualified: tabelaQualificada(escolha.schema, escolha.table),
+        colunas: relation.columns.map((c) => c.name),
+        // Estrutura só faz sentido em SQL: um CSV não carrega DDL.
+        querEstrutura: ehSql && escolha.structure && structure !== "none",
+        querDados: escolha.data && dataMode !== "none",
       });
     }
+
+    const extras = await this.#extrasDasTabelas(
+      connection,
+      database,
+      escolhidos.filter((e) => e.querEstrutura).map((e) => e.escolha),
+      request,
+    );
+
+    const planos: BundleTablePlan[] = escolhidos.map((e) => ({
+      schema: e.escolha.schema,
+      table: e.escolha.table,
+      qualified: e.qualified,
+      ddl: e.querEstrutura
+        ? montarCreateTable(e.escolha.schema, e.escolha.table, e.relation)
+        : null,
+      extras: e.querEstrutura
+        ? (extras.get(chaveDeTabela(e.escolha.schema, e.escolha.table)) ?? [])
+        : [],
+      // Colunas nomeadas, não `SELECT *`: a ordem das linhas tem que casar
+      // com a lista de colunas do cabeçalho.
+      selectSql: e.querDados
+        ? `SELECT ${e.colunas.map(sqlIdent).join(", ")} FROM ${e.qualified}`
+        : null,
+      columns: e.colunas,
+      dropFirst: structure === "drop-create" && e.querEstrutura,
+    }));
 
     if (planos.length === 0) return fail("bad_request", "nenhuma tabela selecionada");
 
@@ -422,50 +463,79 @@ export class ExportService {
   }
 
   /**
-   * Índices (fora a PK, que já está no CREATE) e triggers da tabela.
+   * Índices (fora a PK, que já está no CREATE) e triggers de TODAS as tabelas
+   * escolhidas, numa transação só.
    *
    * `pg_get_indexdef`/`pg_get_triggerdef` devolvem o comando pronto — é o mesmo
    * que o `pg_dump` usa, e é SELECT em catálogo, dentro da fronteira (ADR 006).
+   *
+   * ## Por que no plural
+   *
+   * A versão anterior era por tabela e abria a própria transação, então o
+   * plano do bundle fazia `BEGIN + 2 consultas + COMMIT` **vezes o número de
+   * tabelas**: 240 idas ao banco para 60 tabelas, cada uma pegando e devolvendo
+   * um lease do pool. O trabalho nunca foi o problema — o número de idas é.
+   * Numa conexão remota, que é o caso de uso, cada ida custa a latência
+   * inteira.
+   *
+   * O par `(schema, tabela)` entra por `unnest` de dois arrays paralelos: um
+   * único parâmetro por array, nada concatenado, e o `IN` casa o par — não o
+   * produto cartesiano de schemas com tabelas, que traria a tabela homônima do
+   * schema errado.
    */
-  async #extrasDaTabela(
+  async #extrasDasTabelas(
     connection: ResolvedConnection,
     database: string,
-    schema: string,
-    table: string,
+    alvos: readonly { readonly schema: string; readonly table: string }[],
     request: ExportBundleRequest,
-  ): Promise<string[]> {
-    if (request.indexes !== true && request.triggers !== true) return [];
+  ): Promise<Map<string, string[]>> {
+    const vazio = new Map<string, string[]>();
+    if (alvos.length === 0) return vazio;
+    if (request.indexes !== true && request.triggers !== true) return vazio;
+
+    const schemas = alvos.map((a) => a.schema);
+    const tabelas = alvos.map((a) => a.table);
 
     return await this.#pools.withTransaction(connection, database, true, async (client) => {
-      const saida: string[] = [];
+      const porTabela = new Map<string, string[]>();
+      const juntar = (linhas: readonly { schema: string; tabela: string; def: string }[]): void => {
+        for (const l of linhas) {
+          const chave = chaveDeTabela(l.schema, l.tabela);
+          const atual = porTabela.get(chave);
+          if (atual === undefined) porTabela.set(chave, [l.def]);
+          else atual.push(l.def);
+        }
+      };
 
       if (request.indexes === true) {
-        const r = await client.query<{ def: string }>(
-          `SELECT pg_get_indexdef(i.indexrelid) AS def
+        const r = await client.query<{ schema: string; tabela: string; def: string }>(
+          `SELECT n.nspname AS schema, c.relname AS tabela, pg_get_indexdef(i.indexrelid) AS def
              FROM pg_index i
              JOIN pg_class c ON c.oid = i.indrelid
              JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = $1 AND c.relname = $2 AND NOT i.indisprimary
-            ORDER BY 1`,
-          [schema, table],
+            WHERE NOT i.indisprimary
+              AND (n.nspname, c.relname) IN (SELECT * FROM unnest($1::text[], $2::text[]))
+            ORDER BY n.nspname, c.relname, 3`,
+          [schemas, tabelas],
         );
-        saida.push(...r.rows.map((row) => row.def));
+        juntar(r.rows);
       }
 
       if (request.triggers === true) {
-        const r = await client.query<{ def: string }>(
-          `SELECT pg_get_triggerdef(t.oid) AS def
+        const r = await client.query<{ schema: string; tabela: string; def: string }>(
+          `SELECT n.nspname AS schema, c.relname AS tabela, pg_get_triggerdef(t.oid) AS def
              FROM pg_trigger t
              JOIN pg_class c ON c.oid = t.tgrelid
              JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE n.nspname = $1 AND c.relname = $2 AND NOT t.tgisinternal
-            ORDER BY 1`,
-          [schema, table],
+            WHERE NOT t.tgisinternal
+              AND (n.nspname, c.relname) IN (SELECT * FROM unnest($1::text[], $2::text[]))
+            ORDER BY n.nspname, c.relname, 3`,
+          [schemas, tabelas],
         );
-        saida.push(...r.rows.map((row) => row.def));
+        juntar(r.rows);
       }
 
-      return saida;
+      return porTabela;
     });
   }
 
@@ -490,6 +560,16 @@ export class ExportService {
     });
   }
 }
+
+/**
+ * Identidade de uma tabela num mapa.
+ *
+ * `JSON.stringify` de um par, e não `schema.tabela`: identificador do Postgres
+ * aceita ponto quando citado, então `a` + `"b.c"` e `"a.b"` + `c` colidiriam e
+ * uma tabela levaria os índices da outra. É a mesma correção que o `nodeId` do
+ * diagrama e a chave do export já carregam.
+ */
+const chaveDeTabela = (schema: string, table: string): string => JSON.stringify([schema, table]);
 
 /**
  * Corta o stream em N bytes.
