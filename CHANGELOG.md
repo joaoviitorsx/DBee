@@ -2,6 +2,27 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não lançado]
+
+### Segurança
+- **O `SAVEPOINT` do executor é a trava que impede o `COMMIT` do usuário de
+  furar o modo somente-leitura — e isso não estava escrito em lugar nenhum.**
+  `BEGIN READ ONLY` protege a transação corrente; um `COMMIT` no meio do SQL do
+  usuário encerra essa transação, e num cliente cru o comando seguinte roda numa
+  transação implícita **read-write**. Medido: `SELECT 1; COMMIT; CREATE TABLE …`
+  cria a tabela no `psql`, e **não** cria no DBee — o `SAVEPOINT` que o executor
+  emite antes de cada statement morre com `25P01` fora de bloco de transação, e
+  o DDL nunca chega a rodar.
+
+  A linha existia como mecanismo de retry do cursor, documentada só como isso.
+  Agora está documentada como carga de segurança da regra 8, com teste de
+  integração que trava o comportamento — quem "otimizar" o `SAVEPOINT` embora
+  quebra o teste em vez de abrir um escape em silêncio.
+
+  Vale só para o Postgres: medido, o MySQL aceita `SAVEPOINT` fora de transação
+  em silêncio, então um driver novo que copie a estrutura **não** herda a
+  proteção.
+
 ## [0.3.7] — 2026-09-09
 
 ### Corrigido

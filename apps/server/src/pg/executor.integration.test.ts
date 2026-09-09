@@ -183,6 +183,33 @@ describe.if(temDocker)("escrita bloqueada na conexão read-only", () => {
     expect(r.results[0]?.rows[0]).toEqual(["original"]);
   });
 
+  /**
+   * O `COMMIT` escrito pelo próprio usuário no meio do texto.
+   *
+   * `BEGIN READ ONLY` protege a transação CORRENTE. Um `COMMIT` no SQL do
+   * usuário encerra essa transação, e num cliente cru o comando seguinte roda
+   * numa transação implícita **read-write** — medido: `SELECT 1; COMMIT;
+   * CREATE TABLE …` cria a tabela.
+   *
+   * No DBee não cria, porque o executor emite um `SAVEPOINT` antes de cada
+   * statement e, fora de bloco de transação, `SAVEPOINT` falha com 25P01. A
+   * proteção existe por causa de uma linha que foi escrita para outra coisa
+   * (retry do cursor), então este teste é o que impede que ela seja "otimizada"
+   * embora sem ninguém perceber.
+   */
+  it("COMMIT no meio do SQL não abre caminho para DDL", async () => {
+    const r = await run(idLeitura, "SELECT 1; COMMIT; CREATE TABLE zz_escape (x int);");
+    // O terceiro statement não pode ter executado.
+    expect(r.error).not.toBeNull();
+
+    // E a prova que importa: a tabela não existe.
+    const existe = await run(
+      idLeitura,
+      "SELECT count(*)::int FROM information_schema.tables WHERE table_name = 'zz_escape'",
+    );
+    expect(existe.results[0]?.rows[0]?.[0]).toBe("0");
+  });
+
   it("readOnly: false NÃO libera escrita numa conexão de leitura", async () => {
     // A proteção é da conexão; a requisição só pode ser mais restritiva.
     const r = await run(idLeitura, "UPDATE alvo SET v = 'x' WHERE id = 1", { readOnly: false });

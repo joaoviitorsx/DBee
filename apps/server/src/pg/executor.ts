@@ -147,6 +147,30 @@ type Parcial = Omit<StatementResult, "index" | "sql" | "durationMs">;
  * direto. Se a execução direta também falhar, é **o erro dela** que é
  * reportado — com `position` sem deslocamento nenhum, porque ali não houve
  * prefixo. O erro do `DECLARE` é descartado justamente por ser ambíguo.
+ *
+ * ## O `SAVEPOINT` também é a trava da regra 8. NÃO REMOVER.
+ *
+ * Ele nasceu como mecanismo de retry do cursor, e é o que está descrito acima.
+ * Mas ele fecha, por acidente feliz, um escape do modo somente-leitura — e
+ * quem for "otimizar" esta função precisa saber disso antes.
+ *
+ * O `BEGIN READ ONLY` protege a transação **corrente**. Se o usuário escreve o
+ * próprio `COMMIT` no meio do texto, a transação read-only acaba ali, e o
+ * comando seguinte roda numa transação implícita read-write. Medido contra
+ * Postgres real, com `SELECT 1; COMMIT; CREATE TABLE zz(x int);`:
+ *
+ *   sem SAVEPOINT ... o CREATE TABLE PASSA e a tabela é criada
+ *   com SAVEPOINT ... o `SAVEPOINT` seguinte morre com 25P01
+ *                     (`can only be used in transaction blocks`) e o DDL
+ *                     nunca chega a rodar
+ *
+ * Como cada statement é precedido de um `SAVEPOINT`, sair do bloco de
+ * transação vira erro no statement seguinte em vez de virar escrita. É a regra
+ * 8 se sustentando por uma linha que ninguém escreveu com esse propósito.
+ *
+ * Isto é específico do Postgres: medido, o MySQL aceita `SAVEPOINT` fora de
+ * transação em silêncio, então um driver novo que copie esta estrutura **não**
+ * herda a proteção. Ver `docs/multi-engine.md`.
  */
 async function executeOne(client: PoolClient, sql: string, maxRows: number): Promise<Parcial> {
   const ponto = `sp_${randomBytes(4).toString("hex")}`;
