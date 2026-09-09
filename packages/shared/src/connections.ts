@@ -141,7 +141,21 @@ export const UPDATE_SCHEMAS = { UpdateConnection } as const;
  * que do ponto de vista da transação não modifica linhas. Ver §11.
  */
 export const ConnectionWarning = t.Object({
-  code: t.Literal("privileged_role"),
+  /**
+   * O que o teste de conexão descobriu, e que muda o que "modo leitura"
+   * significa naquela conexão.
+   *
+   * - `privileged_role` — Postgres: o papel é superusuário ou pode
+   *   `COPY … TO PROGRAM`, então `BEGIN READ ONLY` não contém a sessão.
+   * - `credential_can_write` — MySQL/MariaDB: a garantia de somente-leitura
+   *   mora na **credencial** (`docs/papeis-mysql.md`), e esta credencial tem
+   *   privilégio de escrita. Não há transação somente-leitura que resista ali,
+   *   então o aviso é a única coisa entre o usuário e um `DELETE` sem `WHERE`.
+   *
+   * A UI trata a lista de forma genérica, pelo `message` — código novo não
+   * exige mudança de tela.
+   */
+  code: t.Union([t.Literal("privileged_role"), t.Literal("credential_can_write")]),
   message: t.String(),
 });
 export type ConnectionWarning = Static<typeof ConnectionWarning>;

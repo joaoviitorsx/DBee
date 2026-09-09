@@ -5,6 +5,32 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **O teste de conexão do MySQL/MariaDB diz o que a conexão _não_ garante.**
+
+  No Postgres o teste abre `BEGIN READ ONLY` e com isso já exercita a proteção.
+  Aqui não há proteção para exercitar: medido, dentro de
+  `START TRANSACTION READ ONLY` o `TRUNCATE` esvazia a tabela e o `CREATE USER`
+  cria usuário. A garantia mora na credencial — então o teste olha **os
+  privilégios da credencial**, e o aviso é o produto.
+
+  Dois avisos, independentes. `credential_can_write` quando a credencial pode
+  mudar dado ou esquema: sem ele a tela diria "modo leitura" sobre uma conexão
+  que apaga tabela, e a pessoa acreditaria. `privileged_role` quando ela tem
+  `FILE` ou `SUPER`, que alcançam o host do banco — o análogo do aviso de
+  superusuário do Postgres.
+
+  A checagem soma as quatro tabelas de privilégio (global, database, tabela e
+  **coluna**), porque basta um `UPDATE` numa única coluna para a conexão não ser
+  somente leitura. Provado revertendo: sem `COLUMN_PRIVILEGES` esse caso passa
+  despercebido. A comparação de `GRANTEE` é por igualdade com a forma canônica
+  `'user'@'host'`, nunca `LIKE '%nome%'` — `ana` casaria as linhas de `mariana`,
+  e uma checagem de segurança que erra para o lado permissivo é pior que não
+  existir.
+
+  Travado também: senha errada falha **sem devolver a senha** em lugar nenhum da
+  resposta. Este projeto já devolveu a senha do banco em claro num 422, e nenhum
+  teste unitário pegou.
+
 - **A introspecção de MySQL/MariaDB** — a árvore de três níveis, contra
   `information_schema`.
 

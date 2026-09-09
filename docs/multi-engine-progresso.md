@@ -107,6 +107,35 @@ driver do MySQL, com dois casos reais na mão.
 Os serviços continuam importando `pg/` até lá. É dívida consciente, e o teste
 que a cobra é o próprio typecheck no dia em que o segundo driver aparecer.
 
+## Fase 2 — o que já está de pé
+
+Tudo medido contra MySQL 8.4.11 e MariaDB 11.8.9 reais, nenhum passo presumido
+da documentação dos drivers.
+
+- [x] **Tipos** (`mysql/tipos.ts`) — o `TUDO_TEXTO` do MySQL. O `Bun.SQL` foi
+      medido primeiro, pela regra 3, e reprovou: converte tipos e o `DATE` muda
+      de valor conforme a API chamada. Entrou o `mysql2`.
+- [x] **TLS** (`mysql/conexao.ts`) — três modos, com `verify-full` + IP recusado
+      em voz alta, porque o `mysql2` não tem como conferir identidade por IP.
+      Há um teste-alarme que avisa se o driver corrigir isso.
+- [x] **Introspecção** (`mysql/introspect.ts`) — árvore de três níveis, com um
+      nó de schema sintético; `information_schema` já filtra por grant.
+- [x] **Teste de conexão** (`mysql/test-connection.ts`) — os dois avisos de
+      credencial, somando as quatro tabelas de privilégio.
+
+Falta para a fase fechar:
+
+- [ ] Pool de conexões e execução de consulta (o `PoolManager` equivalente).
+- [ ] Leitura de linhas com paginação por keyset, e exportação.
+- [ ] Cancelamento por `KILL QUERY` e limite de tempo por statement — as duas
+      capacidades já foram medidas como viáveis com a credencial restrita, mas
+      o MySQL corta `SELECT SLEEP` **sem levantar erro**, e o driver precisa
+      tratar isso.
+- [ ] `CAPACIDADES` de `mysql` e `mariadb`, e as duas entrando em
+      `ENGINES_IMPLEMENTADAS` — é o passo que acende os chips do seletor. Só
+      depois de tudo acima, senão a tela oferece o que o servidor não faz.
+- [ ] A árvore da interface pulando o nível de schema pela capacidade.
+
 ## Decisões pendentes, e quem decide
 
 1. **SQLite local está bloqueado, não adiado.** Medido: `bun:sqlite` é síncrono
