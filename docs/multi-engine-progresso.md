@@ -14,7 +14,7 @@ arqueologia na terceira sessão.
 | 0b — o campo `engine` existe | migration 007, tipo, capacidades, `engine` na API | **concluída** |
 | 0a — fronteira do driver | ~~interface `Driver` antes da 2ª engine~~ | **absorvida na fase 2**, ver nota |
 | 1 — papéis documentados | `docs/papeis-mysql.md`, medido | **concluída** |
-| 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | **em andamento** — camada de tipos pronta |
+| 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | **em andamento** — tipos, TLS e introspecção prontos |
 | 3 — libSQL | URL + token, read-only por JWT | não começou |
 | 4 — MongoDB | vista de documentos | descrito, não agendado |
 | 5 — Redis | vista chave/valor (6 tipos) | descrito, não agendado |
@@ -165,6 +165,9 @@ parecida, errei.**
   `CREATE USER` (DCL).
 - `SQLite: garantia de conexão` → falso. O usuário desliga com
   `PRAGMA query_only = OFF`.
+- `MariaDB = MySQL` no catálogo → falso. `TABLE_TYPE = 'SEQUENCE'` só existe no
+  MariaDB, e o MySQL mostra `performance_schema` a um usuário sem grant nela
+  enquanto o MariaDB não mostra.
 - `MariaDB = MySQL` na descrição de JSON → falso. MySQL manda `columnType` 245;
   MariaDB manda `BLOB` (252) com `extendedFormat: "json"` **e o BINARY_FLAG
   ligado** numa coluna de texto.

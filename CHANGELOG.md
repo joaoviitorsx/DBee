@@ -5,6 +5,30 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **A introspecção de MySQL/MariaDB** — a árvore de três níveis, contra
+  `information_schema`.
+
+  O Postgres tem conexão → database → **schema** → tabela; o MySQL tem
+  conexão → database → tabela, porque `SCHEMA` e `DATABASE` são a mesma coisa
+  lá. A resposta da API mantém a forma de sempre e a engine devolve **um** nó de
+  schema com o nome do próprio database — mudar o formato do fio quebraria o
+  Eden e todas as rotas por causa de uma engine, e quem esconde o nível é a
+  tela, que já sabe disso pela capacidade.
+
+  Medido: `information_schema` **já filtra por grant**. Um usuário com
+  `GRANT SELECT ON loja.clientes` vê exatamente `clientes`, e o database que não
+  lhe foi concedido não aparece — o equivalente do `has_table_privilege` que a
+  introspecção do Postgres precisa pedir à mão. Há teste provando isso contra
+  servidor real, em vez de o comentário afirmar e ninguém conferir.
+
+  Quinta divergência medida entre as duas: `TABLE_TYPE = 'SEQUENCE'` só existe
+  no MariaDB. Vira `table`, porque é o que ela é ali — um objeto que se lê com
+  `SELECT` — e inventar um `RelationKind` que uma só engine produz seria pior.
+
+  Os databases internos (`information_schema`, `performance_schema`, `mysql`,
+  `sys`) somem da árvore, como os templates somem no Postgres. Provado
+  revertendo, nos dois pontos.
+
 - **Os três modos de TLS do MySQL/MariaDB**, com o único que não dá para
   entregar por IP recusado em voz alta em vez de fingido.
 

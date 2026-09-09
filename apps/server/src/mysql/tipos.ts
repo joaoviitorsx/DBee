@@ -100,3 +100,27 @@ export function paraTexto(bytes: Buffer | null, campo: CampoMysql): string | nul
   if (bytes === null) return null;
   return ehBinaria(campo) ? `0x${bytes.toString("hex")}` : bytes.toString("utf8");
 }
+
+/**
+ * Um resultado inteiro convertido para texto, coluna por coluna.
+ *
+ * O `typeCast` entrega `Buffer`; a decisão texto/hexadecimal precisa dos
+ * metadados, que só chegam ao lado do resultado. Este é o ponto onde os dois se
+ * encontram, e por isso ele é o **único** lugar do driver que sabe da regra.
+ *
+ * Serve tanto para linha de tabela quanto para consulta de catálogo: o catálogo
+ * passa pela mesma conexão e recebe o mesmo `typeCast`, então também chega em
+ * bytes.
+ */
+export function linhasDeTexto(
+  linhas: readonly Record<string, unknown>[],
+  campos: readonly CampoMysql[],
+): Record<string, string | null>[] {
+  return linhas.map((linha) => {
+    const saida: Record<string, string | null> = {};
+    for (const campo of campos) {
+      saida[campo.name] = paraTexto((linha[campo.name] ?? null) as Buffer | null, campo);
+    }
+    return saida;
+  });
+}
