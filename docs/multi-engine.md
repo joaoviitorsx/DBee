@@ -3,6 +3,21 @@
 Plano para o DBee deixar de ser só-Postgres. Escrito depois de medir o que
 realmente difere, não do que parece diferir.
 
+## Resumo
+
+| engine | fase | vista | garantia de somente-leitura | estado |
+|---|---|---|---|---|
+| PostgreSQL | — | grade | transação, cobre DDL | **pronto** |
+| MySQL | 1 e 2 | grade | transação, **não** cobre DDL | planejado |
+| MariaDB | 1 e 2 | grade | igual ao MySQL | planejado |
+| SQLite | 3 | grade | conexão, cobre DDL | planejado |
+| libSQL | 3 | grade | igual ao SQLite | planejado |
+| MongoDB | 4 | árvore de documentos | **credencial** | planejado, não agendado |
+| Redis | 5 | par chave/valor (6 tipos) | **credencial** | planejado, não agendado |
+
+Todas as garantias da coluna foram medidas contra servidor real, não lidas na
+documentação — ver a seção 1.
+
 ## O que este plano NÃO é
 
 A referência visual é o seletor do Dokploy — PostgreSQL, MongoDB, MariaDB,
@@ -24,47 +39,61 @@ fazem o mesmo — e não fazem.
 
 Esta é a descoberta que reordena o plano. A regra 8 do `CLAUDE.md` diz que a
 proteção contra escrita é o **modo da transação**, declarado no `BEGIN`. Medido
-contra servidores reais:
+contra servidores reais de cada engine:
 
-| dentro da transação somente-leitura | PostgreSQL 16 | MySQL 8.4 |
-|---|---|---|
-| `INSERT` | bloqueia | bloqueia (erro 1792) |
-| `CREATE TABLE` | **bloqueia** | **passa — a tabela é criada** |
+| engine | mecanismo | barra DML | barra DDL | escopo |
+|---|---|---|---|---|
+| PostgreSQL 16 | `BEGIN READ ONLY` | sim | **sim** | transação |
+| MySQL 8.4 / MariaDB | `START TRANSACTION READ ONLY` | sim | **NÃO** | transação |
+| SQLite / libSQL | `PRAGMA query_only = ON` | sim | sim | conexão |
+| MongoDB 7 | papel `read` | sim | sim | **credencial** |
+| Redis 7 | ACL `+@read` | sim | n/a | **credencial** |
 
-`START TRANSACTION READ ONLY` do MySQL cobre DML e **não** cobre DDL: comando
-de esquema faz commit implícito e escapa da transação. No Postgres o mesmo
-`CREATE TABLE` morre com *cannot execute CREATE TABLE in a read-only
-transaction*.
+Três achados, e cada um muda o plano:
 
-Ou seja: a promessa central do produto — "nada é escrito por acidente" — vale
-no Postgres e **não vale igual** no MySQL. Antes de qualquer ícone novo na
-tela, cada engine precisa responder o que "somente leitura" significa nela, e a
-resposta precisa ser verificada contra servidor real, não lida na
-documentação.
+**MySQL deixa DDL passar.** `START TRANSACTION READ ONLY` cobre DML e não cobre
+comando de esquema — DDL faz commit implícito e escapa da transação. No Postgres
+o mesmo `CREATE TABLE` morre com *cannot execute CREATE TABLE in a read-only
+transaction*; no MySQL a tabela é criada. A promessa central do produto vale no
+Postgres e **não vale igual** no MySQL.
 
-Onde o modo de transação não basta, sobra uma alternativa só, e ela é do lado
-do banco: **papel restrito** (`GRANT SELECT`, ACL do Redis, usuário read-only do
-Mongo). O `docs/papeis-postgres.md` já faz isso para Postgres; cada engine nova
-precisa do seu equivalente, e o DBee precisa **detectar e avisar** quando o
-papel é privilegiado — como já faz hoje para o superusuário e o
-`COPY … TO PROGRAM`.
+**No Mongo e no Redis a garantia não é da operação, é da credencial.** Nos dois
+não existe "esta transação é somente leitura": o que existe é um usuário que não
+pode escrever. Medido — o papel `read` do Mongo recusa `insert`, `update`,
+`drop`, `createCollection` e `$out` com `Unauthorized`; a ACL `+@read` do Redis
+recusa `SET`, `DEL` e `FLUSHALL` com `NOPERM`.
 
-### 2. Dois grupos, não seis engines
+Isso quebra o desenho da UI, não só o do driver. Hoje o DBee liga a escrita
+**por execução** — o interruptor "permitir escrita nesta execução" faz a próxima
+transação nascer `READ WRITE` na mesma conexão. Com credencial, isso exige
+**duas credenciais por conexão**: uma só-leitura para o uso normal e uma
+gravável para o momento da escrita. A alternativa — uma credencial gravável e o
+DBee prometendo não mandar comando de escrita — é proteção por lista de
+comandos, exatamente o que a regra 8 recusa por saber que sempre tem um caso que
+escapa.
 
-| | modelo | grade e SQL | esforço |
-|---|---|---|---|
-| **MySQL / MariaDB** | relacional, SQL | servem como estão | médio |
-| **SQLite / libSQL** | relacional, SQL | servem como estão | baixo–médio |
-| **MongoDB** | documentos | grade não serve; não há SQL | alto, e é outra UI |
-| **Redis** | chave-valor | grade não serve; não há schema | alto, e é outro produto |
+**Cuidado ao medir Mongo.** Um container `mongo:7` sem `MONGO_INITDB_ROOT_*`
+sobe **sem controle de acesso**, e aí papel nenhum é aplicado: na primeira
+medição o usuário "somente leitura" apagou a coleção inteira. O número só vale
+com `--auth` ligado. Vale como aviso operacional também: um Mongo sem auth não
+tem somente-leitura nenhum, independentemente do que o DBee faça.
+
+### 2. Dois grupos, e o segundo não é uma engine a mais
+
+| | modelo | a UI de hoje serve? | garantia de leitura | esforço |
+|---|---|---|---|---|
+| **MySQL / MariaDB** | relacional, SQL | sim | transação (sem DDL) | médio |
+| **SQLite / libSQL** | relacional, SQL | sim | conexão | baixo–médio |
+| **MongoDB** | documentos | **não** — precisa de outra vista | credencial | alto |
+| **Redis** | chave-valor | **não** — precisa de outro produto | credencial | alto |
 
 A grade virtualizada, o editor SQL, o keyset por PK, o diagrama ERD e o
 `INSERT`/`UPDATE` com preview são todos construídos sobre "linhas com colunas e
 chave primária". No Mongo isso vira documento aninhado sem esquema fixo; no
 Redis não existe nem tabela.
 
-Fazer os quatro primeiros é evolução. Fazer os dois últimos é construir um
-segundo produto dentro do mesmo container.
+Fazer os dois primeiros é evolução. Fazer os dois últimos é construir uma
+segunda vista dentro do mesmo app — e o plano abaixo diz exatamente qual.
 
 ### 3. O que muda dentro do grupo relacional
 
@@ -75,7 +104,7 @@ segundo produto dentro do mesmo container.
 | citar identificador | `"aspas duplas"` | `` `crase` `` | `"aspas duplas"` |
 | streaming | `DECLARE CURSOR` + `FETCH` | cursor do protocolo / `LIMIT` | `LIMIT` |
 | tipos no fio | tudo texto (regra 10) | driver converte — precisa da mesma trava | idem |
-| somente leitura | `BEGIN READ ONLY` | `START TRANSACTION READ ONLY` (não cobre DDL) | `PRAGMA query_only` (a confirmar) |
+| somente leitura | `BEGIN READ ONLY` | `START TRANSACTION READ ONLY` (não cobre DDL) | `PRAGMA query_only` (cobre DDL — medido) |
 | cancelar query | `pg_cancel_backend` | `KILL QUERY` | não há |
 
 A **hierarquia** é a que mais dói na UI: a árvore hoje tem quatro níveis, e o
@@ -109,7 +138,7 @@ de **capacidades** que a UI lê para esconder o que aquela engine não faz.
 
 ```ts
 export interface Driver {
-  readonly engine: "postgres" | "mysql" | "mariadb" | "sqlite";
+  readonly engine: "postgres" | "mysql" | "mariadb" | "sqlite" | "mongodb" | "redis";
   readonly capabilities: Capabilities;
 
   testar(conn: ResolvedConnection): Promise<TestResult>;
@@ -129,11 +158,28 @@ export interface Driver {
 
 export interface Capabilities {
   /** Quantos níveis a árvore tem: 4 no Postgres, 3 no MySQL, 2 no SQLite. */
-  readonly niveis: "conexao/database/schema/tabela" | "conexao/database/tabela" | "arquivo/tabela";
-  /** A transação somente-leitura cobre DDL? No MySQL, NÃO — medido. */
+  readonly niveis:
+    | "conexao/database/schema/tabela"
+    | "conexao/database/tabela"
+    | "arquivo/tabela"
+    | "conexao/database/colecao"   // Mongo
+    | "conexao/db-numerado";       // Redis
+
+  /**
+   * ONDE mora a garantia de somente-leitura. É a capacidade que mais muda a UI:
+   * com `credencial`, o interruptor "permitir escrita nesta execução" não pode
+   * existir como está — a conexão precisa de duas credenciais.
+   */
+  readonly escopoReadOnly: "transacao" | "conexao" | "credencial";
+  /** A garantia cobre DDL? No MySQL, NÃO — medido. */
   readonly readOnlyCobreDdl: boolean;
-  readonly cancelarQuery: boolean;
-  readonly diagramaErd: boolean;
+
+  /** A vista de resultado: grade de linhas, árvore de documentos, ou par chave/valor. */
+  readonly vista: "grade" | "documentos" | "chave-valor";
+
+  readonly sqlLivre: boolean;      // Redis e Mongo não têm SQL
+  readonly cancelarQuery: boolean; // não há no SQLite
+  readonly diagramaErd: boolean;   // precisa de FK declarada
   readonly exportSql: boolean;
 }
 ```
@@ -145,38 +191,86 @@ supor a garantia do Postgres.
 
 ## Fases
 
+Cada fase entrega uma engine **utilizável**, não meio caminho. A ordem sai da
+medição: primeiro o que reusa a UI que existe, depois o que exige vista nova.
+
 **Fase 0 — fechar a fronteira, ainda só com Postgres.** Extrair a interface
 `Driver` e fazer os 11 arquivos passarem a depender dela, não de `pg/`. Nenhuma
 funcionalidade nova; o critério de pronto é a suíte inteira passando sem
-alteração de teste. É a fase que torna as outras baratas, e a única que dá para
-fazer sem risco de regressão porque não há comportamento novo.
+alteração de teste. É a fase que torna as outras baratas, e a única sem risco de
+regressão porque não há comportamento novo.
 
-**Fase 1 — MySQL/MariaDB, somente leitura.** Driver novo, árvore de três níveis,
-citação com crase, catálogo por `information_schema`. **Escrita desligada por
-enquanto**, justamente porque a garantia de read-only não cobre DDL: liberar
-escrita antes de resolver isso seria vender uma proteção que não existe.
-Critério de pronto: os mesmos testes de integração do Postgres, rodando contra
-um container MySQL de verdade.
+**Fase 1 — MySQL e MariaDB, somente leitura.** Driver novo, árvore de três
+níveis, citação com crase, catálogo por `information_schema`. **Escrita
+desligada**, porque a garantia não cobre DDL: liberar antes de resolver isso
+seria vender proteção que não existe. Critério de pronto: os mesmos testes de
+integração do Postgres, contra um container MySQL de verdade. MariaDB entra na
+mesma fase — o dialeto e o catálogo são compatíveis no que o DBee usa; o que
+muda é a string de versão.
 
-**Fase 2 — resolver a escrita no MySQL.** Papel restrito documentado
+**Fase 2 — escrita no MySQL/MariaDB.** Papel restrito documentado
 (`docs/papeis-mysql.md`), detecção de papel privilegiado no teste de conexão, e
-o aviso na UI quando a proteção for parcial. Só então ligar edição de linha.
+o aviso na UI de que a proteção é parcial. Só então ligar edição de linha.
 
-**Fase 3 — SQLite/libSQL.** Mais barato que o MySQL em quase tudo (dois níveis,
-sem rede no caso de arquivo local), mas exige responder o que "conexão"
-significa quando o banco é um arquivo — e, no libSQL, quando é uma URL remota
-com token.
+**Fase 3 — SQLite e libSQL.** Mais barato que o MySQL em quase tudo — dois
+níveis, `PRAGMA query_only` cobrindo DML e DDL (medido). O que exige decisão é o
+que "conexão" significa: no SQLite é um **caminho de arquivo** que o container
+precisa enxergar (volume montado), e no libSQL é uma **URL remota com token**,
+que é mais parecido com o que já existe. Provavelmente duas entradas distintas
+no formulário, não uma.
 
-**Fase 4 — decidir sobre Mongo e Redis, com dado na mão.** Depois das fases
-1–3 haverá evidência real de quanto custa uma engine. A pergunta a responder
-não é técnica, é de produto: o time precisa **navegar** Mongo/Redis, ou
-precisa só que eles existam? Se for a segunda, o seletor bonito não é a
-resposta.
+**Fase 4 — MongoDB.** É aqui que a UI deixa de ser reaproveitada, e a fase
+existe para dizer o que ela vira:
+
+- **Árvore**: conexão → database → coleção. Sem schema, sem FK — logo, **sem
+  diagrama ERD**.
+- **Vista**: a grade de linhas não serve para documento aninhado. O que serve é
+  uma **árvore de documentos** expansível, com a projeção das chaves de primeiro
+  nível numa tabela para o caso comum (documentos homogêneos). O DBee já tem o
+  virtualizador; o que muda é a célula.
+- **Consulta**: não há SQL. O editor vira um campo de **filtro/pipeline** em
+  JSON, e o autocomplete perde a base (não há catálogo de colunas — dá para
+  inferir por amostragem, e amostragem que erra é pior que autocomplete
+  nenhum).
+- **Escrita**: exige a segunda credencial descrita na seção 1.
+- **Export**: JSON e NDJSON saem naturalmente; CSV exige achatar documento
+  aninhado, e achatar é decisão que o usuário tem de ver antes.
+
+**Fase 5 — Redis.** A mais distante do que o DBee é hoje:
+
+- **Árvore**: conexão → banco numerado (0–15). Não há coleção nem tabela.
+- **Vista**: par chave/valor, com a forma dependendo do tipo (`string`, `hash`,
+  `list`, `set`, `zset`, `stream`). São seis vistas, não uma.
+- **Navegação**: `SCAN` com cursor, não `LIMIT`/`OFFSET` — e `KEYS *` num Redis
+  de produção trava o servidor, então a UI precisa impedir isso, não oferecer.
+- **Consulta**: não há linguagem de consulta. O que existe é um console de
+  comandos, e um console de comandos com escrita ligada é um `redis-cli` com
+  interface — outro produto, com outro risco.
+- **Escrita**: mesma segunda credencial do Mongo.
+
+## A pergunta que decide as fases 4 e 5
+
+Elas estão descritas o suficiente para serem executadas, e **não estão
+agendadas**. A razão não é técnica: é que o custo delas só se justifica se o
+time for **navegar** Mongo e Redis no dia a dia, e não apenas tê-los rodando.
+
+Antes de começar a fase 4 vale responder, com dado e não com impressão:
+
+- quantas vezes por semana alguém abre um Mongo/Redis hoje, e para quê?
+- é para **ler** (investigar um documento, conferir uma chave) ou para
+  **operar** (apagar chave, corrigir documento)?
+- se for ler, um console somente-leitura resolve — e é uma fração do custo da
+  vista completa.
+
+Se a resposta for "raramente, e só para ler", o seletor com seis cartões iguais
+é a solução errada para o problema certo.
 
 ## O que não fazer
 
 - **Não** colocar os seis ícones na tela antes da fase 1. Um seletor que oferece
-  seis e entrega um é pior que um seletor que não existe.
+  seis e entrega um é pior que um seletor que não existe. E quando eles
+  entrarem, os cartões **não** devem ser iguais: o de Redis não faz o que o de
+  PostgreSQL faz, e seis quadrados do mesmo tamanho afirmam que fazem.
 - **Não** traduzir SQL entre dialetos. O editor manda o texto que a pessoa
   escreveu, para a engine que ela escolheu — reescrever a query dela é o tipo de
   esperteza que o `CLAUDE.md` recusa.
@@ -185,4 +279,9 @@ resposta.
   caso, não com o primeiro imaginado.
 - **Não** ligar escrita numa engine cuja garantia de somente-leitura ainda não
   foi **medida** contra servidor real. Foi medindo que apareceu o buraco do DDL
-  no MySQL; ler a documentação não teria mostrado.
+  no MySQL, e foi medindo que apareceu o Mongo sem auth aceitando tudo de um
+  usuário "somente leitura"; ler a documentação não teria mostrado nenhum dos
+  dois.
+- **Não** implementar Mongo ou Redis com o interruptor "permitir escrita nesta
+  execução" que existe hoje. Nos dois a garantia é da credencial, não da
+  operação: o interruptor daria a impressão de proteger sem proteger nada.
