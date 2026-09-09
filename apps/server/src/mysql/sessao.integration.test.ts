@@ -1,7 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import mysql from "mysql2/promise";
 
-import { ehCortePorTempo, saborDaVersao, sqlDeTimeout } from "./sessao";
+import {
+  ehCortePorTempo,
+  ehFusoDesconhecido,
+  saborDaVersao,
+  sqlDeFusoPorDeslocamento,
+  sqlDeFusoPorNome,
+  sqlDeTimeout,
+} from "./sessao";
 
 /**
  * O limite de tempo por consulta, contra os dois servidores reais.
@@ -80,6 +87,39 @@ for (const s of SERVIDORES) {
         falhou = true;
       }
       expect(falhou, `${s.nome} aceitou a variável de ${outro} — a divisão pode ser desnecessária`).toBe(true);
+    }, 30_000);
+
+    it("o nome IANA é aceito quando o servidor tem as tabelas de fuso", async () => {
+      if (!temDocker) return;
+      const c = conexoes.get(s.nome);
+      expect(c).toBeDefined();
+      if (c === undefined) return;
+      await c.query(sqlDeFusoPorNome("America/Bahia"));
+      const [r] = await c.query<mysql.RowDataPacket[]>("SELECT @@session.time_zone AS tz");
+      expect(String((r as unknown as { tz: string }[])[0]?.tz)).toBe("America/Bahia");
+    }, 30_000);
+
+    /*
+     * O plano B existe para servidor SEM as tabelas de fuso carregadas, que é
+     * comum em instalação feita à mão. As imagens oficiais as trazem (medido:
+     * 1795 nomes no MySQL, 498 no MariaDB), então aqui o gatilho é um nome
+     * inexistente — o mesmo erro, 1298, pelo mesmo caminho.
+     */
+    it("nome desconhecido dá 1298, e o deslocamento numérico é aceito", async () => {
+      if (!temDocker) return;
+      const c = conexoes.get(s.nome);
+      if (c === undefined) return;
+
+      let capturado: unknown;
+      try {
+        await c.query(sqlDeFusoPorNome("Nao/Existe"));
+      } catch (e) { capturado = e; }
+      expect(capturado, "fuso inexistente tinha que falhar").toBeDefined();
+      expect(ehFusoDesconhecido(capturado), JSON.stringify(capturado)).toBe(true);
+
+      await c.query(sqlDeFusoPorDeslocamento("America/Bahia", new Date("2026-01-15T12:00:00Z")));
+      const [r] = await c.query<mysql.RowDataPacket[]>("SELECT @@session.time_zone AS tz");
+      expect(String((r as unknown as { tz: string }[])[0]?.tz)).toBe("-03:00");
     }, 30_000);
 
     it("a consulta pesada é cortada, e o corte é reconhecido pelo errno", async () => {

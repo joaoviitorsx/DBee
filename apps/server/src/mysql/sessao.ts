@@ -85,3 +85,61 @@ export function ehCortePorTempo(erro: unknown): boolean {
   const { errno } = erro as { errno?: unknown };
   return typeof errno === "number" && ERRNOS_DE_CORTE_POR_TEMPO.has(errno);
 }
+
+/**
+ * O fuso da sessão — e o plano B para servidor sem tabelas de fuso.
+ *
+ * A conexão do DBee guarda um fuso IANA (`America/Bahia`). O MySQL só entende
+ * nome se as tabelas `mysql.time_zone*` estiverem carregadas — nas imagens
+ * oficiais elas estão (medido: 1795 nomes no MySQL 8.4, 498 no MariaDB 11), mas
+ * num servidor instalado à mão é comum não estarem, e aí `SET SESSION
+ * time_zone = 'America/Bahia'` falha com **1298**.
+ *
+ * Falhar a conexão inteira por causa disso seria desproporcional; ignorar o erro
+ * seria pior, porque a sessão ficaria no fuso do servidor e as datas
+ * apareceriam **silenciosamente erradas** — exatamente o que a regra 10 e o
+ * `TUDO_TEXTO` existem para evitar.
+ *
+ * O plano B é o **deslocamento numérico** do mesmo fuso, que os dois aceitam
+ * sempre (medido). Ele tem um limite honesto: é o deslocamento de **agora**, e
+ * uma sessão que atravesse uma virada de horário de verão continuaria no
+ * deslocamento antigo. Por isso o nome vem primeiro, e o número é a queda.
+ */
+export const ERRNO_FUSO_DESCONHECIDO = 1298;
+
+/** Se o erro é "este servidor não conhece esse nome de fuso". */
+export function ehFusoDesconhecido(erro: unknown): boolean {
+  if (typeof erro !== "object" || erro === null) return false;
+  const { errno } = erro as { errno?: unknown };
+  return errno === ERRNO_FUSO_DESCONHECIDO;
+}
+
+/** `SET SESSION time_zone` com o nome IANA. Primeira tentativa. */
+export function sqlDeFusoPorNome(iana: string): string {
+  // Aspas simples duplicadas: o valor não pode ir por placeholder (`SET SESSION`
+  // não aceita), e um nome de fuso com apóstrofo não existe — mas escapar é
+  // barato e a alternativa é confiar num invariante mantido noutra camada.
+  return `SET SESSION time_zone = '${iana.replaceAll("'", "''")}'`;
+}
+
+/**
+ * O deslocamento atual de um fuso IANA, na forma `+HH:MM` que o MySQL aceita.
+ *
+ * `Intl` devolve `GMT-03:00`, e `GMT` seco para UTC — daí a normalização.
+ * Cobre deslocamentos que não são hora cheia (`Asia/Kolkata` é `+05:30`,
+ * `Pacific/Chatham` é `+12:45`).
+ */
+export function deslocamentoDe(iana: string, agora: Date = new Date()): string {
+  const partes = new Intl.DateTimeFormat("en-US", {
+    timeZone: iana,
+    timeZoneName: "longOffset",
+  }).formatToParts(agora);
+  const bruto = partes.find((p) => p.type === "timeZoneName")?.value ?? "GMT";
+  const resto = bruto.replace(/^GMT/, "");
+  return resto === "" ? "+00:00" : resto;
+}
+
+/** `SET SESSION time_zone` com o deslocamento numérico. Plano B. */
+export function sqlDeFusoPorDeslocamento(iana: string, agora: Date = new Date()): string {
+  return `SET SESSION time_zone = '${deslocamentoDe(iana, agora)}'`;
+}

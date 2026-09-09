@@ -5,6 +5,26 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **O fuso da sessão no MySQL/MariaDB**, com plano B para servidor sem tabelas
+  de fuso.
+
+  A conexão do DBee guarda um fuso IANA (`America/Bahia`), e o MySQL só entende
+  nome se as tabelas `mysql.time_zone*` estiverem carregadas. Nas imagens
+  oficiais estão (medido: 1795 nomes no MySQL 8.4, 498 no MariaDB 11), mas num
+  servidor instalado à mão é comum não estarem, e aí o `SET SESSION time_zone`
+  falha com **1298** nos dois.
+
+  Falhar a conexão inteira por isso seria desproporcional; ignorar o erro seria
+  pior, porque a sessão ficaria no fuso do servidor e as datas apareceriam
+  **silenciosamente erradas**. O plano B é o deslocamento numérico do mesmo
+  fuso, que os dois aceitam sempre.
+
+  O limite do plano B fica dito por teste, não só por comentário: ele é o
+  deslocamento de **um instante**, então uma sessão que atravesse a virada do
+  horário de verão continua na antiga. Por isso o nome vem primeiro. O próprio
+  teste caiu nessa armadilha uma vez — eu afirmei que `Pacific/Chatham` é
+  `+12:45`, medido em setembro, quando em janeiro é `+13:45`.
+
 - **O executor de statements do MySQL/MariaDB**, que não traz o resultado
   inteiro — e o contrato que impede o pool de passar fome.
 
