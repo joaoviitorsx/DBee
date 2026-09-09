@@ -46,13 +46,26 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   `char(14)` ou um `boolean` tornava a tabela inteira impossível de excluir.
   Schema contábil legado é feito disso.
 
-  A guarda passou a `col::text = $n::<tipo>::text`: os dois lados atravessam a
-  mesma conversão. Varridos 25 tipos contra Postgres real — os 25 casam,
-  inclusive `json`, `xml` e `point`, que não têm operador `=` e por isso
-  derrubariam a alternativa óbvia (`col = $n::<tipo>`). O tipo é lido do
-  catálogo **no servidor**, dentro da transação: vindo do cliente entraria no
-  SQL e seria injeção. A guarda continua recusando alteração de terceiro — há
-  teste para isso, porque afrouxar a proteção seria pior que o defeito.
+  A guarda passou a `to_json(col)#>>'{}' = to_json($n::<tipo>)#>>'{}'`: os dois
+  lados atravessam a mesma conversão, e `to_json` usa a função de saída do
+  tipo — que é exatamente o que o driver entregou. Medido nos **dois** sentidos
+  em 25 tipos contra Postgres real: valor inalterado casa 1 (senão a linha fica
+  indelével) e valor mexido por terceiro casa 0 (senão a guarda não protege
+  nada). Passa nos 25, inclusive `json`, `xml` e `point`, que não têm operador
+  `=` e por isso derrubariam a alternativa óbvia (`col = $n::<tipo>`).
+
+  O tipo é lido do catálogo **no servidor**, dentro da transação: vindo do
+  cliente entraria no SQL e seria injeção. E é o tipo **base**, não o
+  declarado — castar por um domínio faria o `CHECK` dele rodar, e em carga
+  legada a constraint costuma entrar com `NOT VALID` justamente porque parte
+  das linhas antigas não passa: a linha suja deixaria de poder ser corrigida ou
+  excluída, que é o mesmo defeito por outra porta. Tipo em schema sem `USAGE`
+  para o papel da conexão sai do mapa pelo mesmo motivo, e cai na forma antiga.
+
+  Três desses caminhos vieram de uma revisão adversarial da própria correção, e
+  todos têm teste que falha se o conserto for revertido — inclusive o que
+  garante que a guarda **continua recusando** alteração de terceiro, porque
+  afrouxar a proteção seria pior que o defeito original.
 - **O export levava tabela que ninguém marcou, e o `.zip` perdia uma.** A
   identidade de uma tabela na tela era `${schema}.${tabela}`, e identificador do
   Postgres aceita ponto quando citado: `zz_a` + `"b.c"` e `"zz_a.b"` + `c`

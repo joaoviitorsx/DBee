@@ -145,21 +145,35 @@ export type TiposDeColuna = ReadonlyMap<string, string>;
  *
  * ## A forma que passa em todos
  *
- * `col::text = $n::<tipo>::text` — os dois lados atravessam exatamente a mesma
- * conversão. O parâmetro volta a ser o tipo da coluna (é dela que ele saiu, e
- * por isso o cast nunca falha) e só então vira texto, do mesmo jeito que o lado
- * esquerdo. Varridos 25 tipos contra Postgres real: os 25 casam, incluindo
- * `json`, `xml` e `point`, que **não têm `=`** e por isso derrubariam a
- * alternativa óbvia (`col = $n::<tipo>`).
+ * `to_json(col)#>>'{}' = to_json($n::<tipo>)#>>'{}'` — os dois lados
+ * atravessam exatamente a mesma conversão. O parâmetro volta a ser o tipo da
+ * coluna (é dela que ele saiu, então o cast nunca falha) e os dois viram texto
+ * pelo mesmo caminho.
  *
- * A PK continua sem cast nenhum, para seguir usando o índice.
+ * **`to_json`, e não `::text`.** Os dois resolvem o `char(n)`, o `boolean` e o
+ * `inet`; a diferença aparece num tipo só, e ela custa dado: `bpchar` SEM
+ * comprimento (o que sai de `CREATE TABLE x AS SELECT max(uf) …`) guarda os
+ * brancos à direita, e `::text` faz `rtrim` **dos dois lados** — com ele, um
+ * terceiro trocando `'SP  '` por `'SP'` passava despercebido e o DELETE
+ * apagava assim mesmo. `to_json` usa a função de saída do tipo, que é
+ * exatamente o que o driver entregou, então preserva o branco e recusa.
+ *
+ * Medido nos dois sentidos, em 25 tipos contra Postgres real: valor inalterado
+ * casa 1 (senão a linha fica indelével) e valor mexido por terceiro casa 0
+ * (senão a guarda não protege nada). `::text` falhava no `bpchar`; `to_json`
+ * passa nos 25. Inclui `json`, `xml` e `point`, que **não têm `=`** e por isso
+ * derrubariam a alternativa óbvia (`col = $n::<tipo>`).
+ *
+ * A PK continua sem conversão nenhuma, para seguir usando o índice.
  */
 function guarda(coluna: string, valor: CellValue, tipos: TiposDeColuna, ph: (v: CellValue) => string): string {
   // `= NULL` nunca casa; a ausência é comparada com `IS NULL`.
   if (valor === null) return `${qid(coluna)} IS NULL`;
   const tipo = tipos.get(coluna);
+  // Sem o tipo (tabela sumiu do catálogo entre a leitura e o apply), a forma
+  // antiga: pior, mas não inventa cast.
   if (tipo === undefined) return `${qid(coluna)}::text = ${ph(valor)}`;
-  return `${qid(coluna)}::text = ${ph(valor)}::${tipo}::text`;
+  return `to_json(${qid(coluna)})#>>'{}' = to_json(${ph(valor)}::${tipo})#>>'{}'`;
 }
 
 export function construirUpdate(req: RowUpdateRequest, tipos: TiposDeColuna = new Map()): SqlConstruido {

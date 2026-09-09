@@ -109,6 +109,32 @@ export class MutationService {
    *
    * `format_type` já devolve identificador citado quando precisa, então um
    * tipo com nome hostil sai escapado (há teste que trava isso).
+   *
+   * ## Domínio é resolvido até o tipo base
+   *
+   * Se a coluna é `CREATE DOMAIN cnpj AS char(14)`, o tipo **declarado** é
+   * `cnpj`, e castar o valor de volta por ele **roda o `CHECK` do domínio**.
+   * Em carga legada isso é fatal: a constraint costuma entrar com `NOT VALID`
+   * justamente porque parte das linhas antigas não passa — e aí a linha suja
+   * não pode mais ser corrigida nem excluída, que é exatamente o defeito que
+   * esta guarda foi reescrita para matar, voltando por outra porta. O mesmo
+   * vale para domínio ou enum num schema sem `USAGE` para o papel da conexão:
+   * ler funciona, castar dá `permission denied`.
+   *
+   * A guarda só precisa do ida-e-volta textual; a validação do domínio não tem
+   * papel nenhum nela. O `CASE` sobre `typtypmod` preserva o comprimento (o
+   * `atttypmod` de coluna de domínio é -1 — o tamanho mora no domínio), então
+   * `cnpj` continua resolvendo para `character(14)` e a correção do `char(n)`
+   * se mantém. Recursivo porque domínio sobre domínio é legal.
+   *
+   * ## Tipo que este papel não pode citar sai do mapa
+   *
+   * Enum ou composite num schema sem `USAGE` (extensão instalada em schema
+   * próprio, tipo de infra) é **legível** — a linha aparece na tela — mas o
+   * cast dá `permission denied for schema`. Emitir esse cast trocaria uma
+   * guarda fraca por uma linha que não pode ser excluída, de novo. O
+   * `has_schema_privilege` deixa a coluna de fora do mapa e ela cai na forma
+   * antiga: menos exata, e funcionando.
    */
   static async #tiposDaTabela(
     client: PoolClient,
@@ -116,11 +142,30 @@ export class MutationService {
     table: string,
   ): Promise<TiposDeColuna> {
     const res = await client.query<{ nome: string; tipo: string }>(
-      `SELECT a.attname AS nome, format_type(a.atttypid, a.atttypmod) AS tipo
-         FROM pg_attribute a
-         JOIN pg_class c ON c.oid = a.attrelid
-         JOIN pg_namespace n ON n.oid = c.relnamespace
-        WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped`,
+      `WITH RECURSIVE base AS (
+         SELECT a.attname, a.atttypid AS oid, a.atttypmod AS typmod, 0 AS nivel
+           FROM pg_attribute a
+           JOIN pg_class c ON c.oid = a.attrelid
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+          WHERE n.nspname = $1 AND c.relname = $2
+            AND a.attnum > 0 AND NOT a.attisdropped
+         UNION ALL
+         SELECT b.attname, t.typbasetype,
+                CASE WHEN t.typtypmod <> -1 THEN t.typtypmod ELSE b.typmod END,
+                b.nivel + 1
+           FROM base b
+           JOIN pg_type t ON t.oid = b.oid
+          WHERE t.typtype = 'd' AND b.nivel < 16
+       )
+       SELECT r.nome, r.tipo
+         FROM (
+           SELECT DISTINCT ON (b.attname)
+                  b.attname AS nome, b.oid AS oid, format_type(b.oid, b.typmod) AS tipo
+             FROM base b ORDER BY b.attname, b.nivel DESC
+         ) r
+         JOIN pg_type t ON t.oid = r.oid
+         JOIN pg_namespace tn ON tn.oid = t.typnamespace
+        WHERE pg_catalog.has_schema_privilege(tn.oid, 'USAGE')`,
       [schema, table],
     );
     return new Map(res.rows.map((r) => [r.nome, r.tipo]));

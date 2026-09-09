@@ -32,6 +32,8 @@ let connWrite = "";
 let connReadOnly = "";
 /** Conexão de escrita ao MESMO banco, mas com TimeZone diferente (Asia/Tokyo). */
 let connTokyo = "";
+/** Papel SEM `USAGE` no schema onde vive o tipo da coluna. */
+let connLimitado = "";
 
 const call = (path: string, body: unknown, method = "POST"): Promise<Response> =>
   app.handle(
@@ -136,6 +138,45 @@ beforeAll(async () => {
           (1, '1234567890', true,  '10.0.0.1', 'um'),
           (2, '0000000001', false, '10.0.0.2', 'dois'),
           (3, '5555555555', true,  '10.0.0.3', 'tres');
+
+        -- DOMÍNIO com CHECK NOT VALID sobre carga legada suja. O NOT VALID
+        -- existe justamente para deixar entrar o que já está lá. Se a guarda
+        -- castar o valor de volta pelo DOMÍNIO, o CHECK roda e a linha suja
+        -- fica impossível de corrigir ou excluir — o mesmo defeito por outra
+        -- porta. Tem de castar pelo tipo BASE.
+        CREATE DOMAIN dom_cnpj AS char(14);
+        CREATE DOMAIN dom_cnpj2 AS dom_cnpj;   -- domínio sobre domínio
+        CREATE TABLE legado (
+          id int PRIMARY KEY,
+          cnpj dom_cnpj,
+          cnpj2 dom_cnpj2,
+          obs text
+        );
+        INSERT INTO legado VALUES
+          (1, '1234567890', '1234567890', 'limpa'),
+          (2, 'ABC4567890', 'ABC4567890', 'suja');
+        ALTER DOMAIN dom_cnpj ADD CONSTRAINT so_digito
+          CHECK (VALUE ~ '^[0-9 ]+$') NOT VALID;
+
+        -- bpchar SEM comprimento: guarda os brancos à direita, e o cast a
+        -- text faz
+        -- rtrim dos DOIS lados — com ele, terceiro trocando 'SP  ' por 'SP'
+        -- passava despercebido e o DELETE apagava assim mesmo.
+        CREATE TABLE sem_typmod (id int PRIMARY KEY, uf bpchar, obs text);
+        INSERT INTO sem_typmod VALUES (1, 'SP  ', 'a'), (2, 'RJ  ', 'b');
+
+        -- Enum num schema sem USAGE para o papel: a linha é LEGÍVEL, mas
+        -- castar por ele dá permission denied. O tipo tem de sair do mapa, ou
+        -- a linha vira indelével de novo.
+        CREATE SCHEMA infra;
+        CREATE TYPE infra.humor AS ENUM ('bom','ruim');
+        CREATE TABLE com_enum (id int PRIMARY KEY, h infra.humor, obs text);
+        INSERT INTO com_enum VALUES (1,'bom','a');
+        REVOKE ALL ON SCHEMA infra FROM PUBLIC;
+        CREATE ROLE limitado LOGIN PASSWORD 'Li8mQz3nWy5U';
+        GRANT USAGE ON SCHEMA public TO limitado;
+        GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO limitado;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO limitado;
       `),
     },
   );
@@ -156,6 +197,11 @@ beforeAll(async () => {
   connWrite = await criar("write", true);
   connReadOnly = await criar("ro", false);
   connTokyo = await criar("tokyo", true, "Asia/Tokyo");
+  const resLim = await call("/api/connections", {
+    name: "limitado", host: "127.0.0.1", port: PORTA, database: "app",
+    username: "limitado", password: "Li8mQz3nWy5U", timezone: "UTC", writeEnabled: true,
+  });
+  connLimitado = ((await resLim.json()) as { id: string }).id;
 }, 180_000);
 
 afterAll(async () => {
@@ -253,7 +299,10 @@ describe.skipIf(!temDocker)("edição de linha — UPDATE", () => {
     );
     expect(upd).toBeDefined();
     expect(upd?.sql).toContain(`SET "nome" = 'Ana Maria'`);
-    expect(upd?.sql).toContain(`"nome"::text = 'Ana'`); // a guarda otimista, literal
+    // A guarda otimista, com o valor ORIGINAL literal — é o que a auditoria
+    // precisa provar. A forma da comparação mudou (ver `guarda` no shared);
+    // o que não muda é o valor lido aparecer inteiro no log.
+    expect(upd?.sql).toContain(`to_json('Ana'::text)`);
     expect(upd?.actor).toBe(userId);
     expect(upd?.readOnly).toBe(false);
   });
@@ -527,5 +576,86 @@ describe.skipIf(!temDocker)("guarda otimista — tipos que divergem de ::text", 
     // A tabela que o nome do tipo mandava derrubar continua existindo — é o
     // que o `DROP TABLE` embutido no nome do tipo teria levado.
     expect(valorDireto("SELECT to_regclass('public.divergentes') IS NOT NULL")).toBe("t");
+  });
+});
+
+/**
+ * O que a revisão adversarial da própria correção encontrou.
+ *
+ * A guarda passou a castar o valor de volta ao tipo da coluna — e "o tipo da
+ * coluna" tem duas leituras. Pelo tipo **declarado**, um domínio faz o `CHECK`
+ * rodar no cast, e uma linha que o `NOT VALID` deixou entrar deixa de poder ser
+ * corrigida ou excluída: o mesmo defeito que a correção existe para matar,
+ * voltando por outra porta. Pelo tipo **base**, o ida-e-volta textual acontece
+ * e a validação do domínio não se mete onde não tem papel.
+ */
+describe.skipIf(!temDocker)("guarda otimista — domínio e bpchar sem comprimento", () => {
+  it("exclui linha que o CHECK NOT VALID do domínio recusaria", async () => {
+    const res = await call(`/api/connections/${connWrite}/rows/delete`, {
+      ...alvo, table: "legado",
+      pk: [{ column: "id", value: "2" }],
+      guard: [
+        { column: "cnpj", value: "ABC4567890    " },
+        { column: "cnpj2", value: "ABC4567890    " },
+        { column: "obs", value: "suja" },
+      ],
+    });
+    expect(`${String(res.status)} ${JSON.stringify(await res.clone().json())}`).toStartWith("200");
+    expect(valorDireto("SELECT count(*) FROM legado WHERE id = 2")).toBe("0");
+  });
+
+  it("o domínio continua resolvendo para character(14), não para bpchar solto", async () => {
+    // Se a resolução perdesse o typmod, o char(n) voltaria a não casar.
+    const res = await call(`/api/connections/${connWrite}/rows/update`, {
+      ...alvo, table: "legado",
+      pk: [{ column: "id", value: "1" }],
+      changes: [{ column: "cnpj", from: "1234567890    ", to: "7777777777" }],
+    });
+    expect(res.status).toBe(200);
+    expect(valorDireto("SELECT btrim(cnpj) FROM legado WHERE id = 1")).toBe("7777777777");
+  });
+
+  /**
+   * Tipo que o papel da conexão não consegue citar.
+   *
+   * Ler a linha funciona; castar por `infra.humor` dá `permission denied for
+   * schema`. Se o mapa entregasse esse tipo, a guarda emitiria um SQL que
+   * sempre falha — linha indelével pela terceira porta. O mapa deixa a coluna
+   * de fora e ela cai na forma antiga.
+   */
+  it("tipo em schema sem USAGE não vira cast: a linha continua excluível", async () => {
+    const res = await call(`/api/connections/${connLimitado}/rows/delete`, {
+      ...alvo, table: "com_enum",
+      pk: [{ column: "id", value: "1" }],
+      guard: [{ column: "h", value: "bom" }, { column: "obs", value: "a" }],
+    });
+    expect(`${String(res.status)} ${JSON.stringify(await res.clone().json())}`).toStartWith("200");
+    expect(valorDireto("SELECT count(*) FROM com_enum WHERE id = 1")).toBe("0");
+  });
+
+  it("bpchar sem comprimento: apaga quando nada mudou", async () => {
+    const res = await call(`/api/connections/${connWrite}/rows/delete`, {
+      ...alvo, table: "sem_typmod",
+      pk: [{ column: "id", value: "1" }],
+      guard: [{ column: "uf", value: "SP  " }, { column: "obs", value: "a" }],
+    });
+    expect(res.status).toBe(200);
+    expect(valorDireto("SELECT count(*) FROM sem_typmod WHERE id = 1")).toBe("0");
+  });
+
+  /**
+   * O achado que mais importa dos dois: com `::text` nos dois lados, o `rtrim`
+   * do `bpchar` escondia a alteração e o DELETE apagava. DELETE não volta.
+   */
+  it("bpchar sem comprimento: RECUSA quando o terceiro só tirou os brancos", async () => {
+    psql("UPDATE sem_typmod SET uf = 'RJ' WHERE id = 2");
+    const res = await call(`/api/connections/${connWrite}/rows/delete`, {
+      ...alvo, table: "sem_typmod",
+      pk: [{ column: "id", value: "2" }],
+      guard: [{ column: "uf", value: "RJ  " }, { column: "obs", value: "b" }],
+    });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("row_changed");
+    expect(valorDireto("SELECT count(*) FROM sem_typmod WHERE id = 2")).toBe("1");
   });
 });
