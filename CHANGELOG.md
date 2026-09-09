@@ -5,6 +5,32 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **O executor de statements do MySQL/MariaDB**, que não traz o resultado
+  inteiro — e o contrato que impede o pool de passar fome.
+
+  O Postgres embrulha o SQL num `DECLARE … CURSOR` e busca `maxRows + 1`. O
+  MySQL **não tem cursor** fora de procedure, e a regra 8 proíbe reescrever o
+  SQL do usuário — injetar `LIMIT` seria isso, e mudaria o resultado de quem já
+  tem `LIMIT` ou `UNION`. O equivalente é streaming com parada antecipada:
+  medido, 262 144 linhas custam **+75 MB** em modo buffered e **6 ms** parando
+  em 101.
+
+  **Parar cedo custa a conexão**, e isso foi medido em cadeia. Só `destroy`
+  deixa a conexão bloqueada **15,2 s** drenando um `JOIN` de 67 milhões de
+  linhas — num pool, um `SELECT` sem `WHERE` faria o pool passar fome.
+  `KILL QUERY` mata o dreno mas deixa a conexão em `closed state`. O que resolve
+  os dois é **fechar a conexão**: a thread some do `PROCESSLIST` 1,5 s depois,
+  com ou sem `KILL`. Por isso o resultado carrega `descartarConexao` — no tipo,
+  não num comentário, para o pool não poder esquecer.
+
+  São três coisas distintas, e confundi-las seria repetir o erro do `FETCH n`:
+  streaming limita **memória**, o `max_execution_time` limita **tempo**, e o
+  `KILL QUERY` atende à **vontade do usuário**.
+
+  Duas coisas que o executor se recusa a inventar, porque o protocolo do MySQL
+  não as carrega: a **posição** do erro (destacar um lugar chutado no editor é
+  pior que não destacar) e o **rótulo do comando** (`command` fica `null`).
+
 - **Os nomes de tipo das colunas de resultado no MySQL/MariaDB**, conferidos
   contra a resposta do próprio servidor.
 
