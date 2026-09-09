@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import type { Connection } from "@dbee/shared";
+import type { Connection, Engine } from "@dbee/shared";
+import { engineImplementada } from "@dbee/shared/puro";
 
 import { createApp } from "./app";
 import { openTestStore } from "./db/client";
@@ -53,19 +54,30 @@ describe("CRUD de conexões", () => {
    * O seletor da tela só ESCONDE as engines que o DBee não fala, e esconder não
    * é impedir: `POST /api/connections` continua alcançável por quem chama a API
    * direto. Sem esta recusa a conexão é guardada e só quebra muito depois,
-   * quando o driver de Postgres tenta conversar com um Redis.
+   * quando o driver tenta conversar com o servidor errado.
    *
    * O schema não pega isso: a união `Engine` declara o alvo do plano, e
    * `"redis"` tem a forma certa. Quem sabe o que está pronto é
    * `ENGINES_IMPLEMENTADAS`.
+   *
+   * Os dois casos derivam **da mesma lista** que o código usa. A primeira
+   * versão repetia as seis engines à mão, e quebrou no dia em que MySQL e
+   * MariaDB foram implementadas — o teste estava certo em falhar, e errado em
+   * exigir manutenção para uma mudança que ele deveria acompanhar sozinho.
    */
-  it("recusa com 400 engine que o schema aceita e o DBee ainda não fala", async () => {
-    for (const engine of ["mysql", "mariadb", "sqlite", "libsql", "mongodb", "redis"]) {
+  it("aceita as engines implementadas e recusa com 400 as que o DBee ainda não fala", async () => {
+    const todas: Engine[] = ["postgres", "mysql", "mariadb", "sqlite", "libsql", "mongodb", "redis"];
+    for (const engine of todas) {
       const res = await call("/api/connections", json({ ...NOVA, name: `x-${engine}`, engine }));
-      expect(res.status).toBe(400);
-      expect((await res.json()) as { code: string }).toMatchObject({
-        code: "engine_not_implemented",
-      });
+      if (engineImplementada(engine)) {
+        expect(res.status, `${engine} está implementada`).toBe(201);
+        expect(((await res.json()) as Connection).engine).toBe(engine);
+      } else {
+        expect(res.status, `${engine} não está implementada`).toBe(400);
+        expect((await res.json()) as { code: string }).toMatchObject({
+          code: "engine_not_implemented",
+        });
+      }
     }
   });
 
