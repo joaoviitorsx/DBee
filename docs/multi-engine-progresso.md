@@ -14,7 +14,7 @@ arqueologia na terceira sessão.
 | 0b — o campo `engine` existe | migration 007, tipo, capacidades, `engine` na API | **concluída** |
 | 0a — fronteira do driver | ~~interface `Driver` antes da 2ª engine~~ | **absorvida na fase 2**, ver nota |
 | 1 — papéis documentados | `docs/papeis-mysql.md`, medido | **concluída** |
-| 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | não começou |
+| 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | **em andamento** — camada de tipos pronta |
 | 3 — libSQL | URL + token, read-only por JWT | não começou |
 | 4 — MongoDB | vista de documentos | descrito, não agendado |
 | 5 — Redis | vista chave/valor (6 tipos) | descrito, não agendado |
@@ -120,14 +120,18 @@ que a cobra é o próprio typecheck no dia em que o segundo driver aparecer.
    a escrita fica desligada nessas engines. Afeta o modelo de dados, a cifra
    (AAD distinto por coluna — ver `docs/conexao-multi-engine.md`) e a tela.
    **Bloqueia a fase 2 na parte de escrita**, não na de leitura.
-3. **`verify-full` no MySQL.** Não foi medido se o driver `mysql2` valida
-   identidade por **SAN de IP**, que é o caso da rede Tailscale deste projeto e
-   que o `pg/ssl.ts` resolve à mão. Se não validar, `verify-full` fica
-   inutilizável ali — a mesma armadilha do ADR 003. **Medir antes da fase 2.**
+3. **`verify-full` no MySQL — medido, e a resposta é "depende do host".**
+   Resolvido: funciona quando o host é **nome**, e é **impossível** quando o
+   host é **IP**, porque o `mysql2` zera o `servername` para IP e a conferência
+   de identidade cai em `localhost`. Reproduzido igual sob Bun e Node, e um
+   `checkServerIdentity` próprio é ignorado. Detalhe e causa em
+   `docs/multi-engine.md` §3c. **Não bloqueia mais**: a validação recusa a
+   combinação `verify-full` + IP, em vez de tirar o modo de todo mundo.
 4. **Conversão de tipos de cada driver novo.** A regra 10 (todo valor de célula
    trafega como string) precisou do `TUDO_TEXTO` no Postgres. Cada driver novo
-   precisa da própria medição — `mysql2`, `@libsql/client`, `mongodb`, `ioredis`.
-   **Faz parte da definição de pronto de cada driver.**
+   precisa da própria medição. **MySQL/MariaDB: feito** — `mysql/tipos.ts`, 24
+   tipos contra servidor real, e o `Bun.SQL` reprovado no caminho (§3b). Faltam
+   `@libsql/client`, `mongodb`, `ioredis`.
 
 ## Invariantes que não podem cair no caminho
 
@@ -161,3 +165,9 @@ parecida, errei.**
   `CREATE USER` (DCL).
 - `SQLite: garantia de conexão` → falso. O usuário desliga com
   `PRAGMA query_only = OFF`.
+- `MariaDB = MySQL` na descrição de JSON → falso. MySQL manda `columnType` 245;
+  MariaDB manda `BLOB` (252) com `extendedFormat: "json"` **e o BINARY_FLAG
+  ligado** numa coluna de texto.
+- `o Bun resolve MySQL, então nada de dependência` → falso. Ele fala o
+  protocolo, mas converte tipos, e o `DATE` muda de valor conforme a API
+  chamada — um dia a menos a oeste de Greenwich.

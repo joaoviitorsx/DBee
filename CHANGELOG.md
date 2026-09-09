@@ -5,6 +5,38 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **A camada de tipos do MySQL/MariaDB, medida** — primeira peça da fase 2 do
+  multi-engine. Ainda não conecta banco nenhum pela interface; é a trava que a
+  regra 10 (todo valor de célula trafega como string) exige antes do driver.
+
+  O `Bun.SQL` foi medido primeiro, porque a regra 3 manda preferir a primitiva
+  do Bun. **Reprovou**: converte tipos sem opção de desligar, e a conversão de
+  `DATE` depende de qual API se chama — a mesma coluna guardada como
+  `2026-03-01` volta meia-noite local pelo template tag e meia-noite UTC pelo
+  `unsafe()`, que em `America/Bahia` **aparece como 28 de fevereiro**. E
+  `unsafe()` é o caminho do editor de SQL. Entrou o `mysql2` (JS puro, sem
+  módulo nativo, então `bun build --compile` segue de pé).
+
+  A trava: o `typeCast` devolve bytes crus e a decisão texto/hexadecimal sai
+  dos metadados de coluna, porque o objeto do `typeCast` não expõe charset —
+  ali `TEXT` e `BLOB` são os dois `BLOB`. A regra é `charset === 63` **e** o
+  tipo estar na lista dos que carregam bytes; as duas condições vieram de erro
+  medido, porque o MariaDB liga o `BINARY_FLAG` no JSON e porque número e data
+  também dizem charset 63 (só ele fazia o inteiro `1` virar `"0x31"`).
+
+  Teste de integração contra MySQL 8.4 e MariaDB 11 reais, 24 tipos, conferindo
+  o texto exato de cada célula. Provado revertendo: com a regra só-charset,
+  `id` volta `"0x31"` e a suíte falha.
+
+  Medido junto, e resolve uma decisão que estava em aberto no plano: **no
+  MySQL, `verify-full` funciona por nome de host e é impossível por IP.** O
+  `mysql2` zera o `servername` quando o host é IP, a conferência de identidade
+  cai no padrão `localhost` e recusa até o certificado legítimo; sem
+  `verifyIdentity` não há conferência nenhuma, e um `checkServerIdentity`
+  próprio é sobrescrito. Igual sob Bun e Node. Como a produção é alcançada pelo
+  IP da tailnet, a validação vai recusar a combinação `verify-full` + IP em vez
+  de tirar o modo de quem usa nome — detalhe em `docs/multi-engine.md` §3c.
+
 - **Cada motor tem a sua marca na tela.** O formulário de conexão passou a
   abrir com um seletor de motor, e a linha da conexão na árvore mostra de qual
   banco ela é.

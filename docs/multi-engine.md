@@ -115,9 +115,83 @@ segunda vista dentro do mesmo app — e o plano abaixo diz exatamente qual.
 | hierarquia | conexão → database → **schema** → tabela | conexão → database → tabela (sem schema) | arquivo → tabela (sem database, sem schema) |
 | citar identificador | `"aspas duplas"` | `` `crase` `` | `"aspas duplas"` |
 | streaming | `DECLARE CURSOR` + `FETCH` | cursor do protocolo / `LIMIT` | `LIMIT` |
-| tipos no fio | tudo texto (regra 10) | driver converte — precisa da mesma trava | idem |
+| tipos no fio | tudo texto (regra 10) | driver converte — trava medida, ver §3b | idem |
 | somente leitura | `BEGIN READ ONLY` | `START TRANSACTION READ ONLY` (não cobre DDL) | `PRAGMA query_only` (cobre DDL — medido) |
 | cancelar query | `pg_cancel_backend` | `KILL QUERY` | não há |
+
+
+### 3b. O driver de MySQL: medido, e o primeiro candidato reprovou
+
+A regra 3 do `CLAUDE.md` manda preferir primitiva do Bun a dependência externa,
+e o **Bun 1.3.14 fala MySQL nativamente**. Ele foi medido primeiro, e reprovou
+na regra 10.
+
+`Bun.SQL` converte tipos sem opção documentada de desligar — inteiro vira
+`number`, `DATE` vira `Date`, `BLOB` vira `Uint8Array`, `JSON` vira objeto: 12
+de 24 colunas. Pior, **a conversão de `DATE` depende de qual API se chama**.
+Mesma linha, mesmo servidor, coluna guardada como `2026-03-01`:
+
+| caminho | valor | em `America/Bahia` |
+|---|---|---|
+| template tag | `2026-03-01T03:00:00Z` | 1 de março |
+| `sql.unsafe()` | `2026-03-01T00:00:00Z` | **28 de fevereiro** |
+
+E `unsafe()` é o caminho do editor de SQL, onde a consulta é texto do usuário.
+Um cliente de banco que mostra o dia errado não serve, então a regra 3 cede:
+entra o `mysql2`, JS puro, sem módulo nativo — a regra 4 (`bun build
+--compile`) segue de pé.
+
+**A trava equivalente ao `TUDO_TEXTO`**: o `typeCast` devolve os bytes crus e a
+decisão entre texto e hexadecimal sai dos **metadados de coluna**, porque o
+objeto do `typeCast` não expõe charset — ali `TEXT` e `BLOB` são os dois
+`BLOB`, e `CHAR`, `BINARY`, `ENUM` e `SET` são os quatro `STRING`.
+
+A regra é `charset === 63` **e** o tipo estar na lista dos que carregam bytes.
+As duas condições vieram de erro medido:
+
+- só `BINARY_FLAG` não serve: **o MariaDB liga o flag no JSON**, que é texto;
+- só `charset === 63` não serve: número e data também dizem 63, e o inteiro `1`
+  saía `"0x31"`.
+
+Isso **obriga `query()` e proíbe `execute()`**: só no protocolo de texto os
+números e as datas chegam em ASCII.
+
+**Quarta divergência MariaDB/MySQL:** o MySQL descreve JSON como `columnType`
+245; o MariaDB, como `BLOB` (252) com `extendedFormat: "json"`.
+
+### 3c. `verify-full` no MySQL: possível por nome, impossível por IP
+
+O ADR 003 diz que só existem três modos de SSL e que **cada um precisa
+significar o que promete**. Medido contra MySQL 8.4 com TLS, CA própria e três
+certificados (SAN de IP correto, SAN de nome errado, e outra CA):
+
+| como o `mysql2` é configurado | cadeia | identidade |
+|---|---|---|
+| `rejectUnauthorized: true` | **verificada** (recusa outra CA) | **não verificada** — aceita qualquer certificado da CA, para qualquer host |
+| `+ verifyIdentity: true`, host é **nome** | verificada | **verificada** — aceita SAN certo, recusa SAN errado |
+| `+ verifyIdentity: true`, host é **IP** | verificada | **quebrada** — recusa até o certificado legítimo |
+| `checkServerIdentity` próprio | verificada | **ignorado** — o `mysql2` sobrescreve |
+
+A causa está em `lib/base/connection.js`:
+
+```js
+const servername = Net.isIP(this.config.host) ? undefined : this.config.host;
+```
+
+Com IP o `servername` some, o `Tls.checkServerIdentity` do Node cai no padrão
+`'localhost'`, e a reconferência logo abaixo é guardada por
+`typeof servername === 'string'` — então nem roda. Reproduzido igual sob Bun
+1.3.14 e Node 22: é comportamento do `mysql2`, não do runtime.
+
+**Por que isso importa exatamente aqui.** A produção do DBee é alcançada pelo IP
+da tailnet. Para uma conexão MySQL por IP, `verify-full` não tem como ser
+honrado — e oferecer o modo assim mesmo seria a tela prometendo uma garantia que
+não existe, que é o erro que o ADR 003 nomeia.
+
+**Decisão:** `verify-full` continua oferecido para MySQL/MariaDB, e a validação
+recusa a combinação **`verify-full` + host que é IP**, com mensagem dizendo por
+quê. Recusar o modo inteiro puniria quem usa nome de host, onde ele funciona de
+verdade; recusar a combinação exata é o que diz a verdade nos dois casos.
 
 A **hierarquia** é a que mais dói na UI: a árvore hoje tem quatro níveis, e o
 MySQL tem três. Não dá para fingir um nível de schema que não existe — a árvore
