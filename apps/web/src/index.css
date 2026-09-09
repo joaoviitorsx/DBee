@@ -340,6 +340,54 @@
   100% { transform: scale(1) translateY(0); opacity: 1; }
 }
 
+/**
+ * Pólen a caminho do favo — o gesto do export.
+ *
+ * A metáfora é literal: cada linha que sai do banco é um grão que a abelha
+ * leva, e o favo guarda. A trajetória tem uma leve subida no meio para não ser
+ * uma reta — grão de pólen não voa em linha reta.
+ *
+ * Só `transform` e `opacity`, que o compositor resolve sem tocar em layout: a
+ * animação roda enquanto o navegador também escreve o arquivo em disco, e não
+ * pode disputar a thread principal com isso.
+ *
+ * A **duração** vem de `--polen-dur`, escrita pelo componente a partir da vazão
+ * real. Não é enfeite com tempo fixo: pólen rápido é download rápido, e pólen
+ * parado é download parado. A **distância** vem de `--polen-dist`, em unidades
+ * do viewBox — porcentagem aqui seria relativa à caixa do próprio grão, que
+ * tem poucos pixels, e o pólen andaria o próprio diâmetro em vez da cena.
+ */
+@keyframes dbee-polen {
+  0%   { transform: translate(0, 0) scale(0.6); opacity: 0; }
+  12%  { opacity: 1; }
+  50%  { transform: translate(calc(var(--polen-dist, 90px) / 2), -7px) scale(1); }
+  88%  { opacity: 1; }
+  100% { transform: translate(var(--polen-dist, 90px), 0) scale(0.55); opacity: 0; }
+}
+
+/**
+ * A superfície do mel, ondulando.
+ *
+ * Amplitude minúscula e período longo: mel é viscoso, então a onda **arrasta**
+ * em vez de vibrar. Uma senoide rápida leria como água.
+ *
+ * O deslocamento horizontal é de exatamente um período da onda desenhada, para
+ * o laço fechar sem salto visível.
+ */
+@keyframes dbee-mel {
+  0%   { transform: translate(0, 0); }
+  50%  { transform: translate(-10px, 0.6px); }
+  100% { transform: translate(-20px, 0); }
+}
+
+@utility animate-mel {
+  animation: dbee-mel 3.2s linear infinite;
+}
+
+@utility animate-polen {
+  animation: dbee-polen var(--polen-dur, 1600ms) linear infinite;
+}
+
 @utility animate-wing {
   transform-origin: center;
   animation: dbee-wing 900ms ease-in-out infinite;

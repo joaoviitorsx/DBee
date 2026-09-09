@@ -593,6 +593,9 @@ export const pt = {
   "exp.previewTitulo": "Prévia — primeiros {kb} KB",
   "exp.previewFechar": "Fechar prévia",
   "exp.baixado": "Arquivo gerado: {nome}",
+  "exp.favoTaxa": "{taxa}/s",
+  "exp.favoEsperando": "aguardando o servidor…",
+  "exp.favoConcluido": "arquivo salvo",
 } as const;
 
 export type ChaveI18n = keyof typeof pt;

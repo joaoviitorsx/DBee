@@ -15,6 +15,7 @@ import { cn } from "../../lib/cn";
 import { Trabalhando } from "../motion/Trabalhando";
 import { useSchema } from "../tree/useTree";
 import { baixarBundle, ExportCancelado, verPrevia } from "./download";
+import { FavoDeExport } from "./FavoDeExport";
 
 /**
  * Export de várias tabelas — aba própria (§5).
@@ -67,6 +68,8 @@ export function ExportTabContent({
   const [previa, setPrevia] = useState<string | null>(null);
   const [escolhas, setEscolhas] = useState<Readonly<Record<string, Escolha>>>({});
   const [baixando, setBaixando] = useState(false);
+  /** Bytes já escritos em disco. Vem do `onProgress` — dado, não estimativa. */
+  const [bytes, setBytes] = useState(0);
   const [erro, setErro] = useState<string | null>(null);
   const [pronto, setPronto] = useState<string | null>(null);
 
@@ -120,6 +123,7 @@ export function ExportTabContent({
   const exportar = (): void => {
     setErro(null);
     setPronto(null);
+    setBytes(0);
     setBaixando(true);
     const pedido = {
       database,
@@ -144,7 +148,7 @@ export function ExportTabContent({
       return;
     }
 
-    void baixarBundle(connectionId, pedido)
+    void baixarBundle(connectionId, pedido, ({ bytes: recebidos }) => { setBytes(recebidos); })
       .then(({ filename }) => { setPronto(t("exp.baixado", { nome: filename })); })
       .catch((e: unknown) => {
         // Fechar o seletor de arquivo é decisão, não falha.
@@ -384,6 +388,15 @@ export function ExportTabContent({
       ) : null}
 
       <footer className="space-y-1.5 border-t border-line px-4 py-2.5">
+        {/*
+          O favo só existe enquanto o arquivo desce, e some ao terminar — o
+          resultado final é o nome do arquivo salvo, não a animação. Fica no
+          rodapé, junto do botão que disparou o export, porque é lá que a
+          pessoa está olhando quando clica.
+        */}
+        {baixando && output !== "preview" ? (
+          <FavoDeExport bytes={bytes} className="py-1" />
+        ) : null}
         {erro !== null ? (
           <p role="alert" className="rounded-[4px] border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs text-danger">
             {erro}

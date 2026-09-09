@@ -593,4 +593,7 @@ export const en: Record<ChaveI18n, string> = {
   "exp.previewTitulo": "Preview — first {kb} KB",
   "exp.previewFechar": "Close preview",
   "exp.baixado": "File generated: {nome}",
+  "exp.favoTaxa": "{taxa}/s",
+  "exp.favoEsperando": "waiting for the server…",
+  "exp.favoConcluido": "file saved",
 };
