@@ -2,7 +2,7 @@
 
 Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versionamento [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não lançado]
+## [0.3.1] — 2026-09-08
 
 ### Adicionado
 - **Arrastar a grade para navegar.** Puxar o conteúdo com o botão esquerdo rola
