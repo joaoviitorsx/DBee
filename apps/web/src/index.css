@@ -380,6 +380,29 @@
   100% { transform: translate(-20px, 0); }
 }
 
+/**
+ * O anel que sai da versão quando há atualização.
+ *
+ * **Anel, não ponto.** O `design-system.md` §1.4 já registra a colisão: verde é
+ * conexão viva, e um ponto colorido no cabeçalho ficaria a poucos pixels dos
+ * pontos de saúde da árvore, dizendo outra coisa na mesma forma. O §10 resolveu
+ * um caso idêntico mudando a **forma**, não o matiz — aqui vale o mesmo: um
+ * contorno que expande e some não se confunde com um indicador de estado.
+ *
+ * Dois segundos e meio, com pausa: ciclo curto viraria pisca-pisca no canto do
+ * olho de quem passa o dia na tela. `scale` e `opacity` só, e o bloco de
+ * `prefers-reduced-motion` lá em cima zera tudo.
+ */
+@keyframes dbee-anel {
+  0%       { transform: scale(0.85); opacity: 0.55; }
+  55%      { transform: scale(1.9);  opacity: 0; }
+  100%     { transform: scale(1.9);  opacity: 0; }
+}
+
+@utility animate-anel {
+  animation: dbee-anel 2.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+
 @utility animate-mel {
   animation: dbee-mel 3.2s linear infinite;
 }

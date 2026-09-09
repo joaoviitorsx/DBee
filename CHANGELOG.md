@@ -4,6 +4,17 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.3.0] — 2026-09-08
+
+> **O DBee deixa de ser de uma pessoa só.** Contas individuais com papéis, e
+> permissão por conexão: `admin` administra contas e conexões, `member` alcança
+> só o que lhe foi concedido, e escrever exige as duas pontas — `write_enabled`
+> na conexão **e** `can_write` na concessão. Duas migrations (004 e 005).
+>
+> Traz também um bug de disponibilidade que matava conexão em produção: o export
+> `.sql` de tabela com múltiplo exato de 1000 linhas travava e prendia o lease
+> do pool, deixando uma transação pendurada no banco do cliente.
+
 ### Corrigido
 - **Responsividade: seis defeitos graves, todos com a mesma causa.** O app tinha
   **um** breakpoint, e ele decidia apenas coluna-vs-sobreposição; abaixo disso
@@ -80,6 +91,14 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   requisições, 3,2 s com RTT de 20 ms.
 
 ### Adicionado
+- **A versão no cabeçalho pulsa quando há atualização.** Um anel âmbar que
+  expande e some, e a versão passa de `text-subtle` para `text-accent`.
+  **Anel, e não ponto**: verde é conexão viva neste app, e um ponto colorido no
+  cabeçalho ficaria a poucos pixels dos pontos de saúde da árvore, dizendo
+  outra coisa na mesma forma — a mesma colisão que o §10 já resolveu mudando a
+  forma em vez do matiz. A cor acompanha o movimento porque animação sozinha
+  não chega a quem tem `prefers-reduced-motion` ligado, que é exatamente quem o
+  bloco global do `index.css` zera.
 - **Permissão por conexão (fase 2 do multi-usuário).** A fase 1 entregou contas
   individuais e, com elas, o pior arranjo: auditoria correta e **todo mundo
   enxergando todas as conexões**. Agora `admin` vê tudo (ele as administra) e
