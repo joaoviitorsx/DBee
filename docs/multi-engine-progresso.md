@@ -12,7 +12,7 @@ arqueologia na terceira sessão.
 | fase | o que entrega | estado |
 |---|---|---|
 | 0b — o campo `engine` existe | migration 007, tipo, capacidades, `engine` na API | **concluída** |
-| 0a — fronteira do driver | ~~interface `Driver` antes da 2ª engine~~ | **absorvida na fase 2**, ver nota |
+| 0a — fronteira do driver | `DriverLeitura` + contrato contra 3 engines | **concluída** na fase 2 |
 | 1 — papéis documentados | `docs/papeis-mysql.md`, medido | **concluída** |
 | 2 — MySQL e MariaDB (leitura) | driver, árvore de 3 níveis, sem interruptor de escrita | **em andamento** — tipos, TLS e introspecção prontos |
 | 3 — libSQL | URL + token, read-only por JWT | não começou |
@@ -138,6 +138,10 @@ da documentação dos drivers.
       configuração de sessão terminar.
 - [x] **Cancelamento** (`PoolMysql.cancelarConsulta`) — `KILL QUERY` por conexão
       à parte, funcionando com a credencial restrita.
+- [x] **Fronteira do driver** (`driver/`) — `DriverLeitura`, adaptadores de
+      Postgres e MySQL, e um teste de contrato escrito uma vez que roda contra
+      as três engines. Ele pegou um defeito que todos os testes por engine
+      deixavam passar.
 - [x] **Keyset** (`mysql/keyset.ts`) — a forma canônica com `OR`, que aqui é
       vinte vezes mais rápida e no Postgres é vinte vezes mais lenta. Os NULL
       ficam do outro lado, e `NULLS LAST` não existe.

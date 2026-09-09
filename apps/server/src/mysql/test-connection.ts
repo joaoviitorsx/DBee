@@ -79,7 +79,7 @@ const PRIVILEGIADOS: ReadonlySet<string> = new Set(["FILE", "SUPER"]);
 async function detectarPrivilegio(conexao: mysql.Connection): Promise<ConnectionWarning[]> {
   try {
     const [linhas, campos] = await conexao.query<mysql.RowDataPacket[]>(PRIVILEGIOS_SQL);
-    const texto = linhasDeTexto(linhas, campos as unknown as CampoMysql[]);
+    const texto = linhasDeTexto(linhas as unknown as (Buffer | null)[][], campos as unknown as CampoMysql[]);
     const tem = new Set(
       texto.map((l) => l["p"]).filter((p): p is string => p !== null && p !== undefined),
     );
@@ -147,12 +147,15 @@ export async function testConnectionMysql(
       password: connection.password,
       ...(ssl.ssl === false ? {} : { ssl: ssl.ssl }),
       connectTimeout: 10_000,
-      // O contrato da regra 10, igual ao do resto do driver.
+      // O mesmo contrato do resto do driver: linha em array, célula em bytes.
+      rowsAsArray: true,
       typeCast: (campo) => campo.buffer(),
     });
 
     const [versao, campos] = await conexao.query<mysql.RowDataPacket[]>("SELECT VERSION() AS v");
-    const v = linhasDeTexto(versao, campos as unknown as CampoMysql[])[0]?.["v"] ?? "desconhecida";
+    const v =
+      linhasDeTexto(versao as unknown as (Buffer | null)[][], campos as unknown as CampoMysql[])[0]?.["v"] ??
+      "desconhecida";
     const warnings = await detectarPrivilegio(conexao);
 
     return { ok: true, serverVersion: v, durationMs: decorrido(), warnings };

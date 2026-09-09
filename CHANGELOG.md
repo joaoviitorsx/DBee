@@ -5,6 +5,30 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **A fronteira do driver de leitura**, extraída **depois** de dois drivers
+  existirem — e um teste de contrato único que roda contra as três engines.
+
+  O plano previa extrair esta interface antes da segunda engine. Foi adiada de
+  propósito: a forma certa de uma abstração aparece com o segundo caso, não com
+  o primeiro imaginado. O que está em `DriverLeitura` é o que PostgreSQL e
+  MySQL de fato fazem hoje.
+
+  É só **leitura** porque só a leitura é comum. Exportação, DDL e mutação
+  existem no Postgres e não existem no MySQL desta fase — sem uma segunda
+  credencial por conexão não há modo de escrita para oferecer. Um `Driver` único
+  obrigaria o MySQL a declarar oito métodos que não implementa, cada um uma
+  promessa falsa esperando ser chamada.
+
+  `contrato.integration.test.ts` escreve as asserções **uma vez** e as roda
+  contra PostgreSQL 16, MySQL 8.4 e MariaDB 11 reais. Ele já pagou por si: pegou
+  um defeito que **todos** os testes por engine deixavam passar. As conexões do
+  driver são abertas com `rowsAsArray`, e `linhasDeTexto` indexava a linha por
+  nome — a árvore de MySQL vinha com relações de nome vazio. Cada teste por
+  engine abria a própria conexão sem `rowsAsArray`, então nenhum via o
+  descompasso; só o driver montado como em produção vê. A assinatura agora
+  exige array, e os testes por engine passaram a abrir a conexão como o driver
+  abre.
+
 - **A condição de keyset do MySQL/MariaDB** — que é o **oposto** da do
   Postgres.
 

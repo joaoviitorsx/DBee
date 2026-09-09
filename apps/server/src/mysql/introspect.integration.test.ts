@@ -31,7 +31,10 @@ const restritas = new Map<string, mysql.Connection>();
 const abrir = (porta: number, usuario: string, senha: string): Promise<mysql.Connection> =>
   mysql.createConnection({
     host: "127.0.0.1", port: porta, user: usuario, password: senha, database: "loja",
-    // O mesmo contrato do driver: bytes crus, decisão pelos metadados.
+    // O MESMO contrato do driver de produção. A primeira versão abria sem
+    // `rowsAsArray` e por isso não via o descompasso que o teste de contrato
+    // pegou: a árvore vinha com nomes vazios.
+    rowsAsArray: true,
     typeCast: (campo) => campo.buffer(),
   });
 

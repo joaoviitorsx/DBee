@@ -61,6 +61,15 @@ interface Viva {
 }
 
 interface Grupo {
+  /**
+   * Conexão **e** database.
+   *
+   * A mesma conexão configurada pode ser aberta em vários databases, e a sessão
+   * de cada uma já está apontada para o seu — reusar uma no outro daria a
+   * árvore do database errado. O `evict` continua sendo por conexão: quando ela
+   * muda, todos os databases dela vão junto.
+   */
+  readonly chave: string;
   readonly id: string;
   readonly ociosas: Viva[];
   /** Vivas no total, ociosas ou em uso — o que o teto limita. */
@@ -110,9 +119,9 @@ export class PoolMysql {
     return viva.sabor;
   }
 
-  /** Quantas conexões vivas existem para esta conexão configurada. Para teste. */
-  vivas(id: string): number {
-    return this.#grupos.get(id)?.vivas ?? 0;
+  /** Quantas conexões vivas existem para esta conexão e database. Para teste. */
+  vivas(conexao: ResolvedConnection): number {
+    return this.#grupos.get(PoolMysql.chaveDe(conexao))?.vivas ?? 0;
   }
 
   /**
@@ -124,13 +133,26 @@ export class PoolMysql {
    * quando voltarem, pela verificação de grupo em `#devolver`.
    */
   async evict(id: string): Promise<void> {
-    const grupo = this.#grupos.get(id);
+    // Todos os databases desta conexão, e não só um: o que mudou foi a conexão.
+    const alvos = [...this.#grupos.values()].filter((g) => g.id === id);
+    const fechando: Promise<unknown>[] = [];
+    for (const grupo of alvos) {
+      this.#grupos.delete(grupo.chave);
+      // Quem esperava vaga neste grupo tenta de novo e cai num grupo novo.
+      for (const acordar of grupo.espera.splice(0)) acordar();
+      for (const v of grupo.ociosas.splice(0)) fechando.push(v.conexao.end().catch(() => undefined));
+    }
+    await Promise.all(fechando);
+  }
+
+  /** Fecha tudo de um database específico. */
+  async evictDatabase(conexao: ResolvedConnection): Promise<void> {
+    const chave = PoolMysql.chaveDe(conexao);
+    const grupo = this.#grupos.get(chave);
     if (grupo === undefined) return;
-    this.#grupos.delete(id);
-    // Quem esperava vaga neste grupo tenta de novo e cai num grupo novo.
+    this.#grupos.delete(chave);
     for (const acordar of grupo.espera.splice(0)) acordar();
-    const ociosas = grupo.ociosas.splice(0);
-    await Promise.all(ociosas.map(async (v) => v.conexao.end().catch(() => undefined)));
+    await Promise.all(grupo.ociosas.splice(0).map(async (v) => v.conexao.end().catch(() => undefined)));
   }
 
   /**
@@ -187,15 +209,28 @@ export class PoolMysql {
   }
 
   async shutdown(): Promise<void> {
-    const ids = [...this.#grupos.keys()];
-    await Promise.all(ids.map(async (id) => this.evict(id)));
+    const grupos = [...this.#grupos.values()];
+    this.#grupos.clear();
+    const fechando: Promise<unknown>[] = [];
+    for (const grupo of grupos) {
+      for (const acordar of grupo.espera.splice(0)) acordar();
+      for (const v of grupo.ociosas.splice(0)) fechando.push(v.conexao.end().catch(() => undefined));
+    }
+    await Promise.all(fechando);
   }
 
-  #grupo(id: string): Grupo {
-    const existente = this.#grupos.get(id);
+  static chaveDe(conexao: ResolvedConnection): string {
+    // `\u0000` como separador: não aparece em id nem em nome de database, então
+    // não há como duas conexões diferentes colidirem numa chave só.
+    return `${conexao.id}\u0000${conexao.database}`;
+  }
+
+  #grupo(conexao: ResolvedConnection): Grupo {
+    const chave = PoolMysql.chaveDe(conexao);
+    const existente = this.#grupos.get(chave);
     if (existente !== undefined) return existente;
-    const novo: Grupo = { id, ociosas: [], vivas: 0, espera: [] };
-    this.#grupos.set(id, novo);
+    const novo: Grupo = { chave, id: conexao.id, ociosas: [], vivas: 0, espera: [] };
+    this.#grupos.set(chave, novo);
     return novo;
   }
 
@@ -208,7 +243,7 @@ export class PoolMysql {
     for (;;) {
       // Relê o grupo a cada volta: um `evict` no meio da espera troca o objeto,
       // e continuar com o antigo contaria vagas que não existem mais.
-      const grupo = this.#grupo(conexao.id);
+      const grupo = this.#grupo(conexao);
 
       const ociosa = grupo.ociosas.pop();
       if (ociosa !== undefined) return ociosa;
@@ -232,7 +267,7 @@ export class PoolMysql {
 
   #devolver(viva: Viva): void {
     const { grupo } = viva;
-    if (this.#grupos.get(grupo.id) !== grupo) {
+    if (this.#grupos.get(grupo.chave) !== grupo) {
       // O grupo foi descartado enquanto esta conexão estava em uso: ela não
       // volta ao pool, some.
       grupo.vivas -= 1;
@@ -248,7 +283,7 @@ export class PoolMysql {
     grupo.vivas -= 1;
     await viva.conexao.end().catch(() => undefined);
     // A vaga liberada acorda quem espera, que então abre a sua própria conexão.
-    if (this.#grupos.get(grupo.id) === grupo) this.#acordar(grupo);
+    if (this.#grupos.get(grupo.chave) === grupo) this.#acordar(grupo);
   }
 
   /** Abre e prepara, sem mexer na contabilidade do grupo. */

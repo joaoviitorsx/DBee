@@ -108,19 +108,28 @@ export function paraTexto(bytes: Buffer | null, campo: CampoMysql): string | nul
  * metadados, que só chegam ao lado do resultado. Este é o ponto onde os dois se
  * encontram, e por isso ele é o **único** lugar do driver que sabe da regra.
  *
- * Serve tanto para linha de tabela quanto para consulta de catálogo: o catálogo
- * passa pela mesma conexão e recebe o mesmo `typeCast`, então também chega em
- * bytes.
+ * ## As linhas chegam como ARRAY, não como objeto
+ *
+ * As conexões do driver são abertas com `rowsAsArray: true` — o executor
+ * precisa disso, e a posição é o que casa a célula com o seu metadado. A
+ * primeira versão desta função indexava a linha **por nome**, e funcionava em
+ * todo teste por engine porque cada um abria a própria conexão sem
+ * `rowsAsArray`. Contra o driver de verdade a árvore vinha com relações de nome
+ * vazio: `linha["nome"]` era `undefined` num array.
+ *
+ * Quem pegou foi o teste de contrato, que roda contra o driver montado como em
+ * produção. A assinatura agora exige array, para o mesmo descompasso não voltar
+ * em silêncio.
  */
 export function linhasDeTexto(
-  linhas: readonly Record<string, unknown>[],
+  linhas: readonly (readonly (Buffer | null)[])[],
   campos: readonly CampoMysql[],
 ): Record<string, string | null>[] {
   return linhas.map((linha) => {
     const saida: Record<string, string | null> = {};
-    for (const campo of campos) {
-      saida[campo.name] = paraTexto((linha[campo.name] ?? null) as Buffer | null, campo);
-    }
+    campos.forEach((campo, i) => {
+      saida[campo.name] = paraTexto(linha[i] ?? null, campo);
+    });
     return saida;
   });
 }

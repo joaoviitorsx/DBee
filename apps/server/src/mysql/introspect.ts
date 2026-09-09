@@ -104,13 +104,15 @@ async function consultar(
    * código produz lixo silencioso.
    */
   const [linhas, campos] = await conexao.query<RowDataPacket[]>(sql, parametros);
+  // `rowsAsArray` na conexão do driver: a linha é array e o metadado dá a ordem.
+  const emArray = linhas as unknown as (Buffer | null)[][];
   /*
    * `FieldPacket` do `mysql2` declara `characterSet` e `columnType` como
    * opcionais, e `CampoMysql` os exige — porque sem eles não há como decidir
    * texto ou hexadecimal. O servidor sempre os manda; a conversão está aqui,
    * num ponto só, em vez de espalhada por cada chamador.
    */
-  return linhasDeTexto(linhas, campos as unknown as CampoMysql[]);
+  return linhasDeTexto(emArray, campos as unknown as CampoMysql[]);
 }
 
 export async function listarDatabases(

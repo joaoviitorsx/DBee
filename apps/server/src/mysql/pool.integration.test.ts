@@ -102,7 +102,7 @@ for (const s of SERVIDORES) {
         });
       }
       // Cinco usos, uma conexão só.
-      expect(pool.vivas(c.id)).toBe(1);
+      expect(pool.vivas(c)).toBe(1);
       await pool.shutdown();
     }, 60_000);
 
@@ -115,9 +115,9 @@ for (const s of SERVIDORES) {
       const pool = new PoolMysql(undefined);
       const c = conexao(s.porta);
       await pool.usar(c, () => Promise.resolve({ valor: 1, descartarConexao: false }));
-      expect(pool.vivas(c.id)).toBe(1);
+      expect(pool.vivas(c)).toBe(1);
       await pool.usar(c, () => Promise.resolve({ valor: 2, descartarConexao: true }));
-      expect(pool.vivas(c.id), "descartada, não devolvida").toBe(0);
+      expect(pool.vivas(c), "descartada, não devolvida").toBe(0);
       await pool.shutdown();
     }, 60_000);
 
@@ -130,7 +130,7 @@ for (const s of SERVIDORES) {
         await pool.usar(c, () => Promise.reject(new Error("estourou")));
       } catch (e) { capturado = e; }
       expect((capturado as Error | undefined)?.message).toBe("estourou");
-      expect(pool.vivas(c.id)).toBe(0);
+      expect(pool.vivas(c)).toBe(0);
       await pool.shutdown();
     }, 60_000);
 
@@ -155,7 +155,7 @@ for (const s of SERVIDORES) {
       const resultados = await Promise.all(tarefas);
       expect(resultados.sort((a, b) => a - b)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
       expect(feitas).toHaveLength(10);
-      expect(pool.vivas(c.id)).toBe(0);
+      expect(pool.vivas(c)).toBe(0);
       await pool.shutdown();
     }, 90_000);
 
@@ -332,9 +332,9 @@ for (const s of SERVIDORES) {
       const pool = new PoolMysql(undefined);
       const c = conexao(s.porta);
       await pool.usar(c, () => Promise.resolve({ valor: 0, descartarConexao: false }));
-      expect(pool.vivas(c.id)).toBe(1);
+      expect(pool.vivas(c)).toBe(1);
       await pool.shutdown();
-      expect(pool.vivas(c.id)).toBe(0);
+      expect(pool.vivas(c)).toBe(0);
     }, 60_000);
   });
 }
