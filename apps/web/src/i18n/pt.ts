@@ -128,6 +128,10 @@ export const pt = {
   "redisEdit.vazio": "Sem membros. Adicione o primeiro abaixo.",
   "redisEdit.truncado":
     "Esta coleção é grande e a grade mostrou só uma amostra — os membros acima podem estar incompletos. Adicionar e excluir por nome continuam valendo.",
+  "mongoEdit.titulo": "Editar {campo}",
+  "mongoEdit.truncado": "Este documento é grande e a grade mostrou só uma amostra — os campos abaixo podem estar incompletos.",
+  "mongoEdit.semFolhas": "Sem campos escalares para editar aqui.",
+  "mongoEdit.nota": "Cada alteração grava só aquele campo (dot-notation), preservando o resto do documento e os tipos. A grade recarrega ao fechar.",
   "redisEdit.nota":
     "Cada alteração é aplicada na hora, pela credencial de escrita. A grade recarrega ao fechar.",
   "edit.inserir": "Inserir",

@@ -811,6 +811,7 @@ function TableTabContent({
   const permiteConsulta = capacidadesDe(engineDaAba)?.sqlLivre !== false;
   const exportavel = capacidadesDe(engineDaAba)?.exportar === true;
   const redisEstruturado = engineDaAba === "redis";
+  const mongoDocumento = engineDaAba === "mongodb";
 
   const rel =
     arvore.data?.schemas.find((s) => s.name === schema)?.relations.find((r) => r.name === relation) ??
@@ -904,6 +905,7 @@ function TableTabContent({
           permiteConsulta={permiteConsulta}
           exportavel={exportavel}
           redisEstruturado={redisEstruturado}
+          mongoDocumento={mongoDocumento}
           estimatedRows={rel.estimatedRows}
           writeEnabled={danger}
           colunasSchema={rel.columns}

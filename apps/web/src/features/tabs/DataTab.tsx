@@ -11,6 +11,7 @@ import { Trabalhando, TrabalhandoInline } from "../motion/Trabalhando";
 import { ResultGrid } from "../grid/ResultGrid";
 import { RowEditModal, type Pendente, type PkValor } from "../grid/RowEditModal";
 import { RedisValueModal, type RedisAlvo, type TipoColecao } from "../grid/RedisValueModal";
+import { MongoDocModal, type MongoAlvo } from "../grid/MongoDocModal";
 import { InsertModal } from "../grid/InsertModal";
 import { useT } from "../../i18n";
 
@@ -42,6 +43,7 @@ export function DataTab({
   writeEnabled = false,
   exportavel = true,
   redisEstruturado = false,
+  mongoDocumento = false,
   colunasSchema,
   foreignKeys,
   initialFilters,
@@ -61,6 +63,8 @@ export function DataTab({
   readonly exportavel?: boolean;
   /** É Redis? Liga o editor estruturado da coluna `value` das coleções. */
   readonly redisEstruturado?: boolean;
+  /** É Mongo? Liga o editor de documento aninhado (célula objeto/array). */
+  readonly mongoDocumento?: boolean;
   /** Colunas do schema (com nullable/default), para o formulário de "Nova linha". */
   readonly colunasSchema?: readonly Column[];
   /** FKs da tabela — habilitam o salto de navegação nas células. */
@@ -85,6 +89,7 @@ export function DataTab({
   const [pendente, setPendente] = useState<Pendente | null>(null);
   // Redis: a coluna `value` de uma coleção abre o editor estruturado.
   const [redisAlvo, setRedisAlvo] = useState<RedisAlvo | null>(null);
+  const [mongoAlvo, setMongoAlvo] = useState<MongoAlvo | null>(null);
   const [linhaSel, setLinhaSel] = useState<number | null>(null);
   const [inserindo, setInserindo] = useState(false);
 
@@ -230,15 +235,51 @@ export function DataTab({
     return true;
   };
 
+  /**
+   * Mongo: o duplo clique numa célula cujo valor é objeto/array (JSON) abre o
+   * editor de documento aninhado. Célula escalar não entra aqui — cai no editor
+   * de célula normal (edição de campo de topo). O `_id` nunca é editável.
+   */
+  const abrirEditorMongo = (li: number, col: number): boolean => {
+    if (!mongoDocumento) return false;
+    const coluna = colunas[col]?.name;
+    const linha = linhas[li];
+    if (coluna === undefined || coluna === "_id" || linha === undefined) return false;
+    const cel = linha[col] ?? null;
+    // Só objeto/array (o render do Mongo faz JSON desses). Escalar → edição normal.
+    if (cel === null || !(cel.startsWith("{") || cel.startsWith("["))) return false;
+    const iId = colunas.findIndex((c) => c.name === "_id");
+    const idValue = iId >= 0 ? (linha[iId] ?? "") : "";
+    if (idValue === "") return false;
+    setMongoAlvo({
+      database: target.database,
+      schema: target.schema,
+      collection: target.relation,
+      idColumn: "_id",
+      idValue,
+      campo: coluna,
+      valueJson: cel,
+    });
+    return true;
+  };
+
+  /**
+   * O editor próprio da célula: Redis primeiro, depois Mongo. Só quando a
+   * edição está de fato liberada (`editavel`) — senão o modal abriria numa
+   * conexão só-leitura e o servidor recusaria a gravação.
+   */
+  const abrirEditorCustom = (li: number, col: number): boolean =>
+    editavel && (abrirEditorRedis(li, col) || abrirEditorMongo(li, col));
+
   const abrirEdicao = (li: number, col: number, valor: string): void => {
     const p = pkDaLinha(li);
     const coluna = colunas[col]?.name;
     const linha = linhas[li];
     if (p === null || coluna === undefined || linha === undefined) return;
 
-    // Coleção do Redis tem editor próprio (o grid já o abre no duplo clique);
-    // se cair aqui via Enter do inline, roteia para ele também.
-    if (abrirEditorRedis(li, col)) return;
+    // Editor próprio (Redis/Mongo) tem prioridade; o grid já o abre no duplo
+    // clique, mas se cair aqui via Enter do inline, roteia para ele também.
+    if (abrirEditorCustom(li, col)) return;
 
     setPendente({
       kind: "update",
@@ -437,7 +478,7 @@ export function DataTab({
             onSort={ordenarPor}
             editavel={editavel}
             onEditCell={abrirEdicao}
-            {...(redisEstruturado ? { abrirEditorCustom: abrirEditorRedis } : {})}
+            {...(redisEstruturado || mongoDocumento ? { abrirEditorCustom } : {})}
             fkColunas={fkColunas}
             {...(onOpenTableFiltered !== undefined ? { onSaltoFk: saltarFk } : {})}
             onCellClick={(li) => { setLinhaSel(li); }}
@@ -463,6 +504,14 @@ export function DataTab({
           connectionId={target.connectionId}
           alvo={redisAlvo}
           onClose={() => { setRedisAlvo(null); }}
+        />
+      ) : null}
+
+      {mongoAlvo !== null ? (
+        <MongoDocModal
+          connectionId={target.connectionId}
+          alvo={mongoAlvo}
+          onClose={() => { setMongoAlvo(null); }}
         />
       ) : null}
 

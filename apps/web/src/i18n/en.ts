@@ -128,6 +128,10 @@ export const en: Record<ChaveI18n, string> = {
   "redisEdit.vazio": "No members. Add the first one below.",
   "redisEdit.truncado":
     "This collection is large and the grid showed only a sample — the members above may be incomplete. Adding and deleting by name still work.",
+  "mongoEdit.titulo": "Edit {campo}",
+  "mongoEdit.truncado": "This document is large and the grid showed only a sample — the fields below may be incomplete.",
+  "mongoEdit.semFolhas": "No scalar fields to edit here.",
+  "mongoEdit.nota": "Each change writes only that field (dot-notation), preserving the rest of the document and its types. The grid reloads on close.",
   "redisEdit.nota":
     "Each change is applied immediately, via the write credential. The grid reloads on close.",
   "edit.inserir": "Insert",
