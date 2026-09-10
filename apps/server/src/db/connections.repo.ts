@@ -156,6 +156,23 @@ export class ConnectionsRepository {
   }
 
   /**
+   * Se este ator pode **escrever** nesta conexão.
+   *
+   * `find` já dobra a concessão dentro de `writeEnabled`, e isso basta para a
+   * tela. Não basta para decidir execução nas engines cuja garantia é a
+   * credencial: ali `writeEnabled` é sempre `false` (o interruptor não existe),
+   * então a concessão fica indistinguível da ausência dela.
+   *
+   * Admin escreve em tudo — é o que a migração 005 define. Para `member`, vale
+   * a concessão.
+   */
+  podeEscrever(id: string, ator: Ator): boolean {
+    if (ator.role === "admin") return this.#byId.get(id) !== null;
+    const row = this.#byIdParaUsuario.get(ator.id, id);
+    return row !== null && row.canWrite === 1;
+  }
+
+  /**
    * Conexão com a senha decifrada. Só para abrir conexão no Postgres — nunca
    * serializar o retorno disto numa resposta HTTP.
    *

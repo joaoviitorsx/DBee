@@ -4,6 +4,87 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+### Segurança
+
+Uma auditoria adversarial (`auditor-seguranca`) varreu a fatia multi-engine e
+devolveu onze achados. Todos foram reproduzidos antes de consertar, e cada
+conserto foi provado desligando-o de novo — teste que não falha quando o
+conserto sai não é prova de nada.
+
+- **🔴 Injeção de SQL na grade do MySQL quando o servidor roda com
+  `NO_BACKSLASH_ESCAPES`.** Reproduzido: com esse modo ligado, o filtro
+  `x' OR 1=1 -- ` devolvia as três linhas da tabela, e um valor legítimo como
+  `O'Brien` quebrava com erro de sintaxe. O `mysql2` escapa com barra invertida;
+  nesse modo o servidor lê a barra como literal, e a aspa fecha a string. A
+  sessão agora **desliga `NO_BACKSLASH_ESCAPES` ao abrir**, antes de qualquer
+  outra coisa — a única forma de o cliente e o servidor lerem a mesma string do
+  mesmo jeito. `mysql/injecao.integration.test.ts` sobe um MySQL nesse modo e
+  falha em quatro testes se o conserto sair.
+
+- **🟠 Um `member` sem permissão de escrita executava `INSERT` e `DROP TABLE`
+  numa conexão MySQL.** A garantia ali é a credencial, não a transação, e nada
+  no caminho conferia se aquela pessoa podia escrever. Agora existe portão:
+  `podeEscrever()` no repositório, `credencialGrava` no contrato de driver, e o
+  serviço recusa SQL livre para quem não tem a permissão quando a credencial do
+  banco grava. `services/portao-escrita.integration.test.ts` prova.
+
+- **🟠 A auditoria dizia `read_only: true` para um `DROP TABLE` que executou.**
+  O campo registrava a *intenção*, não o que era verdade. Agora ele diz o que
+  aconteceu: `readOnly && protegida` na execução, e nas linhas ele reflete se a
+  engine protege por transação de fato.
+
+- **🟡 `writeEnabled: true` era aceito e guardado numa conexão MySQL** — campo
+  que não existe naquela engine (atribuição em massa). O `POST` e o `PATCH`
+  agora recusam campo que não pertence à engine, com a lista de campos vinda das
+  capacidades.
+
+- **🟡 Não havia cabeçalho de segurança nenhum**, e o `docs/DBee.md` §7 afirmava
+  um middleware que não existia — documentação afirmando controle inexistente é
+  pior que a ausência dele. Agora existe (`routes/cabecalhos.ts`), com CSP
+  restritiva (`connect-src 'self'` é a peça: transforma "o dado vazou do
+  navegador" em "o navegador recusou o envio"), `nosniff`, `no-referrer`,
+  `X-Frame-Options` e COOP. É `onRequest`, não `onAfterHandle`, porque com este
+  último **o 401 saía sem cabeçalho nenhum** — e o caminho de erro é justamente
+  onde este projeto já vazou uma senha.
+
+- **🟡 A auditoria da grade guardava `$1` e nunca o valor**, então "quem
+  consultou o CPF de fulano" não era respondível. O SQL registrado agora leva os
+  valores num comentário `-- args: [...]`, com aspas e quebras de linha
+  escapadas (a linha do log não pode virar comando ao ser copiada) e truncagem
+  por valor.
+
+- **🟢 O separador de statements era o do Postgres e rodava sobre o SQL do
+  MySQL.** Ele não conhece `\'`, `#`, crase, e acha que comentário de bloco
+  aninha — sete formas de pôr o `;` do lado errado da fronteira, e a que
+  importa põe **dois comandos passando por um**. Agora tem dialeto, e a tela
+  usa o da engine da conexão para o editor e o servidor concordarem sobre onde
+  cada statement começa.
+
+- **🟢 A URL do servidor libSQL chegava ao `fetch` sem passar por nada** —
+  `http://169.254.169.254/` entregaria o serviço de metadado da nuvem
+  renderizado na grade. Diferente do webhook de deploy, aqui **o corpo da
+  resposta é o resultado**. Agora a URL é validada (protocolo, link-local,
+  metadado de nuvem por nome) e o redirecionamento **não é seguido**: sem isso
+  um host permitido responde `302` para o metadado e o `fetch` refaz a
+  requisição lá levando o `Authorization` junto. Faixa privada e tailnet
+  continuam liberadas de propósito — é onde o banco self-hosted vive.
+
+- **🟢 Senha decifrada ficava retida no mapa de execuções no caminho de erro.**
+  O `delete` mudou para `finally`.
+
+- **🟢 `/activity` e `/databases/overview` não recusavam engine sem driver.**
+
+- **🟢 A `definition` do índice do libSQL montava aspas à mão.** Ali é texto de
+  exibição, mas o hábito é o problema: a mesma linha copiada para onde o texto
+  é executado vira injeção por nome de coluna. Agora existe `citar()`, como no
+  MySQL.
+
+Fora do diff, o auditor apontou três coisas que não são código deste repo e
+ficaram registradas: a exposição na rede não é impedida por nada versionado
+(a config do Traefik não está aqui), o comprometimento da VM entrega todas as
+senhas de banco (o `APP_SECRET` está no `docker inspect`) e não há "derrubar
+todas as sessões", e a UI não avisa quando a tailnet cai.
+
 ### Adicionado
 - **libSQL: protocolo, cliente e catálogo** — primeiras peças da fase 3 do
   multi-engine. Ainda não conecta pela interface.

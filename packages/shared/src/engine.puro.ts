@@ -7,6 +7,7 @@
  * schema traria o TypeBox inteiro de volta ao bundle do navegador — 60 kB gzip
  * que já foram removidos uma vez.
  */
+import type { DialetoSql } from "./split";
 import type { Engine } from "./engine";
 
 /**
@@ -71,6 +72,14 @@ export interface Capacidades {
   readonly campos: readonly CampoConexao[];
   /** Porta convencional, para preencher ao escolher a engine. */
   readonly portaPadrao: number | null;
+  /**
+   * Como o SQL desta engine é lido para achar onde cada statement termina.
+   *
+   * Mora aqui, e não numa tabela paralela, porque quem separa statement no
+   * front é a tela — e a tela só conhece a engine da conexão. Uma segunda
+   * tabela seria uma segunda coisa para esquecer de atualizar.
+   */
+  readonly dialeto: DialetoSql;
   readonly sqlLivre: boolean;
   readonly cancelarQuery: boolean;
   readonly diagramaErd: boolean;
@@ -111,6 +120,7 @@ export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capa
       "sslMode", "timezone", "statementTimeoutMs", "writeEnabled",
     ],
     portaPadrao: 5432,
+    dialeto: "postgres",
     sqlLivre: true,
     cancelarQuery: true,
     diagramaErd: true,
@@ -141,6 +151,7 @@ export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capa
       "sslMode", "timezone", "statementTimeoutMs",
     ],
     portaPadrao: 3306,
+    dialeto: "mysql",
     sqlLivre: true,
     cancelarQuery: true,
     diagramaErd: true,
@@ -161,6 +172,7 @@ export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capa
       "sslMode", "timezone", "statementTimeoutMs",
     ],
     portaPadrao: 3306,
+    dialeto: "mysql",
     sqlLivre: true,
     cancelarQuery: true,
     diagramaErd: true,
@@ -183,3 +195,13 @@ export function capacidadesDe(engine: Engine): Capacidades | null {
 /** Se o DBee fala esta engine hoje. */
 export const engineImplementada = (engine: Engine): boolean =>
   ENGINES_IMPLEMENTADAS.includes(engine);
+
+/**
+ * O dialeto de uma engine, com o Postgres como padrão do que ainda não existe.
+ *
+ * O padrão não é palpite: engine não implementada não executa SQL nenhum (o
+ * `exigirPostgres` recusa antes), então o valor só chega ao `splitStatements`
+ * pelo caminho do editor com uma conexão que a tela nem lista. Escolher um
+ * significa escolher o que fazer com texto que ninguém vai executar.
+ */
+export const dialetoDe = (engine: Engine): DialetoSql => capacidadesDe(engine)?.dialeto ?? "postgres";

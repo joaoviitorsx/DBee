@@ -87,7 +87,7 @@ export const connectionsRoutes = (service: ConnectionsService, users: UsersRepos
           const { status: code, body: payload } = USER_FAILURES.admin_required;
           return status(code, payload);
         }
-        const result = service.update(params.id, body);
+        const result = service.update(params.id, body, exigirAtor(sessao));
         if (result.ok) return result.value;
         const { status: code, body: payload } = FAILURES[result.failure];
         return status(code, payload);

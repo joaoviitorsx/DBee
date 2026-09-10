@@ -9,6 +9,7 @@ import type {
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { Drivers } from "../driver/registro";
+import { exigirPostgres } from "./engine.guarda";
 import { listActivity, overviewDatabases } from "../pg/introspect";
 import type { PoolManager } from "../pg/pool";
 import { type ServiceResult, fail, ok } from "./result";
@@ -270,6 +271,15 @@ export class SchemaService {
     }
     if (connection === null) return fail("not_found");
 
+    /*
+     * Só o Postgres tem isto: `pg_stat_activity` e `pg_database_size` não
+     * existem nas outras. Sem a guarda, uma conexão MySQL faria o
+     * `PoolManager` do Postgres discar protocolo de Postgres na 3306, e o
+     * erro seria de handshake — sem relação com a verdade.
+     */
+    const semSuporte = exigirPostgres<never>(connection.engine, "a visão geral dos databases");
+    if (semSuporte !== null) return semSuporte;
+
     try {
       return ok(
         await this.#pools.withReadOnly(connection, connection.database, async (client) => {
@@ -295,6 +305,15 @@ export class SchemaService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
+
+    /*
+     * Só o Postgres tem isto: `pg_stat_activity` e `pg_database_size` não
+     * existem nas outras. Sem a guarda, uma conexão MySQL faria o
+     * `PoolManager` do Postgres discar protocolo de Postgres na 3306, e o
+     * erro seria de handshake — sem relação com a verdade.
+     */
+    const semSuporte = exigirPostgres<never>(connection.engine, "a lista de atividade");
+    if (semSuporte !== null) return semSuporte;
 
     try {
       return ok(

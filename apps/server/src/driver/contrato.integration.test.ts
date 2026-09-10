@@ -58,7 +58,16 @@ const ALVOS: Alvo[] = [
     imagem: "mysql:8.4",
     ambiente: ["-e", `MYSQL_ROOT_PASSWORD=${SENHA}`, "-e", "MYSQL_DATABASE=loja"],
     usuario: "root",
-    pronto: (c) => sh("docker", "exec", c, "mysql", `-p${SENHA}`, "-e", "SELECT 1"),
+    /*
+     * A sonda fala **TCP com o database `loja`**, não o socket com `SELECT 1`.
+     * A entrada do MySQL sobe um servidor temporário só no socket para rodar a
+     * inicialização e só depois reinicia o de verdade: uma sonda por socket
+     * responde "pronto" antes de a porta existir e antes de `loja` existir, e o
+     * seed seguinte falha com "CREATE TABLE falhou" — que foi o que aconteceu.
+     */
+    pronto: (c) =>
+      sh("docker", "exec", c, "mysql", `-p${SENHA}`, "-h", "127.0.0.1", "--protocol=TCP",
+         "loja", "-e", "SELECT 1"),
     semear: [TABELA_SQL, LINHAS_SQL],
   },
   {
@@ -68,7 +77,10 @@ const ALVOS: Alvo[] = [
     imagem: "mariadb:11",
     ambiente: ["-e", `MARIADB_ROOT_PASSWORD=${SENHA}`, "-e", "MARIADB_DATABASE=loja"],
     usuario: "root",
-    pronto: (c) => sh("docker", "exec", c, "mariadb", `-p${SENHA}`, "-e", "SELECT 1"),
+    // Mesma razão do MySQL: TCP e o database de destino, não o socket.
+    pronto: (c) =>
+      sh("docker", "exec", c, "mariadb", `-p${SENHA}`, "-h", "127.0.0.1", "--protocol=TCP",
+         "loja", "-e", "SELECT 1"),
     semear: [TABELA_SQL, LINHAS_SQL],
   },
 ];

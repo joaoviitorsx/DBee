@@ -143,3 +143,51 @@ export function deslocamentoDe(iana: string, agora: Date = new Date()): string {
 export function sqlDeFusoPorDeslocamento(iana: string, agora: Date = new Date()): string {
   return `SET SESSION time_zone = '${deslocamentoDe(iana, agora)}'`;
 }
+
+/**
+ * `NO_BACKSLASH_ESCAPES` desligado na sessão — e por que isso é **segurança**,
+ * não preferência.
+ *
+ * ## O buraco
+ *
+ * O `?` do `mysql2` em `.query()` **não é placeholder de servidor**: é
+ * interpolação no cliente, feita por `SqlString.escape`, que escapa aspa como
+ * `\'`. Essa forma só é válida se o servidor tiver o escape por barra ligado.
+ *
+ * Medido contra `mysql:8.4` iniciado com
+ * `--sql-mode="NO_BACKSLASH_ESCAPES,STRICT_TRANS_TABLES"`, com a sessão do DBee
+ * herdando o modo global:
+ *
+ * | filtro da grade | resultado |
+ * |---|---|
+ * | `Ana` | 1 linha, correta |
+ * | `x' OR 1=1 -- ` | **as 3 linhas da tabela** |
+ * | `O'Brien` | **erro de sintaxe** |
+ *
+ * A barra deixa de escapar, a aspa fecha a string, e o resto do valor vira
+ * comando. Não é escalada de privilégio — quem chega ali já tem o editor de SQL
+ * — mas é a grade **devolvendo linhas que o filtro excluiu**, que é a tela
+ * afirmando um recorte que não é o que está nela. E um nome com apóstrofo, que
+ * é dado comum, quebra a tela.
+ *
+ * ## Por que normalizar, e não trocar de API
+ *
+ * `execute()` usa placeholder de verdade, mas fala o protocolo **binário** — e
+ * o `typeCast` que cumpre a regra 10 (`tipos.ts`) depende do protocolo de
+ * texto, onde número e data chegam em ASCII. Trocar consertaria a injeção e
+ * quebraria a regra 10.
+ *
+ * Normalizar a sessão torna **verdadeira** a premissa do escape do driver, e é
+ * feito no mesmo lugar em que a sessão já é normalizada (limite de tempo e
+ * fuso), antes de a conexão ver a primeira consulta.
+ *
+ * ## O custo, dito em voz alta
+ *
+ * Num servidor com `NO_BACKSLASH_ESCAPES`, a barra invertida é literal dentro
+ * de string. Com o modo removido da sessão, `SELECT 'a\nb'` passa a ser uma
+ * quebra de linha para o DBee e continua sendo duas letras para outro cliente.
+ * É diferença real, e é o preço de o filtro não mentir. O `sql_mode` do
+ * **servidor** não é tocado: só a sessão.
+ */
+export const SQL_SEM_NO_BACKSLASH_ESCAPES =
+  "SET SESSION sql_mode = REPLACE(@@SESSION.sql_mode, 'NO_BACKSLASH_ESCAPES', '')";

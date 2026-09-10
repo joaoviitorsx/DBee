@@ -67,6 +67,18 @@ export interface OpcoesExecucao {
 export interface ResultadoLinhas {
   readonly resposta: RowsResponse;
   readonly sql: string;
+  /**
+   * Os valores ligados aos marcadores do `sql`, na ordem.
+   *
+   * O SQL da grade é parametrizado — é assim que ele não é injetável — e por
+   * isso, sozinho, ele registra `... WHERE "cpf" = $1` e nunca o CPF. A
+   * auditoria que responde "quem consultou o quê" precisa do valor: sem ele o
+   * log diz que alguém filtrou uma coluna, não *o que* a pessoa procurou.
+   *
+   * Já vem em texto porque é assim que ele vai para o log; converter no serviço
+   * exigiria dele conhecer o tipo do valor de cada driver.
+   */
+  readonly parametros: readonly (string | null)[];
 }
 
 export interface ResultadoExecucao {
@@ -117,6 +129,21 @@ export interface DriverLeitura {
 
   /** Executa o SQL do usuário, statement a statement, parando no primeiro erro. */
   executar(conexao: ResolvedConnection, opcoes: OpcoesExecucao): Promise<ResultadoExecucao>;
+
+  /**
+   * A **credencial** desta conexão pode escrever no servidor?
+   *
+   * Só engines cuja garantia é a credencial respondem — nas outras a pergunta
+   * não existe, porque a proteção é a transação e não depende do que a
+   * credencial pode. Por isso é opcional, e não um método que o Postgres
+   * precisaria implementar devolvendo algo sem sentido.
+   *
+   * É o que permite ao serviço distinguir "conexão de leitura" de "conexão que
+   * a tela chama de leitura". Sem isso, uma concessão `canWrite: false` numa
+   * conexão MySQL com credencial gravável não impede nada — medido: um `member`
+   * sem escrita fez `INSERT` e `DROP TABLE`.
+   */
+  credencialGrava?: (conexao: ResolvedConnection) => Promise<boolean>;
 
   /** Cancela a execução identificada pelo token de `aoIniciar`. */
   cancelar(conexao: ResolvedConnection, database: string, token: number): Promise<boolean>;

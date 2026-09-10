@@ -32,7 +32,8 @@ const LIMITE_PADRAO = 100;
 
 interface Plano {
   readonly sql: string;
-  readonly valores: unknown[];
+  /** Texto ou `null` — a regra 10 vale também no caminho de ida. */
+  readonly valores: (string | null)[];
   readonly orderColumn: string | null;
   readonly primaryKey: readonly string[];
   readonly keyset: boolean;
@@ -63,7 +64,7 @@ interface Plano {
  * comparação, o que destruiria o índice e mudaria o resultado que a pessoa vê
  * fora do DBee. A engine manda.
  */
-function condicaoDeFiltro(filtro: RowFilter, valores: unknown[]): string {
+function condicaoDeFiltro(filtro: RowFilter, valores: (string | null)[]): string {
   const c = citar(filtro.column);
   switch (filtro.operator) {
     case "isNull":
@@ -124,7 +125,7 @@ export function planejarLinhas(
       ? false
       : relation.columns.find((c) => c.name === orderColumn)?.nullable !== false;
 
-  const valores: unknown[] = [];
+  const valores: (string | null)[] = [];
   const condicoes: string[] = [];
 
   for (const filtro of request.filters ?? []) {

@@ -76,6 +76,22 @@ const ESCRITA: ReadonlySet<string> = new Set([
 /** Privilégios que alcançam o sistema de arquivos ou a configuração do servidor. */
 const PRIVILEGIADOS: ReadonlySet<string> = new Set(["FILE", "SUPER"]);
 
+/**
+ * Os privilégios de escrita que esta credencial tem, se tiver algum.
+ *
+ * Exportado porque a resposta serve a duas perguntas diferentes: o teste de
+ * conexão a transforma em aviso, e a execução de SQL livre a usa para decidir
+ * se a concessão do usuário significa alguma coisa naquela engine.
+ */
+export async function privilegiosDeEscrita(conexao: mysql.Connection): Promise<string[]> {
+  const [linhas, campos] = await conexao.query<mysql.RowDataPacket[]>(PRIVILEGIOS_SQL);
+  const texto = linhasDeTexto(linhas as unknown as (Buffer | null)[][], campos as unknown as CampoMysql[]);
+  const tem = new Set(
+    texto.map((l) => l["p"]).filter((p): p is string => p !== null && p !== undefined),
+  );
+  return [...tem].filter((p) => ESCRITA.has(p)).sort();
+}
+
 async function detectarPrivilegio(conexao: mysql.Connection): Promise<ConnectionWarning[]> {
   try {
     const [linhas, campos] = await conexao.query<mysql.RowDataPacket[]>(PRIVILEGIOS_SQL);

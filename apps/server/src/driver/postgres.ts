@@ -78,13 +78,14 @@ export class DriverPostgres implements DriverLeitura {
     const inicio = performance.now();
     // Montado antes de executar: se a execução falhar, a auditoria ainda
     // registra o comando que teria rodado.
-    const sql = planRows(relacao, schema, pedido).sql;
+    const plano = planRows(relacao, schema, pedido);
     const parcial = await this.#pools.withReadOnly(conexao, database, async (client) =>
       fetchRows(client, relacao, schema, pedido),
     );
     return {
       resposta: { ...parcial, durationMs: Math.round(performance.now() - inicio) },
-      sql,
+      sql: plano.sql,
+      parametros: plano.valores,
     };
   }
 

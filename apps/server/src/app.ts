@@ -16,6 +16,7 @@ import { auditRoutes } from "./routes/audit";
 import { authRoutes } from "./routes/auth";
 import { connectionsRoutes } from "./routes/connections";
 import { ddlRoutes } from "./routes/ddl";
+import { cabecalhosDeSeguranca } from "./routes/cabecalhos";
 import { errorHandler } from "./routes/errors";
 import { exportRoutes } from "./routes/export";
 import { sessionGuard } from "./routes/guard";
@@ -111,6 +112,9 @@ export function createApp({
       // Antes de qualquer rota: o formato de erro padrão do Elysia ecoa o corpo
       // submetido, senha inclusive.
       .use(errorHandler)
+      // Cabeçalhos de segurança em toda resposta. Vem logo depois do tratamento
+      // de erro para valer inclusive nas respostas de erro.
+      .use(cabecalhosDeSeguranca)
       /*
        * O guard vem **antes de toda rota registrada abaixo**, e a ordem é o
        * mecanismo: hook global do Elysia vale para o que vem depois do `.use()`.

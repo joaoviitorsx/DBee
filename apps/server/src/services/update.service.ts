@@ -2,6 +2,7 @@ import type { VersionStatus } from "@dbee/shared";
 
 import type { SettingsRepository } from "../db/settings.repo";
 import { haNovaVersao, VERSAO_DEV } from "../lib/semver";
+import { ehMetadadoDeNuvem } from "../lib/rede";
 
 /**
  * Aviso de versão nova e disparo da atualização (DBee.md §8).
@@ -104,42 +105,16 @@ export function versaoDoBinario(bruta: string | undefined = VERSAO_COMPILADA): s
   return v === undefined || v === "" ? VERSAO_DEV : v;
 }
 
-/**
- * Endereços de metadado de nuvem, barrados na URL de deploy.
+/*
+ * A lista de endereços barrados e o "por que só estes" mudaram de lugar: agora
+ * moram em `lib/rede.ts`, porque o libSQL virou a segunda saída de rede por URL
+ * configurável e duas cópias da mesma regra é uma que fica para trás.
  *
- * **Isto não é uma defesa completa de SSRF, e não pode fingir ser.**
- *
- * A justificativa original era que "quem está autenticado já consegue apontar
- * uma conexão para qualquer host:porta". **Ela envelheceu**: criar conexão
- * virou de admin na migração 005, e um `member` deixou de ter essa primitiva —
- * mas estas rotas continuaram abertas a qualquer sessão, e viraram a única
- * saída de rede que sobrou para ele. Por isso agora exigem admin (`meta.ts`).
- *
- * O que continua valendo: quem chega aqui é operador, e o que muda em relação
- * ao Postgres é o protocolo. HTTP alcança coisas que o protocolo do Postgres
- * não alcança, e a mais valiosa é o serviço de metadado, que entrega
- * credencial de instância a um GET simples.
- *
- * Faixas privadas continuam liberadas **de propósito**: o Dokploy vive numa
- * rede privada (`dokploy-network`) ou num endereço `100.x` da tailnet, e
- * bloqueá-las mataria o recurso.
- *
- * O que fecha o resto é a resposta ser cega: o corpo do que o webhook devolve
- * nunca chega ao cliente. Sem canal de leitura, o alcance é disparar, não
- * exfiltrar.
+ * O que continua específico daqui: a resposta do webhook é **cega** — o corpo
+ * nunca chega ao cliente — então o alcance de um endereço mal escolhido é
+ * disparar, não exfiltrar. Numa conexão de banco isso não vale, e é por isso
+ * que lá existe também `redirect: "manual"`.
  */
-const HOSTS_BARRADOS: ReadonlySet<string> = new Set([
-  "metadata.google.internal",
-  "metadata.goog",
-]);
-
-function ehLinkLocal(hostname: string): boolean {
-  // 169.254.0.0/16 — inclui o 169.254.169.254 de AWS/Azure/GCP/DO.
-  if (hostname.startsWith("169.254.")) return true;
-  // fe80::/10 e o fd00:ec2::254 da AWS, com ou sem colchetes.
-  const semColchete = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  return semColchete.startsWith("fe80:") || semColchete === "fd00:ec2::254";
-}
 
 /**
  * Valida a URL de deploy antes de guardar. Devolve a forma normalizada.
@@ -160,7 +135,7 @@ export function validarWebhook(bruta: string): string {
   }
 
   const host = url.hostname.toLowerCase();
-  if (HOSTS_BARRADOS.has(host) || ehLinkLocal(host)) {
+  if (ehMetadadoDeNuvem(host)) {
     throw new UpdateError(
       "update_not_configured",
       "esse endereço é um serviço de metadado de nuvem, não um webhook de deploy",

@@ -3,6 +3,7 @@ import mysql, { type Connection } from "mysql2/promise";
 import type { ResolvedConnection } from "../db/connections.repo";
 import { ehRecusa, sslMysqlPara } from "./conexao";
 import {
+  SQL_SEM_NO_BACKSLASH_ESCAPES,
   ehFusoDesconhecido,
   saborDaVersao,
   sqlDeFusoPorDeslocamento,
@@ -319,6 +320,15 @@ export class PoolMysql {
     const [linhas] = await c.query<mysql.RowDataPacket[]>("SELECT VERSION()");
     const bruto = (linhas as unknown as (Buffer | null)[][])[0]?.[0];
     const sabor = saborDaVersao(bruto?.toString("utf8") ?? "");
+
+    /*
+     * Primeiro de todos: o escape do driver depende disso ser verdade.
+     *
+     * Com `NO_BACKSLASH_ESCAPES` no servidor, o `?` do `mysql2` — que é
+     * interpolação no cliente, não placeholder — produz SQL injetável. Medido.
+     * Ver `sessao.ts`.
+     */
+    await c.query(SQL_SEM_NO_BACKSLASH_ESCAPES);
 
     await c.query(sqlDeTimeout(sabor, conexao.statementTimeoutMs));
 

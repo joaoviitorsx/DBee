@@ -15,7 +15,7 @@ import { erroDeConsulta, executarUm } from "../mysql/executor";
 import { introspectarArvore, introspectarCompleto, listarDatabases } from "../mysql/introspect";
 import { PoolMysql } from "../mysql/pool";
 import { lerLinhas, planejarLinhas } from "../mysql/rows";
-import { testConnectionMysql } from "../mysql/test-connection";
+import { privilegiosDeEscrita, testConnectionMysql } from "../mysql/test-connection";
 import type { DriverLeitura, OpcoesExecucao, ResultadoExecucao, ResultadoLinhas } from "./tipos";
 
 /**
@@ -80,9 +80,14 @@ export class DriverMysql implements DriverLeitura {
     const alvo = this.#em(conexao, database);
     // Montado antes de executar, como no Postgres: a auditoria registra o
     // comando mesmo quando a execução falha.
-    const sql = planejarLinhas(relacao, database, pedido).sql;
+    const plano = planejarLinhas(relacao, database, pedido);
     return await this.#pool.usar<ResultadoLinhas>(alvo, async (c) => ({
-      valor: { resposta: await lerLinhas(c, relacao, database, pedido), sql },
+      valor: {
+        resposta: await lerLinhas(c, relacao, database, pedido),
+        sql: plano.sql,
+        // Já são texto ou `null` por construção (regra 10) — nada a converter.
+        parametros: plano.valores,
+      },
       descartarConexao: false,
     }));
   }
@@ -103,7 +108,12 @@ export class DriverMysql implements DriverLeitura {
     }
 
     const alvo = this.#em(conexao, opcoes.database);
-    const statements = splitStatements(opcoes.sql);
+    /*
+     * `"mysql"` não é decoração: a leitura do Postgres não conhece `\'`, `#`
+     * nem crase, e no SQL do MySQL isso põe o `;` no lugar errado — achado #9
+     * da auditoria. `'O\'Brien; DROP ...'` viraria dois statements.
+     */
+    const statements = splitStatements(opcoes.sql, "mysql");
 
     return await this.#pool.usar<ResultadoExecucao>(alvo, async (c) => {
       opcoes.aoIniciar?.(PoolMysql.threadDe(c));
@@ -147,11 +157,36 @@ export class DriverMysql implements DriverLeitura {
     });
   }
 
+  /**
+   * Se a credencial desta conexão pode escrever, com resposta guardada.
+   *
+   * A consulta de privilégios é barata mas não é de graça, e a resposta só muda
+   * quando alguém mexe no `GRANT` do servidor — o que não acontece entre duas
+   * consultas do mesmo usuário. O cache é por conexão configurada e some no
+   * `esquecer`, que é exatamente quando a credencial pode ter mudado.
+   */
+  readonly #credencialGrava = new Map<string, boolean>();
+
+  async credencialGrava(conexao: ResolvedConnection): Promise<boolean> {
+    const guardado = this.#credencialGrava.get(conexao.id);
+    if (guardado !== undefined) return guardado;
+
+    const grava = await this.#pool.usar(conexao, async (c) => ({
+      valor: (await privilegiosDeEscrita(c)).length > 0,
+      descartarConexao: false,
+    }));
+    this.#credencialGrava.set(conexao.id, grava);
+    return grava;
+  }
+
   async cancelar(conexao: ResolvedConnection, database: string, token: number): Promise<boolean> {
     return await this.#pool.cancelarConsulta(this.#em(conexao, database), token);
   }
 
   async esquecer(id: string): Promise<void> {
+    // O cache de privilégio sai junto: `esquecer` é chamado quando a conexão
+    // muda, e a credencial é uma das coisas que podem ter mudado.
+    this.#credencialGrava.delete(id);
     await this.#pool.evict(id);
   }
 

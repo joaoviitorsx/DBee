@@ -6,6 +6,7 @@ import type { ConnectionGrant } from "@dbee/shared";
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { Drivers } from "../driver/registro";
+import { recusarCamposDaOutraEngine } from "./engine.guarda";
 
 import { type ServiceResult, fail, ok } from "./result";
 
@@ -87,11 +88,35 @@ export class ConnectionsService {
    * `default` em schema de entrada), e o repositório resolve o mesmo padrão.
    */
   create(input: CreateConnection): ServiceResult<Connection> {
-    if (!engineImplementada(input.engine ?? "postgres")) return fail("engine_not_implemented");
+    const engine = input.engine ?? "postgres";
+    if (!engineImplementada(engine)) return fail("engine_not_implemented");
+
+    // Campo que a engine não tem é recusado, não guardado: uma conexão que o
+    // carrega aparece na tela afirmando algo que a engine não faz.
+    const intruso = recusarCamposDaOutraEngine<Connection>(engine, input);
+    if (intruso !== null) return intruso;
+
     return ok(this.#repository.create(input));
   }
 
-  update(id: string, patch: UpdateConnection): ServiceResult<Connection> {
+  /**
+   * O `ator` é **obrigatório**, pelo mesmo motivo que ele é obrigatório em
+   * `find` e `resolve`: nenhum caminho de leitura de conexão pode escapar da
+   * verificação de acesso. A primeira versão desta checagem fabricava um ator
+   * admin aqui dentro para poder ler a engine — o que derrota exatamente o
+   * desenho que o repositório documenta.
+   */
+  update(id: string, patch: UpdateConnection, ator: Ator): ServiceResult<Connection> {
+    /*
+     * A engine é imutável (ADR 005), então a de agora é a de sempre — e é ela
+     * que decide quais campos este PATCH pode tocar. Sem isto, a checagem da
+     * criação seria contornável por um PATCH.
+     */
+    const atual = this.#repository.find(id, ator);
+    if (atual === null) return fail("not_found");
+    const intruso = recusarCamposDaOutraEngine<Connection>(atual.engine, patch);
+    if (intruso !== null) return intruso;
+
     const updated = this.#repository.update(id, patch);
     if (updated === null) return fail("not_found");
     this.#onChanged(id);

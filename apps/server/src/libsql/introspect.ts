@@ -12,6 +12,7 @@ import type {
 
 import { arg, executarSql, type AlvoLibsql } from "./cliente";
 import { paraTexto, type ResultadoLibsql } from "./protocolo";
+import { citar } from "./citar";
 
 /**
  * Ler o catálogo de um libSQL.
@@ -240,9 +241,15 @@ export async function introspectarCompleto(
         isUnique: unico,
         // `origin` é `pk` quando o índice é o da chave primária.
         isPrimary: (ix["origin"] ?? "") === "pk",
+        /*
+         * Texto de exibição — o inspetor mostra, ninguém executa. Mesmo assim
+         * passa por `citar()`: um nome com aspas dentro sairia quebrado na
+         * tela, e a interpolação à mão é o hábito que, copiado para onde o
+         * texto é executado, vira injeção (achado #10).
+         */
         definition:
-          `${unico ? "UNIQUE " : ""}INDEX "${nomeIx}"` +
-          (colunas.length === 0 ? "" : ` (${colunas.map((c) => `"${c}"`).join(", ")})`),
+          `${unico ? "UNIQUE " : ""}INDEX ${citar(nomeIx)}` +
+          (colunas.length === 0 ? "" : ` (${colunas.map(citar).join(", ")})`),
       };
     });
 

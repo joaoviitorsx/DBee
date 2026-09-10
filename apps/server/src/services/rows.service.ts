@@ -3,6 +3,8 @@ import type { RowsRequest, RowsResponse } from "@dbee/shared";
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
+import { capacidadesDe } from "@dbee/shared/puro";
+
 import type { Drivers } from "../driver/registro";
 import { RowsError } from "../pg/rows";
 import type { SchemaService } from "./schema.service";
@@ -15,6 +17,47 @@ export interface RowsServiceDeps {
   readonly repository: ConnectionsRepository;
   readonly schema: SchemaService;
   readonly log: QueryLogRepository;
+}
+
+/** Teto por valor no log. Ver `comValores`. */
+const MAX_VALOR_NO_LOG = 200;
+
+/**
+ * O SQL da grade, seguido dos valores que foram ligados a ele.
+ *
+ * ## Por que
+ *
+ * O SQL da grade é parametrizado — é o que o torna não-injetável — e por isso
+ * o `query_log` guardava `... WHERE "cpf" = $1` e nunca o CPF. A auditoria
+ * então respondia "alguém filtrou por CPF" quando a pergunta que ela existe
+ * para responder é **qual** CPF. §2.4 chama a grade de leitura de dado de
+ * cliente; leitura sem o termo procurado é meia auditoria.
+ *
+ * ## Forma
+ *
+ * Vai como comentário no fim (`-- args: [...]`), não interpolado no SQL: o
+ * texto do log não pode virar um comando executável se alguém um dia copiar a
+ * linha e rodar. Cada valor é serializado por `JSON.stringify`, então aspas e
+ * quebra de linha aparecem escapadas e um valor de múltiplas linhas não
+ * quebra a leitura do log.
+ *
+ * `null` sai como `null` e não como `"null"` — no filtro os dois significam
+ * coisas diferentes (`IS NULL` contra o texto "null").
+ *
+ * Valor acima de `MAX_VALOR_NO_LOG` caracteres é truncado com a marca `…(+N)`.
+ * O log é para responder "quem procurou o quê", não para guardar uma cópia do
+ * que foi procurado: um filtro colado com meio megabyte de texto encheria o
+ * SQLite sem acrescentar nada à resposta.
+ */
+export function comValores(sql: string, valores: readonly (string | null)[]): string {
+  if (valores.length === 0) return sql;
+  const partes = valores.map((v) => {
+    if (v === null) return "null";
+    if (v.length <= MAX_VALOR_NO_LOG) return JSON.stringify(v);
+    const sobra = v.length - MAX_VALOR_NO_LOG;
+    return `${JSON.stringify(v.slice(0, MAX_VALOR_NO_LOG))}…(+${sobra})`;
+  });
+  return `${sql}\n-- args: [${partes.join(", ")}]`;
 }
 
 /**
@@ -81,6 +124,7 @@ export class RowsService {
 
     const inicio = performance.now();
     let sqlExecutado = "";
+    let parametros: readonly (string | null)[] = [];
 
     try {
       /*
@@ -90,21 +134,32 @@ export class RowsService {
        * com o comando que teria rodado.
        */
       if (this.#drivers === undefined) return fail("bad_request");
-      const { resposta: parcial, sql } = await this.#drivers
+      const {
+        resposta: parcial,
+        sql,
+        parametros: valores,
+      } = await this.#drivers
         .para(connection.engine)
         .linhas(connection, database, schemaName, relation, request);
       sqlExecutado = sql;
+      parametros = valores;
 
       const durationMs = Math.round(performance.now() - inicio);
       this.#log.record({
         connectionId,
         database,
-        sql: sqlExecutado,
+        sql: comValores(sqlExecutado, parametros),
         status: "ok",
         error: null,
         rowCount: parcial.rows.length,
         durationMs,
-        readOnly: true,
+        /*
+         * A grade é leitura por construção — o SQL é montado aqui, nunca vem do
+         * usuário. Mas "protegida pela transação" é outra coisa: nas engines de
+         * credencial não há transação somente-leitura, e o campo tem que dizer o
+         * que era verdade, não o que era a intenção.
+         */
+        readOnly: capacidadesDe(connection.engine)?.escopoReadOnly === "transacao",
         actor: ator.id,
       });
 
@@ -115,12 +170,21 @@ export class RowsService {
       this.#log.record({
         connectionId,
         database,
-        sql: sqlExecutado === "" ? `${schemaName}.${tableName}` : sqlExecutado,
+        sql:
+          sqlExecutado === ""
+            ? `${schemaName}.${tableName}`
+            : comValores(sqlExecutado, parametros),
         status: "error",
         error: message,
         rowCount: null,
         durationMs: Math.round(performance.now() - inicio),
-        readOnly: true,
+        /*
+         * A grade é leitura por construção — o SQL é montado aqui, nunca vem do
+         * usuário. Mas "protegida pela transação" é outra coisa: nas engines de
+         * credencial não há transação somente-leitura, e o campo tem que dizer o
+         * que era verdade, não o que era a intenção.
+         */
+        readOnly: capacidadesDe(connection.engine)?.escopoReadOnly === "transacao",
         actor: ator.id,
       });
 
