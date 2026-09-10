@@ -98,6 +98,27 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
 
 ### Adicionado
 
+- **SQLite local aceso em leitura — a última engine.** Com ela, as **sete**
+  engines declaradas estão implementadas. Era a fase adiada, por um motivo real:
+  o `bun:sqlite` é síncrono e travaria o processo inteiro num app multiusuário
+  (medido: consulta de 47s, zero tiques num timer de 10ms).
+
+  A saída foi rodar o SQLite **num Worker** — o bloqueio fica na thread do
+  worker, o event loop principal segue livre (provado por teste: uma consulta
+  pesada roda e o timer da thread principal continua tiquetaqueando). Timeout e
+  cancelamento por **terminação do worker**, a única forma de interromper uma
+  chamada nativa síncrona.
+
+  A garantia de leitura é o **handle** (arquivo aberto `readonly`), não um
+  PRAGMA que o SQL possa desligar. O caminho do arquivo é validado contra uma
+  raiz permitida (`DBEE_SQLITE_ROOT`) — travessia de diretório barrada. Campo
+  `filePath` (migração 010); catálogo pelo mesmo `sqlite_master`/`pragma_*` do
+  libSQL. Só leitura no v1.
+
+  Efeito colateral no schema: `host` e `password` viraram opcionais (o SQLite
+  não tem nenhum), com a obrigatoriedade agora **por engine**.
+
+
 - **MongoDB e Redis acesos — leitura e escrita.** As duas últimas engines
   entraram, e com elas todas as seis que o DBee implementa são navegáveis e
   editáveis. A escrita segue o modelo das engines de credencial: segunda

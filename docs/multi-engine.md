@@ -11,7 +11,7 @@ realmente difere, não do que parece diferir.
 | MySQL | 2 | grade | **credencial** (`GRANT SELECT`) | **leitura + escrita** |
 | MariaDB | 2 | grade | **credencial** | **leitura + escrita** |
 | libSQL | 3 | grade | **credencial** (claim `"a":"ro"` do JWT) | **leitura + escrita** |
-| SQLite | adiado | grade | abertura do handle (`readonly: true`) | ver risco do event loop |
+| SQLite | — | grade | abertura do handle (`readonly: true`) | **pronto em leitura (worker)** |
 | MongoDB | 4 | grade de documentos | **credencial** (papel `read`/`readWrite`) | **leitura + escrita** |
 | Redis | 5 | grade de chaves (6 tipos de valor) | **credencial** (ACL `+@read`) | **leitura + escrita** |
 
