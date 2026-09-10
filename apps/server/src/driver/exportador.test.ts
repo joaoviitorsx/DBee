@@ -3,11 +3,12 @@ import { describe, expect, it } from "bun:test";
 import {
   citarIdent,
   exportarEmStream,
+  type AoFinalizarExport,
   type PaginaExport,
   type PlanoExportDriver,
 } from "./exportador";
 
-/** Drena o stream para texto, ignorando o BOM do CSV para comparar conteúdo. */
+/** Drena o stream para texto. */
 async function drenar(stream: ReadableStream<Uint8Array>): Promise<string> {
   const leitor = stream.getReader();
   const partes: Uint8Array[] = [];
@@ -22,11 +23,10 @@ async function drenar(stream: ReadableStream<Uint8Array>): Promise<string> {
 /** Produtor de páginas a partir de uma lista fixa (uma página por elemento). */
 function produtorDe(paginas: PaginaExport[]): () => Promise<PaginaExport | null> {
   let i = 0;
-  return async () => {
-    if (i >= paginas.length) return null;
-    return paginas[i++] ?? null;
-  };
+  return () => Promise.resolve(i >= paginas.length ? null : (paginas[i++] ?? null));
 }
+
+const ignorar: AoFinalizarExport = () => undefined;
 
 function planoBase(over: Partial<PlanoExportDriver>): PlanoExportDriver {
   return {
@@ -58,24 +58,23 @@ describe("exportarEmStream — formatos", () => {
   };
 
   it("CSV com header e BOM, NULL vira campo vazio", async () => {
-    let resumo: { rows: number } | null = null;
+    const resumos: { rows: number }[] = [];
     const { stream } = exportarEmStream(
       planoBase({ format: "csv", proximaPagina: produtorDe([pagina]) }),
-      (r) => { resumo = r; },
+      (r) => { resumos.push(r); },
     );
     const texto = await drenar(stream);
     expect(texto.startsWith("﻿")).toBe(true);
     expect(texto).toContain("id;nome\r\n");
     expect(texto).toContain("1;ana\r\n");
     expect(texto).toContain("2;\r\n");
-    expect(resumo).not.toBeNull();
-    expect(resumo!.rows).toBe(2);
+    expect(resumos[0]?.rows).toBe(2);
   });
 
   it("JSON vira um array de objetos", async () => {
     const { stream } = exportarEmStream(
       planoBase({ format: "json", proximaPagina: produtorDe([pagina]) }),
-      () => {},
+      ignorar,
     );
     const texto = await drenar(stream);
     expect(JSON.parse(texto)).toEqual([
@@ -87,18 +86,18 @@ describe("exportarEmStream — formatos", () => {
   it("NDJSON: um objeto por linha", async () => {
     const { stream } = exportarEmStream(
       planoBase({ format: "ndjson", proximaPagina: produtorDe([pagina]) }),
-      () => {},
+      ignorar,
     );
     const texto = await drenar(stream);
     const linhas = texto.trimEnd().split("\n");
     expect(linhas).toHaveLength(2);
-    expect(JSON.parse(linhas[0]!)).toEqual({ id: "1", nome: "ana" });
+    expect(JSON.parse(linhas[0] ?? "")).toEqual({ id: "1", nome: "ana" });
   });
 
   it("JSON vazio fecha como []", async () => {
     const { stream } = exportarEmStream(
       planoBase({ format: "json", proximaPagina: produtorDe([]) }),
-      () => {},
+      ignorar,
     );
     expect(await drenar(stream)).toBe("[]");
   });
@@ -112,7 +111,7 @@ describe("exportarEmStream — formatos", () => {
         sqlPrelude: "CREATE TABLE `t` (...);\n",
         proximaPagina: produtorDe([pagina]),
       }),
-      () => {},
+      ignorar,
     );
     const texto = await drenar(mysql.stream);
     expect(texto).toContain("CREATE TABLE `t`");
@@ -128,7 +127,7 @@ describe("exportarEmStream — formatos", () => {
         sqlTabela: "`t`",
         proximaPagina: produtorDe([{ columns: ["c"], rows: [["a\\nb"]] }]),
       }),
-      () => {},
+      ignorar,
     );
     const texto = await drenar(stream);
     // A contrabarra literal sai dobrada — senão o MySQL a leria como escape.
@@ -136,15 +135,21 @@ describe("exportarEmStream — formatos", () => {
   });
 
   it("propaga erro do produtor ao onDone e ao consumidor", async () => {
-    let erroVisto: string | null = null;
+    const erros: (string | null)[] = [];
     const { stream } = exportarEmStream(
       planoBase({
         format: "csv",
-        proximaPagina: async () => { throw new Error("falha no driver"); },
+        proximaPagina: () => Promise.reject(new Error("falha no driver")),
       }),
-      (_r, erro) => { erroVisto = erro; },
+      (_r, erro) => { erros.push(erro); },
     );
-    await expect(drenar(stream)).rejects.toThrow("falha no driver");
-    expect(erroVisto).toBe("falha no driver");
+    let pego: unknown;
+    try {
+      await drenar(stream);
+    } catch (e: unknown) {
+      pego = e;
+    }
+    expect(pego).toBeInstanceOf(Error);
+    expect(erros[0]).toBe("falha no driver");
   });
 });

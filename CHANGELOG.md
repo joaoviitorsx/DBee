@@ -96,6 +96,22 @@ ficaram registradas: a exposição na rede não é impedida por nada versionado
 senhas de banco (o `APP_SECRET` está no `docker inspect`) e não há "derrubar
 todas as sessões", e a UI não avisa quando a tailnet cai.
 
+### Mudado
+
+- **Autocomplete do editor SQL segue a engine da conexão e prioriza o que é do
+  banco.** O editor fixava o dialeto `PostgreSQL` para todas as engines: um
+  usuário de MySQL via `AUTO_INCREMENT`/`LIMIT … OFFSET` sumir da lista e a
+  crase não ser reconhecida como identificador — sugeria e destacava uma
+  sintaxe que não é a do banco conectado. Agora o dialeto do CodeMirror
+  acompanha o `dialeto` da conexão (MySQL para MySQL/MariaDB, SQLite para
+  SQLite/libSQL, PostgreSQL para Postgres), trocado no mesmo compartimento de
+  linguagem quando a aba muda de engine — sem remontar o editor.
+
+  E as sugestões do próprio banco ganham relevância: tabela, coluna e,
+  liderando, a chave primária passam à frente das palavras-chave genéricas de
+  mesmo prefixo (`boost`). Digitar `use` mostra a tabela `users` antes do `USER`
+  do dialeto; digitar `stat` mostra a coluna `status` primeiro.
+
 ### Adicionado
 
 - **Exportação nas engines SQL não-Postgres (MySQL, MariaDB, libSQL, SQLite).**

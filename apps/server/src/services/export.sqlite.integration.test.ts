@@ -28,7 +28,7 @@ let raiz: string;
 let drivers: Drivers;
 let service: ExportService;
 
-const ATOR: Ator = { id: "u1", role: "owner" };
+const ATOR: Ator = { id: "u1", role: "admin" };
 
 const conexao: ResolvedConnection = {
   id: "sq1", name: "sqlite", color: null, engine: "sqlite",
@@ -88,7 +88,7 @@ function pedido(over: Partial<ExportRequest>): ExportRequest {
     source: { kind: "table", schema: "loja.db", table: "produto" },
     format: "csv",
     ...over,
-  } as ExportRequest;
+  };
 }
 
 describe("ExportService — SQLite (caminho do driver)", () => {
@@ -97,7 +97,7 @@ describe("ExportService — SQLite (caminho do driver)", () => {
     expect(r.ok, JSON.stringify(r)).toBe(true);
     if (!r.ok) return;
     const texto = await drenar(r.value.stream);
-    const linhas = texto.replace(/^﻿/, "").trimEnd().split("\r\n");
+    const linhas = texto.replace(/^\uFEFF/, "").trimEnd().split("\r\n");
     // 1 cabeçalho + 2.500 dados.
     expect(linhas).toHaveLength(2501);
     expect(linhas[0]).toBe("id;nome;preco");
@@ -109,7 +109,7 @@ describe("ExportService — SQLite (caminho do driver)", () => {
     const r = await service.export("sq1", pedido({ format: "csv", maxRows: 10 }), ATOR);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const linhas = (await drenar(r.value.stream)).replace(/^﻿/, "").trimEnd().split("\r\n");
+    const linhas = (await drenar(r.value.stream)).replace(/^\uFEFF/, "").trimEnd().split("\r\n");
     expect(linhas).toHaveLength(11); // cabeçalho + 10
   });
 
@@ -129,7 +129,7 @@ describe("ExportService — SQLite (caminho do driver)", () => {
   it("SQL recusa a origem consulta (sem tabela de destino)", async () => {
     const r = await service.export(
       "sq1",
-      { source: { kind: "query", sql: "SELECT 1" }, format: "sql" } as ExportRequest,
+      { source: { kind: "query", sql: "SELECT 1" }, format: "sql" },
       ATOR,
     );
     expect(r.ok).toBe(false);
@@ -142,7 +142,7 @@ describe("ExportService — SQLite (caminho do driver)", () => {
       {
         source: { kind: "query", sql: "SELECT id, nome FROM produto ORDER BY id LIMIT 3" },
         format: "json",
-      } as ExportRequest,
+      },
       ATOR,
     );
     expect(r.ok).toBe(true);

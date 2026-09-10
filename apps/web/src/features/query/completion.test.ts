@@ -75,6 +75,24 @@ describe("namespace de autocomplete", () => {
     expect(cols.find((c) => c.label === "nome")?.detail).toBe("text");
   });
 
+  it("dá ganho de relevância às coisas do banco (PK > coluna > tabela > palavra-chave)", () => {
+    const { schema: ns } = construirCompletion(
+      schema([{
+        name: "public",
+        relations: [relacao("users", "table", [coluna("id", "bigint", true), coluna("nome", "text")])],
+      }]),
+    );
+    const raiz = ns as Record<
+      string,
+      { self?: { boost?: number }; children?: readonly { label: string; boost?: number }[] }
+    >;
+    // A tabela, no topo, pesa mais que palavra-chave (boost 0), menos que coluna.
+    expect(raiz["users"]?.self?.boost).toBe(1);
+    const cols = raiz["users"]?.children ?? [];
+    expect(cols.find((c) => c.label === "id")?.boost).toBe(3); // PK lidera
+    expect(cols.find((c) => c.label === "nome")?.boost).toBe(2);
+  });
+
   it("nome de tabela igual em schemas diferentes: o topo pega uma, as duas ficam qualificadas", () => {
     // O caso que o usuário citou: tabelas parecidas não podem sumir.
     const { schema: ns } = construirCompletion(
