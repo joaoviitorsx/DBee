@@ -203,7 +203,10 @@ describe.if(temDocker)("criar tabela", () => {
       .get();
     expect(linha?.status).toBe("error");
     expect(linha?.sql).toContain("nao_deve_existir");
-    expect(linha?.error).toContain("write_enabled");
+    // O portão unificado (mutação + DDL) registra a recusa por `write_forbidden`
+    // com o motivo; era "write_enabled desligado" antes de o DDL adotar o mesmo
+    // portão da edição de linha.
+    expect(linha?.error).toContain("write_forbidden");
   });
 
   it("erro do Postgres chega inteiro à resposta", async () => {
