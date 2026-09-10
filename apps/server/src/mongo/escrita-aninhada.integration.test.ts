@@ -149,6 +149,7 @@ describe.skipIf(pular)("edição de campo aninhado no MongoDB", () => {
     { nome: "__proto__ (campo desconhecido no catálogo)", column: "__proto__" },
     { nome: "endereco.pais (campo aninhado nunca amostrado)", column: "endereco.pais" },
     { nome: "endereco. cidade (espaço no segmento)", column: "endereco. cidade" },
+    { nome: "tags.99999999999 (índice de array absurdo)", column: "tags.99999999999" },
   ];
 
   for (const inj of injecoes) {

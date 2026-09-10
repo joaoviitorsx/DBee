@@ -78,6 +78,9 @@ function exigirCampo(nome: string, tipos: ReadonlyMap<string, string>): void {
   }
 }
 
+/** Teto do índice de array num path aninhado — defesa contra preenchimento com nulls. */
+const MAX_INDICE_ARRAY = 10_000;
+
 /**
  * Valida um path de campo — de topo (`preco`) ou aninhado (`endereco.cidade`) —
  * antes de ele virar chave de filtro ou de `$set`.
@@ -132,7 +135,16 @@ function exigirPath(
       return;
     }
     // Demais: campo aninhado conhecido, ou índice de array (dígitos).
-    if (/^\d+$/.test(seg)) return;
+    if (/^\d+$/.test(seg)) {
+      // Teto no índice: `$set: {"tags.99999999999": v}` faria o Mongo tentar
+      // preencher o array com nulls até ali. Quem chega aqui já tem concessão de
+      // escrita (o dano não excede o papel), mas um índice enorme é sempre erro
+      // de digitação ou abuso — defesa em profundidade, não promessa de schema.
+      if (Number(seg) > MAX_INDICE_ARRAY) {
+        throw new MutacaoError(`índice de array grande demais em "${path}" (máx. ${String(MAX_INDICE_ARRAY)})`);
+      }
+      return;
+    }
     if (!aninhados.has(seg)) {
       throw new MutacaoError(`o campo "${seg}" (em "${path}") não aparece nesta coleção`);
     }
