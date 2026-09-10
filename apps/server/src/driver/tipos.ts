@@ -3,6 +3,7 @@ import type {
   DatabaseSchema,
   DatabaseTree,
   Relation,
+  RedisValueEditRequest,
   RowDeleteRequest,
   RowInsertRequest,
   RowMutationResult,
@@ -94,7 +95,13 @@ export interface ResultadoExecucao {
 export type MutacaoLinha =
   | { readonly tipo: "update"; readonly req: RowUpdateRequest }
   | { readonly tipo: "delete"; readonly req: RowDeleteRequest }
-  | { readonly tipo: "insert"; readonly req: RowInsertRequest };
+  | { readonly tipo: "insert"; readonly req: RowInsertRequest }
+  /**
+   * Edição **estruturada** de uma coleção do Redis (hash/list/set/zset) — mexe
+   * num membro, não numa linha. Só o driver de Redis a aplica; os outros
+   * recusam. Roteia pelo mesmo portão de escrita das demais (`#viaDriver`).
+   */
+  | { readonly tipo: "redis-valor"; readonly req: RedisValueEditRequest };
 
 export interface DriverLeitura {
   readonly engine: Engine;

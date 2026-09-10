@@ -2,6 +2,7 @@ import {
   construirDelete,
   construirInsert,
   construirUpdate,
+  type RedisValueEditRequest,
   type RowDeleteRequest,
   type RowInsertRequest,
   type RowMutationResult,
@@ -381,6 +382,39 @@ export class MutationService {
       this.#registrar(connectionId, database, `-- ${mut.tipo}`, "error", message, null, inicio, ator);
       return mutFail("upstream_error", message);
     }
+  }
+
+  /**
+   * Edição estruturada de uma coleção do Redis (hash/list/set/zset).
+   *
+   * Passa pelo **mesmo portão** de escrita das outras edições (`#viaDriver`):
+   * credencial de escrita presente + concessão do ator, auditoria, e o
+   * `rowCount: 0` das ops guardadas vira `row_changed`. Só o Redis a aceita — a
+   * guarda de engine recusa qualquer outra antes de rotear.
+   */
+  async editarValorRedis(
+    connectionId: string,
+    request: RedisValueEditRequest,
+    ator: Ator,
+  ): Promise<MutationResult<RowMutationResult>> {
+    let connection;
+    try {
+      connection = this.#repository.resolve(connectionId, ator);
+    } catch {
+      return mutFail("decryption_failed");
+    }
+    if (connection === null) return mutFail("not_found");
+    if (connection.engine !== "redis") {
+      return mutFail("write_forbidden", "a edição estruturada de coleção só existe no Redis");
+    }
+
+    const r = await this.#viaDriver(connectionId, request.database, ator, {
+      tipo: "redis-valor",
+      req: request,
+    });
+    // `#viaDriver` só devolve `null` para engine sem `mutarLinha`; o Redis a tem,
+    // então o caminho é sempre não-nulo aqui.
+    return r ?? mutFail("upstream_error", "driver do Redis indisponível");
   }
 
   #registrar(

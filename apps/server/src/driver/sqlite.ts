@@ -17,6 +17,7 @@ import {
 } from "../sqlite/introspect";
 import { executar as executarSqlite, lerLinhas } from "../sqlite/rows";
 import { atualizar, excluir, inserir } from "../sqlite/mutacao";
+import { MutacaoError } from "./erros";
 import type {
   DriverLeitura,
   MutacaoLinha,
@@ -124,6 +125,8 @@ export class DriverSqlite implements DriverLeitura {
         return await excluir(this.#gerente, conexao, mut.req);
       case "insert":
         return await inserir(this.#gerente, conexao, mut.req);
+      case "redis-valor":
+        throw new MutacaoError("a edição estruturada de coleção só existe no Redis");
     }
   }
 

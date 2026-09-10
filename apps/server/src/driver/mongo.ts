@@ -18,6 +18,7 @@ import {
 } from "../mongo/introspect";
 import { lerLinhas, planejarLinhas } from "../mongo/rows";
 import { atualizar, excluir, inserir } from "../mongo/mutacao";
+import { MutacaoError } from "./erros";
 import { testConnectionMongo } from "../mongo/test-connection";
 import type {
   DriverLeitura,
@@ -115,6 +116,11 @@ export class DriverMongo implements DriverLeitura {
    * credencial de escrita presente e o ator concedido.
    */
   async mutarLinha(conexao: ResolvedConnection, mut: MutacaoLinha): Promise<RowMutationResult> {
+    // A edição estruturada é só do Redis; aqui ela não tem forma (não há `table`
+    // nem membro de coleção). Recusa antes de tocar no cliente.
+    if (mut.tipo === "redis-valor") {
+      throw new MutacaoError("a edição estruturada de coleção só existe no Redis");
+    }
     const cliente = await this.#clientes.escrita(conexao);
     const db = this.#db(conexao, mut.req.database);
     const colecao = mut.req.table;

@@ -18,6 +18,7 @@ import {
 } from "../redis/introspect";
 import { lerLinhas, planejarLinhas } from "../redis/rows";
 import { atualizar, excluir, inserir } from "../redis/mutacao";
+import { editarValor } from "../redis/valor";
 import { testConnectionRedis } from "../redis/test-connection";
 import type {
   DriverLeitura,
@@ -120,6 +121,8 @@ export class DriverRedis implements DriverLeitura {
         return await excluir(cliente, mut.req);
       case "insert":
         return await inserir(cliente, mut.req);
+      case "redis-valor":
+        return await editarValor(cliente, mut.req);
     }
   }
 
