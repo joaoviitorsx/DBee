@@ -98,6 +98,34 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
 
 ### Adicionado
 
+- **Escrita nas engines de credencial (MySQL, MariaDB, libSQL), por uma segunda
+  credencial.** Essas engines não têm transação somente-leitura que resista, e
+  até aqui eram só leitura. A escrita entrou sem afrouxar a garantia: uma
+  **credencial de escrita opcional**, separada da de leitura. A leitura segue
+  com a de sempre; a escrita só acontece com a segunda credencial presente, o
+  ator concedido, e o pedido explícito (`readOnly: false`) — as três coisas, ou
+  a escrita é recusada com mensagem clara. É "nada muda por acidente" trazido
+  para as engines de credencial.
+
+  - **Migração 008**, aditiva (`write_username`, `write_password_enc`, nulas;
+    EXPECTED_SCHEMA 7 → 8). A credencial de escrita cifra com AAD distinto do da
+    leitura (`v2:<id>#write`) — sem isso, quem tem escrita no volume trocaria a
+    senha de leitura pela coluna de escrita dentro da mesma linha.
+  - **No MySQL/MariaDB** a credencial de escrita é usuário + senha; **no libSQL**
+    é só o token gravável (sem o claim `"a":"ro"`). O pool do MySQL passou a
+    chavear por `username`, então leitura e escrita nunca compartilham conexão.
+  - **`writeEnabled` efetivo unificado**: "este usuário pode gravar aqui?" virou
+    um campo só nas duas famílias de engine, dobrado pela concessão. O selo de
+    escrita e o interruptor da consulta valem para as quatro engines sem mudar
+    uma linha neles.
+  - **A credencial nunca sai** (como a senha): só `hasWriteCredential` viaja. O
+    formulário ganhou a seção "Credencial de escrita (opcional)".
+
+  Provado ponta a ponta contra MySQL real e por testes de integração: admin
+  grava pela credencial de escrita; leitura não a usa; member sem concessão é
+  barrado mesmo com a credencial presente; member com concessão grava.
+
+
 - **libSQL aceso em leitura — fase 3 do multi-engine fechada.** Criar conexão,
   navegar a árvore, abrir o catálogo, ler a grade e executar SQL, contra um
   `sqld` de verdade. O teste de contrato de driver agora roda as mesmas

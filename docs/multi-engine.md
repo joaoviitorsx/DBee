@@ -8,9 +8,9 @@ realmente difere, não do que parece diferir.
 | engine | fase | vista | onde mora a garantia de somente-leitura | estado |
 |---|---|---|---|---|
 | PostgreSQL | — | grade | **transação** (`BEGIN READ ONLY`) | **pronto** |
-| MySQL | 2 | grade | **credencial** (`GRANT SELECT`) | **pronto em leitura** |
-| MariaDB | 2 | grade | **credencial** | **pronto em leitura** |
-| libSQL | 3 | grade | **credencial** (claim `"a":"ro"` do JWT) | **pronto em leitura** |
+| MySQL | 2 | grade | **credencial** (`GRANT SELECT`) | **leitura + escrita** |
+| MariaDB | 2 | grade | **credencial** | **leitura + escrita** |
+| libSQL | 3 | grade | **credencial** (claim `"a":"ro"` do JWT) | **leitura + escrita** |
 | SQLite | adiado | grade | abertura do handle (`readonly: true`) | ver risco do event loop |
 | MongoDB | 4 | árvore de documentos | **credencial** (papel `read`) | descrito, não agendado |
 | Redis | 5 | par chave/valor (6 tipos) | **credencial** (ACL `+@read`) | descrito, não agendado |
@@ -448,6 +448,37 @@ inteiro não responde a mais ninguém. Não há timeout de statement nem
 cancelamento. Num app self-hosted multiusuário isso é negação de serviço
 acionável por um `SELECT` malfeito. Entra quando houver resposta para isso —
 provavelmente rodar o SQLite fora do processo principal.
+
+### A escrita nas engines de credencial: a segunda credencial
+
+As engines de credencial não têm transação somente-leitura que resista (medido,
+§1). Até aqui isso significava "só leitura". A escrita entrou por uma **segunda
+credencial, gravável, opcional** — não por afrouxar a garantia.
+
+A promessa central do DBee é a do Postgres via `BEGIN READ ONLY`: nada muda por
+acidente. A segunda credencial a mantém nas engines de credencial:
+
+- **A leitura usa a credencial de sempre.** Uma conexão sem credencial de
+  escrita é somente-leitura, como antes.
+- **A escrita usa a segunda credencial, e só quando pedida** (`readOnly:
+  false`) e concedida. No MySQL/MariaDB é um usuário `GRANT INSERT,UPDATE,…`;
+  no libSQL, um token sem o claim `"a":"ro"`.
+- **Duas trancas**: a credencial de escrita tem que existir na conexão **e** o
+  ator tem que ter concessão. Faltando qualquer uma, o pedido de escrita é
+  **recusado com mensagem clara**, não rebaixado a leitura.
+
+Decisões que a implementação fixou:
+
+- **Migração 008**, aditiva: `write_username` + `write_password_enc`, nulas.
+  A credencial de escrita cifra com AAD **distinto** (`v2:<id>#write`), senão
+  quem tem escrita no volume trocaria a senha de leitura pela coluna de escrita
+  dentro da mesma linha (ADR 005, um nível mais fino).
+- **O pool do MySQL chaveia por `username`**: leitura e escrita nascem em grupos
+  distintos, e uma tarefa de leitura nunca recebe a conexão gravável.
+- **`writeEnabled` efetivo unificado**: "pode gravar aqui?" virou um campo só —
+  `write_enabled` no Postgres, `hasWriteCredential` nas de credencial, dobrado
+  pela concessão. O selo de escrita e o interruptor da consulta valem para as
+  quatro engines sem mudança de código neles.
 
 **Fase 4 — MongoDB.** É aqui que a UI deixa de ser reaproveitada:
 
