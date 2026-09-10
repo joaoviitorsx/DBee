@@ -1,6 +1,7 @@
 import { engineImplementada, type Engine } from "@dbee/shared/puro";
 
 import type { PoolManager } from "../pg/pool";
+import { DriverLibsql } from "./libsql";
 import { DriverMysql } from "./mysql";
 import { DriverPostgres } from "./postgres";
 import type { DriverLeitura } from "./tipos";
@@ -33,6 +34,14 @@ export class Drivers {
      */
     this.#porEngine.set("mysql", mysql);
     this.#porEngine.set("mariadb", mysql);
+    /*
+     * O libSQL não recebe `caCert`: quem valida a cadeia é o `fetch` do Bun, e
+     * ele usa o repositório de CAs do sistema. Passar a CA daqui exigiria
+     * montar um agente HTTP próprio, e o ADR 003 pede que cada modo signifique
+     * o que promete — um agente mal montado é como `require` vira "criptografa
+     * sem validar" por acidente.
+     */
+    this.#porEngine.set("libsql", new DriverLibsql());
   }
 
   /**

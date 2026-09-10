@@ -20,6 +20,28 @@ import type { Engine } from "./engine";
 export type { Engine };
 
 /**
+ * Todas as engines declaradas, na ordem do schema.
+ *
+ * **Nasce aqui, e `engine.ts` a consome** — não o contrário. Reexportar um
+ * valor de `engine.ts` traria a Elysia inteira para o bundle do navegador, que
+ * é exatamente o que este arquivo existe para evitar (ver `puro.ts`: 79,8 kB
+ * gzip contra 0,48).
+ *
+ * Existe para um teste poder perguntar "e as que **não** estão implementadas?"
+ * sem manter uma segunda cópia da lista — cópia que já ficou para trás uma vez,
+ * quando o MySQL acendeu e o teste continuou verde afirmando o contrário.
+ */
+export const ENGINES: readonly Engine[] = [
+  "postgres",
+  "mysql",
+  "mariadb",
+  "sqlite",
+  "libsql",
+  "mongodb",
+  "redis",
+];
+
+/**
  * As que o DBee de fato fala hoje. O resto está declarado, não implementado.
  *
  * MySQL e MariaDB entraram **em leitura**: navegar a árvore e executar
@@ -28,7 +50,7 @@ export type { Engine };
  * de escrita ali mora na credencial, e sem uma segunda credencial por conexão
  * não há modo de escrita para oferecer (`docs/papeis-mysql.md`).
  */
-export const ENGINES_IMPLEMENTADAS: readonly Engine[] = ["postgres", "mysql", "mariadb"];
+export const ENGINES_IMPLEMENTADAS: readonly Engine[] = ["postgres", "mysql", "mariadb", "libsql"];
 
 /**
  * Onde mora a garantia de que uma leitura não vira escrita.
@@ -110,7 +132,9 @@ export type CampoConexao =
  * fase que as implementar — declarar capacidade de engine que não existe seria
  * a tabela afirmando o que o app não faz.
  */
-export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capacidades>> = {
+export const CAPACIDADES: Readonly<
+  Record<"postgres" | "mysql" | "mariadb" | "libsql", Capacidades>
+> = {
   postgres: {
     niveis: "conexao/database/schema/tabela",
     escopoReadOnly: "transacao",
@@ -177,6 +201,43 @@ export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capa
     cancelarQuery: true,
     diagramaErd: true,
   },
+  /*
+   * libSQL — a garantia mais forte depois do Postgres, e o formulário mais
+   * curto de todos.
+   *
+   * `escopoReadOnly: "credencial"` porque quem aplica é o **servidor**, pelo
+   * claim `"a":"ro"` do JWT — e `readOnlyCobreDdl: true` porque, medido, ele
+   * cobre: com token `ro`, `DROP TABLE` e `CREATE TABLE` são bloqueados junto
+   * com o DML, e `PRAGMA query_only = OFF` responde `unsupported statement`.
+   * É melhor que o MySQL em dois aspectos: não depende de montar `GRANT` certo
+   * e alcança DDL.
+   *
+   * `campos` **não tem `username`, `database` nem `timezone`**:
+   *
+   * - a credencial é só o token (que vai no campo de senha, cifrado como
+   *   qualquer outra credencial — ADR 005);
+   * - a URL aponta para **um** banco, não há o que escolher;
+   * - não há sessão onde configurar fuso. O SQLite guarda data como texto ou
+   *   número e não converte nada; um campo de fuso aqui seria a tela afirmando
+   *   uma conversão que não acontece.
+   *
+   * `cancelarQuery: false` e sem `statementTimeoutMs`: o protocolo não oferece
+   * nem um nem outro. O que existe é o limite de tempo da **requisição HTTP**,
+   * que é do cliente e não do servidor — e por isso não vira campo que promete
+   * "o banco vai parar em N ms".
+   */
+  libsql: {
+    niveis: "conexao/database/tabela",
+    escopoReadOnly: "credencial",
+    readOnlyCobreDdl: true,
+    campos: ["host", "port", "password", "sslMode"],
+    // O `sqld` escuta na 8080 por padrão.
+    portaPadrao: 8080,
+    dialeto: "sqlite",
+    sqlLivre: true,
+    cancelarQuery: false,
+    diagramaErd: true,
+  },
 };
 
 /**
@@ -187,7 +248,7 @@ export const CAPACIDADES: Readonly<Record<"postgres" | "mysql" | "mariadb", Capa
  * não tem. Um valor errado aqui vira promessa falsa lá.
  */
 export function capacidadesDe(engine: Engine): Capacidades | null {
-  return engine === "postgres" || engine === "mysql" || engine === "mariadb"
+  return engine === "postgres" || engine === "mysql" || engine === "mariadb" || engine === "libsql"
     ? CAPACIDADES[engine]
     : null;
 }

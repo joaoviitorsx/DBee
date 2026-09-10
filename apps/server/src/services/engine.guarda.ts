@@ -103,3 +103,48 @@ const TODOS_OS_CAMPOS: readonly string[] = [
   "statementTimeoutMs",
   "writeEnabled",
 ];
+
+/**
+ * Campos que a engine tem e que **não** têm valor padrão razoável.
+ *
+ * `port`, `sslMode`, `timezone` e `statementTimeoutMs` têm — o repositório os
+ * preenche na criação. `host`, `database` e `username` não: inventar um valor
+ * para eles seria guardar uma conexão que aponta para lugar nenhum e só falha
+ * quando alguém clica.
+ *
+ * `password` fica de fora de propósito: o schema já o exige, e vazio é um valor
+ * legítimo (um servidor libSQL sem `SQLD_AUTH_JWT_KEY` não tem token).
+ */
+const SEM_PADRAO: readonly string[] = ["host", "database", "username"];
+
+/**
+ * Recusa a criação que **falta** um campo que a engine tem.
+ *
+ * O par simétrico de `recusarCamposDaOutraEngine`: aquele barra o campo que
+ * sobra, este o que falta. Os dois leem a mesma tabela de capacidades, que é a
+ * mesma que decide o que o formulário mostra — uma regra só, em vez de uma no
+ * schema, outra na tela e uma terceira aqui.
+ *
+ * O schema deixou `database` e `username` opcionais porque o libSQL não os tem;
+ * sem esta função, uma conexão Postgres poderia nascer sem database e só
+ * quebrar na primeira consulta.
+ */
+export function exigirCamposDaEngine<T>(
+  engine: Engine,
+  corpo: Readonly<Record<string, unknown>>,
+): ServiceResult<T> | null {
+  const capacidades = capacidadesDe(engine);
+  if (capacidades === null) return null;
+
+  const faltando = SEM_PADRAO.filter(
+    (campo) =>
+      capacidades.campos.includes(campo as (typeof capacidades.campos)[number]) &&
+      (corpo[campo] === undefined || corpo[campo] === ""),
+  );
+  if (faltando.length === 0) return null;
+
+  return fail<T>(
+    "bad_request",
+    `${faltando.join(", ")} ${faltando.length === 1 ? "é obrigatório" : "são obrigatórios"} em ${engine}.`,
+  );
+}

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
 import type { Connection, Engine } from "@dbee/shared";
-import { engineImplementada } from "@dbee/shared/puro";
+import { capacidadesDe, ENGINES, engineImplementada } from "@dbee/shared/puro";
 
 import { createApp } from "./app";
 import { openTestStore } from "./db/client";
@@ -66,9 +66,23 @@ describe("CRUD de conexões", () => {
    * exigir manutenção para uma mudança que ele deveria acompanhar sozinho.
    */
   it("aceita as engines implementadas e recusa com 400 as que o DBee ainda não fala", async () => {
-    const todas: Engine[] = ["postgres", "mysql", "mariadb", "sqlite", "libsql", "mongodb", "redis"];
-    for (const engine of todas) {
-      const res = await call("/api/connections", json({ ...NOVA, name: `x-${engine}`, engine }));
+    /*
+     * O corpo é montado **a partir das capacidades da engine**, não copiado do
+     * `NOVA`. Mandar `database` e `username` para uma engine que não os tem é
+     * recusado de propósito (atribuição em massa), e o teste que os mandasse
+     * estaria medindo essa recusa em vez de medir a aceitação da engine.
+     */
+    const corpoPara = (engine: Engine): Record<string, unknown> => {
+      const campos = capacidadesDe(engine)?.campos ?? ["host", "database", "username"];
+      const base: Record<string, unknown> = { name: `x-${engine}`, engine, password: NOVA.password };
+      if (campos.includes("host")) base["host"] = NOVA.host;
+      if (campos.includes("database")) base["database"] = NOVA.database;
+      if (campos.includes("username")) base["username"] = NOVA.username;
+      return base;
+    };
+
+    for (const engine of ENGINES) {
+      const res = await call("/api/connections", json(corpoPara(engine)));
       if (engineImplementada(engine)) {
         expect(res.status, `${engine} está implementada`).toBe(201);
         expect(((await res.json()) as Connection).engine).toBe(engine);

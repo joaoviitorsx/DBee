@@ -103,8 +103,19 @@ export const CreateConnection = t.Object({
    */
   engine: t.Optional(Engine),
   host: FIELDS.host,
-  database: FIELDS.database,
-  username: FIELDS.username,
+  /*
+   * `database` e `username` são **opcionais no schema e obrigatórios por
+   * engine**. O libSQL não tem nem um nem outro: a URL aponta para um banco só,
+   * e a credencial é o token (que vai em `password`). Exigi-los aqui obrigaria
+   * o formulário a mandar texto inventado para passar na validação, e texto
+   * inventado guardado é a tela afirmando o que não existe.
+   *
+   * Quem exige é `exigirCamposDaEngine`, lendo `capacidadesDe(engine).campos` —
+   * a mesma tabela que decide o que o formulário mostra. Assim a regra é uma
+   * só, e não uma no schema e outra na tela.
+   */
+  database: t.Optional(FIELDS.database),
+  username: t.Optional(FIELDS.username),
   password: FIELDS.password,
   color: t.Optional(FIELDS.color),
   port: t.Optional(FIELDS.port),

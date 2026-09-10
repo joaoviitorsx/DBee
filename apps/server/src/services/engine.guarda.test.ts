@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
+import { ENGINES, ENGINES_IMPLEMENTADAS } from "@dbee/shared/puro";
+
 import { exigirPostgres } from "./engine.guarda";
 
 describe("guarda de engine", () => {
@@ -29,7 +31,9 @@ describe("guarda de engine", () => {
    * `sqlite` lê a árvore — ela não lê nada.
    */
   it("engine sem driver não promete leitura, porque não lê nada", () => {
-    for (const engine of ["sqlite", "libsql", "mongodb", "redis"] as const) {
+    // Derivado da lista pelo mesmo motivo do teste de capacidades: uma cópia à
+    // mão fica para trás na próxima engine que acender.
+    for (const engine of ENGINES.filter((e) => !ENGINES_IMPLEMENTADAS.includes(e))) {
       const r = exigirPostgres(engine, "exportação");
       expect(r, engine).not.toBeNull();
       if (r === null || r.ok) continue;

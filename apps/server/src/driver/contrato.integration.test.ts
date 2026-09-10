@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
+import { capacidadesDe, type Engine } from "@dbee/shared/puro";
+
 import type { ResolvedConnection } from "../db/connections.repo";
+import { executarSql } from "../libsql/cliente";
 import { PoolManager } from "../pg/pool";
+import { DriverLibsql } from "./libsql";
 import { DriverMysql } from "./mysql";
 import { DriverPostgres } from "./postgres";
 import type { DriverLeitura } from "./tipos";
@@ -12,16 +16,28 @@ import type { DriverLeitura } from "./tipos";
  * A interface `DriverLeitura` foi extraída depois de dois drivers existirem, e
  * não antes — a forma certa de uma abstração aparece com o segundo caso. Este
  * arquivo é o que prova que ela é real: as asserções são escritas **uma vez** e
- * rodam contra PostgreSQL, MySQL e MariaDB de verdade.
+ * rodam contra PostgreSQL, MySQL, MariaDB e libSQL de verdade.
  *
- * Se um driver precisar de um `if` aqui, a abstração está errada. Onde as
- * engines legitimamente divergem — o nível de schema, o rótulo de comando — a
- * asserção afirma o que é comum, e a diferença tem teste próprio no arquivo da
- * engine.
+ * Se um driver precisar de um `if` numa asserção, a abstração está errada. Onde
+ * as engines legitimamente divergem — o nível de schema, o rótulo de comando —
+ * a asserção afirma o que é comum, e a diferença tem teste próprio no arquivo
+ * da engine.
+ *
+ * **A exceção é capacidade declarada.** O cancelamento não existe no protocolo
+ * do libSQL, e `capacidadesDe("libsql").cancelarQuery` é `false` — a tela nem
+ * mostra o botão. Ali o teste lê a capacidade e afirma **o outro lado**: que o
+ * driver não entrega token e que cancelar devolve `false`. Isso não é o `if`
+ * proibido escondendo divergência; é a divergência declarada em tabela sendo
+ * verificada dos dois lados.
+ *
+ * A preparação de cada alvo (subir container, semear) ramifica por engine, e
+ * isso é esperado: semear é falar o protocolo de administração de cada
+ * servidor, não exercitar o contrato.
  */
 
 interface Alvo {
   readonly nome: string;
+  readonly engine: Engine;
   readonly container: string;
   readonly porta: number;
   readonly imagem: string;
@@ -29,6 +45,8 @@ interface Alvo {
   readonly usuario: string;
   readonly pronto: (c: string) => boolean;
   readonly semear: readonly string[];
+  /** Semeia por HTTP em vez de `docker exec` (libSQL não tem cliente CLI). */
+  readonly semearPorHttp?: boolean;
   driver?: DriverLeitura;
   conexao?: ResolvedConnection;
 }
@@ -40,9 +58,18 @@ const sh = (...args: string[]): boolean => Bun.spawnSync(args).exitCode === 0;
 const TABELA_SQL = "CREATE TABLE peca (id INT PRIMARY KEY, nome VARCHAR(40), vazio VARCHAR(10))";
 const LINHAS_SQL = "INSERT INTO peca (id, nome, vazio) VALUES (1,'um',NULL),(2,'dois',NULL),(3,'tres',NULL)";
 
+/** A porta em que cada servidor escuta dentro do container. */
+const PORTA_INTERNA: Partial<Record<Engine, string>> = {
+  postgres: "5432",
+  mysql: "3306",
+  mariadb: "3306",
+  libsql: "8080",
+};
+
 const ALVOS: Alvo[] = [
   {
     nome: "PostgreSQL 16",
+    engine: "postgres",
     container: "dbee-drv-pg",
     porta: 55516,
     imagem: "postgres:16",
@@ -53,6 +80,7 @@ const ALVOS: Alvo[] = [
   },
   {
     nome: "MySQL 8.4",
+    engine: "mysql",
     container: "dbee-drv-my",
     porta: 55517,
     imagem: "mysql:8.4",
@@ -72,6 +100,7 @@ const ALVOS: Alvo[] = [
   },
   {
     nome: "MariaDB 11",
+    engine: "mariadb",
     container: "dbee-drv-ma",
     porta: 55518,
     imagem: "mariadb:11",
@@ -83,6 +112,29 @@ const ALVOS: Alvo[] = [
          "loja", "-e", "SELECT 1"),
     semear: [TABELA_SQL, LINHAS_SQL],
   },
+  {
+    nome: "libSQL",
+    engine: "libsql",
+    container: "dbee-drv-ls",
+    porta: 55519,
+    imagem: "ghcr.io/tursodatabase/libsql-server:latest",
+    ambiente: [],
+    // Não há usuário: a credencial é o token, e este servidor sobe sem
+    // `SQLD_AUTH_JWT_KEY`.
+    usuario: "",
+    // `/health` é a sonda do próprio `sqld`. `curl` não existe na imagem, então
+    // ela é feita de fora, do lado do teste — ver `beforeAll`.
+    pronto: () => true,
+    /*
+     * `INTEGER PRIMARY KEY` e não `INT PRIMARY KEY`: no SQLite só a primeira
+     * forma é o rowid, e a tabela precisa de chave primária para o keyset.
+     */
+    semear: [
+      "CREATE TABLE peca (id INTEGER PRIMARY KEY, nome TEXT, vazio TEXT)",
+      LINHAS_SQL,
+    ],
+    semearPorHttp: true,
+  },
 ];
 
 let pools: PoolManager | undefined;
@@ -90,7 +142,7 @@ let pools: PoolManager | undefined;
 function conexao(alvo: Alvo): ResolvedConnection {
   return {
     id: `drv-${alvo.container}`, name: alvo.nome, color: null,
-    engine: alvo.imagem.startsWith("postgres") ? "postgres" : "mysql",
+    engine: alvo.engine,
     host: "127.0.0.1", port: alvo.porta, database: "loja",
     username: alvo.usuario, password: SENHA,
     sslMode: "disable", timezone: "UTC", statementTimeoutMs: 30_000,
@@ -105,29 +157,45 @@ beforeAll(async () => {
   for (const alvo of ALVOS) {
     sh("docker", "rm", "-f", alvo.container);
     sh("docker", "run", "-d", "--name", alvo.container, ...alvo.ambiente,
-      "-p", `${String(alvo.porta)}:${alvo.imagem.startsWith("postgres") ? "5432" : "3306"}`, alvo.imagem);
+      "-p", `${String(alvo.porta)}:${PORTA_INTERNA[alvo.engine] ?? "3306"}`, alvo.imagem);
   }
 
   for (const alvo of ALVOS) {
     let ok = false;
     for (let i = 0; i < 160; i++) {
-      if (alvo.pronto(alvo.container)) { ok = true; break; }
+      if (alvo.semearPorHttp === true) {
+        // O `sqld` não traz `curl`: a sonda vai de fora, pela porta publicada.
+        try {
+          const r = await fetch(`http://127.0.0.1:${String(alvo.porta)}/health`);
+          if (r.ok) { ok = true; break; }
+        } catch { /* subindo */ }
+      } else if (alvo.pronto(alvo.container)) { ok = true; break; }
       await Bun.sleep(500);
     }
     if (!ok) throw new Error(`${alvo.nome} não ficou pronto`);
 
     alvo.conexao = conexao(alvo);
     alvo.driver =
-      alvo.imagem.startsWith("postgres")
+      alvo.engine === "postgres"
         ? new DriverPostgres(pools, undefined)
-        : new DriverMysql(undefined);
+        : alvo.engine === "libsql"
+          ? new DriverLibsql()
+          : new DriverMysql(undefined);
 
     // Semeia por fora do driver: ele é de leitura, e semear por ele seria pedir
     // o que ele não promete.
+    if (alvo.semearPorHttp === true) {
+      await executarSql(
+        { url: `http://127.0.0.1:${String(alvo.porta)}`, token: null },
+        alvo.semear.map((sql) => ({ sql })),
+      );
+      continue;
+    }
+
     for (const sql of alvo.semear) {
-      const cmd = alvo.imagem.startsWith("postgres")
+      const cmd = alvo.engine === "postgres"
         ? ["docker", "exec", alvo.container, "psql", "-U", "postgres", "-d", "loja", "-c", sql]
-        : ["docker", "exec", alvo.container, alvo.imagem.startsWith("mysql") ? "mysql" : "mariadb",
+        : ["docker", "exec", alvo.container, alvo.engine === "mysql" ? "mysql" : "mariadb",
            `-p${SENHA}`, "loja", "-e", sql];
       if (!sh(...cmd)) throw new Error(`seed de ${alvo.nome} falhou: ${sql}`);
     }
@@ -228,7 +296,14 @@ for (const alvo of ALVOS) {
       expect(r.error?.message.length).toBeGreaterThan(0);
     }, 90_000);
 
-    it("o token de cancelamento é entregue durante a execução", async () => {
+    /*
+     * O cancelamento é **capacidade declarada**, e o teste lê a tabela em vez
+     * de presumir. Onde ela diz `true`, o driver tem que entregar o token —
+     * sem token não há como cancelar. Onde diz `false` (libSQL: o protocolo
+     * não oferece), ele tem que **não** entregar: um token ali seria a
+     * promessa de um cancelamento que não acontece.
+     */
+    it("o token de cancelamento segue a capacidade declarada da engine", async () => {
       if (!temDocker) return;
       const d = dv(); const c = cx();
       if (d === undefined || c === undefined) return;
@@ -238,7 +313,11 @@ for (const alvo of ALVOS) {
         database: c.database, maxRows: 10, somenteLeitura: true,
         aoIniciar: (t) => { token = t; },
       });
-      expect(token, "sem token não há como cancelar").toBeGreaterThan(0);
+      if (capacidadesDe(alvo.engine)?.cancelarQuery === true) {
+        expect(token, "sem token não há como cancelar").toBeGreaterThan(0);
+      } else {
+        expect(token, "engine sem cancelamento não pode entregar token").toBe(0);
+      }
     }, 90_000);
 
     it("cancelar algo que não existe devolve false, sem lançar", async () => {

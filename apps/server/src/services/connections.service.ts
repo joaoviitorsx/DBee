@@ -6,7 +6,7 @@ import type { ConnectionGrant } from "@dbee/shared";
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { Drivers } from "../driver/registro";
-import { recusarCamposDaOutraEngine } from "./engine.guarda";
+import { exigirCamposDaEngine, recusarCamposDaOutraEngine } from "./engine.guarda";
 
 import { type ServiceResult, fail, ok } from "./result";
 
@@ -95,6 +95,14 @@ export class ConnectionsService {
     // carrega aparece na tela afirmando algo que a engine não faz.
     const intruso = recusarCamposDaOutraEngine<Connection>(engine, input);
     if (intruso !== null) return intruso;
+
+    /*
+     * E o campo que **falta**. O schema deixou `database` e `username`
+     * opcionais porque o libSQL não os tem; sem esta linha, uma conexão
+     * Postgres nasceria sem database e só quebraria na primeira consulta.
+     */
+    const faltando = exigirCamposDaEngine<Connection>(engine, input);
+    if (faltando !== null) return faltando;
 
     return ok(this.#repository.create(input));
   }

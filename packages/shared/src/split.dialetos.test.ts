@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { splitStatements } from "./split";
+import { splitStatements, type DialetoSql } from "./split";
 
 /**
  * Achado #9 da auditoria: o separador era o do Postgres e rodava também sobre o
@@ -10,7 +10,7 @@ import { splitStatements } from "./split";
  * um**, e o executor conta statements para decidir o que registrar em auditoria
  * e o que devolver como resultado.
  */
-const textos = (sql: string, d: "postgres" | "mysql"): string[] =>
+const textos = (sql: string, d: DialetoSql): string[] =>
   splitStatements(sql, d).map((s) => s.sql);
 
 describe("splitStatements — dialeto do MySQL", () => {
@@ -112,5 +112,57 @@ describe("splitStatements — dialeto do MySQL", () => {
     const st = splitStatements(sql, "mysql");
     expect(st).toHaveLength(2);
     expect(sql.slice(st[1]?.offset ?? 0)).toBe("SELECT 2");
+  });
+});
+
+/**
+ * O dialeto do SQLite/libSQL fica **entre** os outros dois, e é por isso que
+ * precisa de nome próprio: aspas do Postgres, identificadores do MySQL e mais
+ * um, comentário de bloco que não aninha.
+ */
+describe("splitStatements — dialeto do SQLite/libSQL", () => {
+  /*
+   * A diferença que separa `sqlite` de `mysql`. No SQLite a barra invertida é
+   * um caractere comum: `'a\'` é uma string fechada contendo `a\`. Lido como
+   * MySQL, a barra escaparia a aspa e a string engoliria o comando seguinte.
+   */
+  it("a barra invertida NÃO escapa dentro da string", () => {
+    const sql = "SELECT 'a\\'; SELECT 2";
+    expect(textos(sql, "sqlite")).toHaveLength(2);
+    expect(textos(sql, "mysql")).toHaveLength(1);
+  });
+
+  it("a aspa dobrada fecha a string, como no Postgres", () => {
+    expect(textos("SELECT 'a;''b;c'", "sqlite")).toHaveLength(1);
+  });
+
+  it("crase é identificador aqui também", () => {
+    expect(textos("SELECT * FROM `tab;ela`", "sqlite")).toHaveLength(1);
+  });
+
+  /*
+   * `[nome]` é identificador no SQLite — herança do Access. Sem reconhecê-lo,
+   * um `;` dentro do nome cortaria o comando.
+   */
+  it("[nome] é identificador, e não tem escape", () => {
+    expect(textos("SELECT * FROM [tab;ela]", "sqlite")).toHaveLength(1);
+    expect(textos("SELECT * FROM [tab;ela]", "postgres")).toHaveLength(2);
+  });
+
+  it("# não é comentário no SQLite", () => {
+    expect(textos("SELECT 1 # x; SELECT 2", "sqlite")).toHaveLength(2);
+  });
+
+  it("-- comenta mesmo sem branco depois", () => {
+    expect(textos("SELECT 1--2; SELECT 3", "sqlite")).toEqual(["SELECT 1--2; SELECT 3"]);
+  });
+
+  it("o comentário de bloco não aninha", () => {
+    expect(textos("/* a /* b */ SELECT 1; SELECT 2", "sqlite")).toHaveLength(2);
+  });
+
+  it("dollar quoting e E'...' não existem", () => {
+    expect(textos("SELECT $a$; SELECT 2", "sqlite")).toHaveLength(2);
+    expect(textos("SELECT E'a\\'; SELECT 2", "sqlite")).toHaveLength(2);
   });
 });

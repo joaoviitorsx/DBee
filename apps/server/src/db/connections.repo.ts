@@ -1,5 +1,6 @@
 import type { Database, Statement } from "bun:sqlite";
 
+import { capacidadesDe } from "@dbee/shared/puro";
 import type { Connection, CreateConnection, Engine, SslMode, UpdateConnection } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
@@ -229,6 +230,7 @@ export class ConnectionsRepository {
   create(input: CreateConnection): Connection {
     const now = new Date().toISOString();
     const id = nanoid();
+    const engine = input.engine ?? "postgres";
 
     this.#db
       .query<unknown, (string | number | null)[]>(
@@ -243,13 +245,24 @@ export class ConnectionsRepository {
         input.name,
         input.color ?? null,
         // Ausente significa Postgres: é o que um cliente que não conhece o
-        // campo quis dizer, e é a única engine que o DBee fala. O resolvido
-        // fica aqui e não como `default` no schema — ADR 004.
-        input.engine ?? "postgres",
+        // campo quis dizer, e era a única engine que o DBee falava quando o
+        // campo nasceu. O resolvido fica aqui e não como `default` no schema —
+        // ADR 004.
+        engine,
         input.host,
-        input.port ?? 5432,
-        input.database,
-        input.username,
+        // A porta convencional é da engine, não do Postgres: 3306 no MySQL,
+        // 8080 no `sqld`. O `?? 5432` de antes dava a porta errada para as
+        // outras duas e obrigava o formulário a mandar sempre.
+        input.port ?? capacidadesDe(engine)?.portaPadrao ?? 5432,
+        /*
+         * Vazio, e não um nome inventado. Numa engine que não tem o campo
+         * (libSQL: a URL aponta para um banco só, e a credencial é o token) o
+         * formulário não o manda, e guardar um placeholder faria a tela
+         * afirmar um database que ninguém escolheu. Quem resolve o rótulo é o
+         * driver, que sabe o que "o banco desta URL" se chama.
+         */
+        input.database ?? "",
+        input.username ?? "",
         encrypt(this.#key, id, input.password),
         input.sslMode ?? "disable",
         input.writeEnabled === true ? 1 : 0,

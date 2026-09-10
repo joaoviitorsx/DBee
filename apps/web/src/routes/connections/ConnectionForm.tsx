@@ -109,10 +109,39 @@ export function ConnectionForm({
   const capacidades = capacidadesDe(draft.engine ?? "postgres");
   const mostra = (campo: CampoConexao): boolean =>
     capacidades === null || capacidades.campos.includes(campo);
+  const ehLibsql = (draft.engine ?? "postgres") === "libsql";
+
+  /**
+   * O que vai para a API: **só os campos que a engine tem**.
+   *
+   * O rascunho carrega todos, porque trocar de motor não pode apagar o que a
+   * pessoa já digitou (ela pode voltar atrás). Mas mandar um campo que a engine
+   * não tem é recusado com 400 pelo servidor, de propósito — atribuição em
+   * massa —, e mandar `database: ""` para um libSQL guardaria um database que
+   * ninguém escolheu.
+   *
+   * `name`, `engine`, `color` e `password` não passam pelo filtro: os três
+   * primeiros existem em toda engine, e `password` é a credencial (o token, no
+   * libSQL), que está sempre em `campos` de quem precisa dela.
+   */
+  const paraEnvio = (d: ConnectionDraft): ConnectionDraft => {
+    if (capacidades === null) return d;
+    const permitidos = new Set<string>(capacidades.campos);
+    const saida: Record<string, unknown> = {
+      engine: d.engine,
+      name: d.name,
+      color: d.color,
+      password: d.password,
+    };
+    for (const campo of ["host", "port", "database", "username", "sslMode", "timezone", "statementTimeoutMs", "writeEnabled"] as const) {
+      if (permitidos.has(campo)) saida[campo] = d[campo];
+    }
+    return saida as unknown as ConnectionDraft;
+  };
 
   const handleSubmit: NonNullable<ComponentProps<"form">["onSubmit"]> = (event) => {
     event.preventDefault();
-    onSubmit(draft);
+    onSubmit(paraEnvio(draft));
   };
 
   const isEdit = editing !== null;
@@ -151,7 +180,17 @@ export function ConnectionForm({
                 {isEdit ? t("form.editarTitulo") : t("form.novoTitulo")}
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted">
-                {isEdit ? t("form.editarDescricao") : t("form.novoDescricao")}
+                {/*
+                  A frase fala da credencial que vai para o disco, e no libSQL
+                  ela é um token, não uma senha. Mesma classe do rótulo do
+                  campo: chamar de senha manda a pessoa procurar algo que o
+                  servidor dela não tem.
+                */}
+                {isEdit
+                  ? t("form.editarDescricao")
+                  : ehLibsql
+                    ? t("form.novoDescricaoToken")
+                    : t("form.novoDescricao")}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -171,7 +210,23 @@ export function ConnectionForm({
                 */}
               <SeletorDeEngine
                 valor={draft.engine ?? "postgres"}
-                onChange={(engine) => { set("engine", engine); }}
+                onChange={(engine) => {
+                  /*
+                   * A porta acompanha o motor — 5432, 3306, 8080 — **desde que
+                   * ainda seja a porta padrão do motor anterior**. Se a pessoa
+                   * digitou uma porta, ela fica: trocar o motor não é motivo
+                   * para apagar o que ela escreveu.
+                   */
+                  const anterior = capacidadesDe(draft.engine ?? "postgres")?.portaPadrao;
+                  const nova = capacidadesDe(engine)?.portaPadrao;
+                  setDraft((atual) => ({
+                    ...atual,
+                    engine,
+                    ...(atual.port === anterior && nova !== null && nova !== undefined
+                      ? { port: nova }
+                      : {}),
+                  }));
+                }}
                 desabilitado={isEdit}
               />
 
@@ -230,7 +285,17 @@ export function ConnectionForm({
                     placeholder="10.0.0.4"
                   />
                 </Field>
-                <Field label={t("form.porta")} htmlFor="port" hint={t("form.portaAjuda")}>
+                {/*
+                  A dica da porta é do motor. "Nunca o PgBouncer" é conselho de
+                  Postgres, e mostrá-lo sob um campo de libSQL é a tela dando
+                  uma instrução que não se aplica ao servidor que está do outro
+                  lado — foi a captura em 1440 que pegou.
+                */}
+                <Field
+                  label={t("form.porta")}
+                  htmlFor="port"
+                  hint={ehLibsql ? t("form.portaAjudaLibsql") : t("form.portaAjuda")}
+                >
                   <Input
                     id="port"
                     type="number"
@@ -247,6 +312,7 @@ export function ConnectionForm({
 
               {mostra("database") || mostra("username") ? (
               <div className="grid grid-cols-2 gap-3">
+                {mostra("database") ? (
                 <Field label={t("form.database")} htmlFor="database">
                   <Input
                     id="database"
@@ -256,6 +322,8 @@ export function ConnectionForm({
                     onChange={(e) => { set("database", e.target.value); }}
                   />
                 </Field>
+                ) : null}
+                {mostra("username") ? (
                 <Field label={t("form.usuario")} htmlFor="username">
                   <Input
                     id="username"
@@ -265,14 +333,23 @@ export function ConnectionForm({
                     onChange={(e) => { set("username", e.target.value); }}
                   />
                 </Field>
+                ) : null}
               </div>
               ) : null}
 
               {mostra("password") ? (
               <Field
-                label={t("form.senha")}
+                /*
+                 * No libSQL a credencial é um **token JWT**, não uma senha —
+                 * e é o claim dele (`"a":"ro"`) que decide se a conexão grava.
+                 * Chamar isso de "senha" faria a pessoa procurar um campo que
+                 * o servidor dela não tem.
+                 */
+                label={ehLibsql ? t("form.token") : t("form.senha")}
                 htmlFor="password"
-                hint={isEdit ? t("form.senhaAjuda") : undefined}
+                hint={
+                  ehLibsql ? t("form.tokenAjuda") : isEdit ? t("form.senhaAjuda") : undefined
+                }
               >
                 <Input
                   id="password"

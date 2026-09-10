@@ -8,9 +8,9 @@ realmente difere, não do que parece diferir.
 | engine | fase | vista | onde mora a garantia de somente-leitura | estado |
 |---|---|---|---|---|
 | PostgreSQL | — | grade | **transação** (`BEGIN READ ONLY`) | **pronto** |
-| MySQL | 2 | grade | **credencial** (`GRANT SELECT`) | planejado |
-| MariaDB | 2 | grade | **credencial** | planejado |
-| libSQL | 3 | grade | **credencial** (claim `"a":"ro"` do JWT) | planejado |
+| MySQL | 2 | grade | **credencial** (`GRANT SELECT`) | **pronto em leitura** |
+| MariaDB | 2 | grade | **credencial** | **pronto em leitura** |
+| libSQL | 3 | grade | **credencial** (claim `"a":"ro"` do JWT) | **pronto em leitura** |
 | SQLite | adiado | grade | abertura do handle (`readonly: true`) | ver risco do event loop |
 | MongoDB | 4 | árvore de documentos | **credencial** (papel `read`) | descrito, não agendado |
 | Redis | 5 | par chave/valor (6 tipos) | **credencial** (ACL `+@read`) | descrito, não agendado |
@@ -383,9 +383,53 @@ gravar. MariaDB entra junto, mas **não de graça** — `max_statement_time` em
 segundos contra `max_execution_time` em milissegundos é diferença de campo de
 formulário, não de string de versão.
 
-**Fase 3 — libSQL.** Antes do SQLite, invertendo a ordem anterior: é URL +
-token, tem somente-leitura de verdade no servidor (claim `"a":"ro"`, medido) e
-não bloqueia o processo.
+**Fase 3 — libSQL. Fechada em leitura.** Antes do SQLite, invertendo a ordem
+anterior: é URL + token, tem somente-leitura de verdade no servidor (claim
+`"a":"ro"`, medido) e não bloqueia o processo.
+
+O que ela entregou, e as decisões que ninguém adivinharia:
+
+- **Nenhuma migration.** A migração 007 já havia registrado que tornar
+  `host`/`database`/`username` anuláveis exige reconstruir a tabela com três
+  chaves estrangeiras apontando para ela, e que esse dia merece ADR próprio.
+  Ele não chegou: os campos existentes dizem a mesma coisa —
+  `host` + `port` são o endereço do `sqld`, `sslMode` escolhe `http` ou `https`
+  e **`password` guarda o token**, cifrado como qualquer credencial (ADR 005).
+  O que mudou no schema de entrada foi `database` e `username` virarem
+  opcionais, com a obrigatoriedade passando a ser **por engine**
+  (`exigirCamposDaEngine`, lendo a mesma tabela de capacidades que decide o que
+  o formulário mostra).
+
+- **A permissão de escrita é lida do token, não sondada.** Descobrir por
+  sondagem exigiria tentar escrever no banco de alguém. O claim está no próprio
+  JWT: `claimsDe` o decodifica (sem conferir assinatura — não temos a chave, e
+  não é nossa função) e qualquer coisa que não seja `"a":"ro"` vira aviso. Na
+  dúvida, avisa: um aviso a mais custa uma linha na tela, um a menos custa a
+  confiança num modo leitura que não existe.
+
+- **Sem streaming, e o documento diz isso em vez de escondê-lo.** O protocolo é
+  requisição-resposta: o `/v2/pipeline` devolve o resultado inteiro num JSON e
+  não há ponto em que parar de ler. O corte de `maxRows` acontece **depois** de
+  a resposta chegar. Injetar `LIMIT` no SQL do usuário está fora de questão
+  (regra 8, e mudaria o resultado de uma consulta que já tem `LIMIT`). O que
+  contém um `SELECT` sem `WHERE` numa tabela grande é o limite de tempo da
+  requisição HTTP.
+
+- **Um `POST` por statement.** O `/v2/pipeline` aceita vários de uma vez, e
+  mesmo assim eles vão um a um: mandados juntos, o erro do terceiro chega depois
+  de o primeiro e o segundo já terem executado, e o contrato do DBee é relatar
+  **quais rodaram**.
+
+- **O separador de statements ganhou um terceiro dialeto.** SQLite fica *entre*
+  os outros dois: aspas do Postgres (a barra invertida **não** escapa),
+  identificadores do MySQL e mais um (`` ` `` e `[nome]`), comentário de bloco
+  que não aninha. Rodar a gramática do Postgres sobre SQL de SQLite põe o `;`
+  do lado errado da fronteira.
+
+- **`cancelarQuery: false`**, e o teste de contrato afirma **os dois lados**:
+  onde a capacidade diz `true` o driver tem que entregar o token de
+  cancelamento; onde diz `false`, tem que **não** entregar. Um token ali seria a
+  promessa de um cancelamento que não acontece.
 
 **SQLite local — adiado, e o motivo mudou.** Não é mais "custa médio". Medido
 com `bun:sqlite`: uma consulta de 47 segundos produziu **zero** tiques num

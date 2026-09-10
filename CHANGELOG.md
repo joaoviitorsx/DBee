@@ -86,6 +86,46 @@ senhas de banco (o `APP_SECRET` está no `docker inspect`) e não há "derrubar
 todas as sessões", e a UI não avisa quando a tailnet cai.
 
 ### Adicionado
+
+- **libSQL aceso em leitura — fase 3 do multi-engine fechada.** Criar conexão,
+  navegar a árvore, abrir o catálogo, ler a grade e executar SQL, contra um
+  `sqld` de verdade. O teste de contrato de driver agora roda as mesmas
+  asserções contra **quatro** engines.
+
+  **Nenhuma migration.** A migração 007 já registrava que tornar
+  `host`/`database`/`username` anuláveis exige reconstruir a tabela com três
+  chaves estrangeiras apontando para ela — e que esse dia merece ADR próprio.
+  Ele não chegou: `host` + `port` são o endereço do `sqld`, `sslMode` escolhe
+  `http` ou `https`, e **`password` guarda o token JWT**, cifrado como qualquer
+  credencial. O que mudou foi `database` e `username` virarem opcionais no
+  schema, com a obrigatoriedade passando a ser **por engine** — a mesma tabela
+  de capacidades que decide o que o formulário mostra.
+
+  **A permissão de escrita é lida do token, não sondada.** Sondar exigiria
+  tentar escrever no banco de alguém. O claim `"a":"ro"` está no próprio JWT, e
+  qualquer coisa que não seja ele vira aviso: na dúvida, avisa. Um aviso a mais
+  custa uma linha na tela; um a menos custa a confiança num modo leitura que não
+  existe.
+
+  **Sem streaming, e está escrito em vez de escondido.** O protocolo é
+  requisição-resposta: o resultado vem inteiro num JSON e não há ponto em que
+  parar de ler, então o corte de `maxRows` acontece depois de a resposta chegar.
+  Injetar `LIMIT` no SQL do usuário está fora de questão (regra 8).
+
+  **`cancelarQuery: false`**, e o teste de contrato afirma os dois lados: onde a
+  capacidade diz `true`, o driver tem que entregar o token de cancelamento; onde
+  diz `false`, tem que **não** entregar — um token ali prometeria um
+  cancelamento que não acontece.
+
+- **A porta padrão agora é a da engine** — 5432, 3306, 8080 —, e trocar o motor
+  no formulário troca a porta **só enquanto ela ainda for a padrão do motor
+  anterior**. Porta digitada fica.
+
+- **O formulário manda só os campos da engine.** O rascunho continua guardando
+  todos (trocar de motor não pode apagar o que a pessoa digitou), mas o envio é
+  filtrado pelas capacidades — mandar `database: ""` para um libSQL guardaria um
+  database que ninguém escolheu, e o servidor recusa o campo que sobra.
+
 - **libSQL: protocolo, cliente e catálogo** — primeiras peças da fase 3 do
   multi-engine. Ainda não conecta pela interface.
 

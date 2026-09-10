@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 
 import { Connection, CreateConnection, UpdateConnection } from "./connections";
-import { CAPACIDADES, capacidadesDe, ENGINES_IMPLEMENTADAS, engineImplementada } from "./engine";
+import { CAPACIDADES, capacidadesDe, ENGINES, ENGINES_IMPLEMENTADAS, engineImplementada } from "./engine.puro";
 
 /**
  * `engine` é imutável depois que a conexão existe.
@@ -36,7 +36,15 @@ describe("engine é imutável", () => {
 
 describe("capacidades", () => {
   it("engine sem medição não recebe as capacidades de outra", () => {
-    for (const e of ["sqlite", "libsql", "mongodb", "redis"] as const) {
+    /*
+     * Derivado da lista, e não uma cópia escrita à mão: cada engine que acende
+     * saía desta lista à mão, e a que esquecesse deixaria o teste verde
+     * afirmando o contrário do que ele existe para afirmar. Já aconteceu quando
+     * o MySQL acendeu.
+     */
+    const semMedicao = ENGINES.filter((e) => !ENGINES_IMPLEMENTADAS.includes(e));
+    expect(semMedicao.length, "toda engine implementada — o teste perdeu o sentido").toBeGreaterThan(0);
+    for (const e of semMedicao) {
       // `null`, e não as do Postgres: devolver as do Postgres faria a tela
       // oferecer transação somente-leitura para uma engine que não a tem.
       expect(`${e}: ${capacidadesDe(e) === null ? "null" : "tem capacidade"}`).toBe(`${e}: null`);
