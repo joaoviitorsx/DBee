@@ -23,12 +23,33 @@ import type { CelulaLibsql, ResultadoLibsql } from "./protocolo";
  * botão em vez de oferecer um que não faz nada.
  */
 
+/** Como falar TLS com o servidor — o análogo do `MysqlSslConfig`. */
+export interface TlsLibsql {
+  /**
+   * Validar cadeia e identidade do servidor.
+   *
+   * `true` é `verify-full`; `false` é `require` (cifra, mas não autentica quem
+   * está do outro lado). O ADR 003 exige que cada modo signifique o que
+   * promete, e é este campo que faz `require` não virar `verify-full` por
+   * acidente — o `fetch` do Bun valida por padrão.
+   */
+  readonly rejectUnauthorized: boolean;
+  /** CA própria, quando o certificado do servidor não vem de uma CA pública. */
+  readonly ca?: string;
+}
+
 /** Para onde ir e com que credencial. */
 export interface AlvoLibsql {
   /** `http(s)://host:porta`. O `https` é o que faz o transporte ser cifrado. */
   readonly url: string;
   /** JWT. `null` num servidor sem `SQLD_AUTH_JWT_KEY`. */
   readonly token: string | null;
+  /**
+   * Config de TLS. `undefined` quando a URL é `http` (`disable`): não há
+   * handshake para configurar. Presente nos dois modos `https`, e é o
+   * `rejectUnauthorized` dentro dela que separa `require` de `verify-full`.
+   */
+  readonly tls?: TlsLibsql;
   /** Milissegundos até desistir da requisição inteira. */
   readonly timeoutMs?: number;
 }
@@ -147,6 +168,20 @@ export async function executarSql(
       },
       body: JSON.stringify({ requests }),
       signal: controle.signal,
+      /*
+       * A config de TLS por requisição. O `tls` do `fetch` é extensão do Bun
+       * (não existe no fetch padrão), e é o que permite `require` cifrar sem
+       * validar — o mesmo que o `rejectUnauthorized: false` do MySQL. Em `http`
+       * o campo é `undefined` e não há efeito.
+       */
+      ...(alvo.tls === undefined
+        ? {}
+        : {
+            tls: {
+              rejectUnauthorized: alvo.tls.rejectUnauthorized,
+              ...(alvo.tls.ca === undefined ? {} : { ca: alvo.tls.ca }),
+            },
+          }),
       /*
        * O redirecionamento **não** é seguido. Sem isto, um host permitido
        * responde `302 → http://169.254.169.254/...` e o `fetch` refaz a

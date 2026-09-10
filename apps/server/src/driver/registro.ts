@@ -35,13 +35,12 @@ export class Drivers {
     this.#porEngine.set("mysql", mysql);
     this.#porEngine.set("mariadb", mysql);
     /*
-     * O libSQL não recebe `caCert`: quem valida a cadeia é o `fetch` do Bun, e
-     * ele usa o repositório de CAs do sistema. Passar a CA daqui exigiria
-     * montar um agente HTTP próprio, e o ADR 003 pede que cada modo signifique
-     * o que promete — um agente mal montado é como `require` vira "criptografa
-     * sem validar" por acidente.
+     * O libSQL recebe o `caCert` como os outros: o `fetch` do Bun aceita `tls`
+     * por requisição, e é isso que faz `verify-full` validar contra uma CA
+     * própria e `require` cifrar sem validar. Sem a CA, `verify-full` só
+     * funcionaria contra certificado de CA pública.
      */
-    this.#porEngine.set("libsql", new DriverLibsql());
+    this.#porEngine.set("libsql", new DriverLibsql(caCert));
   }
 
   /**

@@ -667,7 +667,18 @@ function TopBar({
           ) : null}
           <span className="truncate text-xs text-ink">{connection.name}</span>
           <span className="truncate font-mono text-xs text-muted">
-            {target === null ? database : `${database}.${target.schema}.${target.relation}`}
+            {/*
+              Nas engines sem nível de schema (MySQL, MariaDB, libSQL) o schema
+              É o database — o catálogo repete o nome para a API manter a forma.
+              Mostrar `main.main.artista` ou `loja.loja.peca` é o breadcrumb
+              afirmando um nível que a árvore não tem. Colapsa quando os dois
+              coincidem: `database.relação`.
+            */}
+            {target === null
+              ? database
+              : target.schema === database
+                ? `${database}.${target.relation}`
+                : `${database}.${target.schema}.${target.relation}`}
           </span>
         </div>
       ) : null}

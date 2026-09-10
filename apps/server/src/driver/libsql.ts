@@ -17,6 +17,37 @@ import { testConnectionLibsql, tokenGrava } from "../libsql/test-connection";
 import type { DriverLeitura, OpcoesExecucao, ResultadoExecucao, ResultadoLinhas } from "./tipos";
 
 /**
+ * Os campos de uma conexão viram o alvo HTTP, e o `sslMode` vira config de TLS.
+ *
+ * Exportada e pura para o teste travar a tradução dos três modos (ADR 003):
+ * cada modo significa o que promete, e é aqui que isso é decidido.
+ *
+ * - `disable`     → `http`, sem `tls`. Texto claro.
+ * - `require`     → `https` com `rejectUnauthorized: false`: cifra, não
+ *   autentica o servidor (cai num self-signed sem reclamar — medido).
+ * - `verify-full` → `https` com validação de cadeia e identidade (padrão do
+ *   `fetch` do Bun). A CA própria entra pelo `ca`.
+ */
+export function alvoLibsqlDe(conexao: ResolvedConnection, caCert: string | undefined): AlvoLibsql {
+  const cifrado = conexao.sslMode !== "disable";
+  return {
+    url: `${cifrado ? "https" : "http"}://${conexao.host}:${String(conexao.port)}`,
+    token: conexao.password === "" ? null : conexao.password,
+    ...(cifrado
+      ? {
+          tls: {
+            rejectUnauthorized: conexao.sslMode === "verify-full",
+            ...(caCert === undefined ? {} : { ca: caCert }),
+          },
+        }
+      : {}),
+    // O limite é da requisição HTTP, não do statement: o protocolo não oferece
+    // `statement_timeout`. Por isso a capacidade não expõe o campo.
+    timeoutMs: 30_000,
+  };
+}
+
+/**
  * O driver de libSQL.
  *
  * ## Sem pool, e sem nada para esquecer
@@ -45,30 +76,14 @@ import type { DriverLeitura, OpcoesExecucao, ResultadoExecucao, ResultadoLinhas 
  */
 export class DriverLibsql implements DriverLeitura {
   readonly engine: Engine = "libsql";
+  readonly #caCert: string | undefined;
 
-  /**
-   * Os campos da conexão viram o alvo HTTP.
-   *
-   * O `verify-full` não ganha tratamento próprio: quem valida cadeia e hostname
-   * é o `fetch` do Bun, e ele o faz sempre em `https`. A diferença entre
-   * `require` e `verify-full` que o ADR 003 exige — cada modo precisa significar
-   * o que promete — não é representável aqui sem desligar a validação, que seria
-   * o oposto do que `require` promete. Então os dois são `https` com validação,
-   * e é `disable` que muda alguma coisa.
-   */
+  constructor(caCert?: string) {
+    this.#caCert = caCert;
+  }
+
   #alvo(conexao: ResolvedConnection): AlvoLibsql {
-    const esquema = conexao.sslMode === "disable" ? "http" : "https";
-    return {
-      url: `${esquema}://${conexao.host}:${String(conexao.port)}`,
-      token: conexao.password === "" ? null : conexao.password,
-      /*
-       * O limite é da **requisição HTTP**, não do statement: o protocolo não
-       * oferece `statement_timeout`. Por isso a capacidade não expõe o campo —
-       * seria a tela prometendo que o servidor para, quando quem desiste é o
-       * cliente.
-       */
-      timeoutMs: 30_000,
-    };
+    return alvoLibsqlDe(conexao, this.#caCert);
   }
 
   async testarConexao(conexao: ResolvedConnection): Promise<TestConnectionResult> {

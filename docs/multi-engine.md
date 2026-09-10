@@ -219,6 +219,16 @@ Dados intactos depois da bateria. É melhor que o MySQL em dois aspectos: não
 depende de montar `GRANT` certo, e cobre DDL. E melhor que o SQLite local, onde
 o `PRAGMA query_only` está ao alcance do usuário.
 
+**Os três modos de SSL significam o que prometem** (ADR 003), e isto NÃO foi de
+graça como a primeira versão da fase 3 assumiu. O `fetch` do Bun aceita `tls`
+por requisição — extensão dele, não do fetch padrão —, então: `disable` é
+`http`; `require` é `https` com `rejectUnauthorized: false` (cifra, cai num
+self-signed sem reclamar — medido contra `badssl.com`); `verify-full` é `https`
+validando cadeia e identidade, com a CA própria pelo `ca`. A versão anterior
+tratava `require` e `verify-full` como a mesma coisa (https sempre validado),
+fazendo `require` prometer menos do que entregava. `driver/libsql.test.ts`
+trava a tradução dos três modos.
+
 **O que falta ali:** limite de tempo por statement e cancelamento não existem no
 protocolo. Vira `cancelarQuery: false` na capacidade, e a tela deixa de oferecer
 o botão em vez de oferecer um que não faz nada.
