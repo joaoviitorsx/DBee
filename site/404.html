@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Página não encontrada — DBee</title>
+    <meta name="robots" content="noindex" />
+    <meta name="theme-color" content="#141210" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="/assets/img/favicon-32.png" sizes="32x32" />
+
+    <!--
+      Caminhos ABSOLUTOS nesta página, diferente do resto do site.
+      O GitHub Pages serve o 404.html a partir de qualquer profundidade
+      (/docs/algo/inexistente inclusive), então um href relativo apontaria para
+      um lugar diferente a cada URL errada. É a única página onde relativo não
+      serve — e a razão de o site inteiro poder ser relativo é justamente que
+      todas as outras têm caminho conhecido.
+    -->
+    <link rel="stylesheet" href="/assets/css/site.css" />
+    <script>
+      document.documentElement.classList.add("js");
+    </script>
+  </head>
+
+  <body>
+    <main class="section cta erro">
+      <div class="cta__halo" aria-hidden="true"></div>
+      <div class="shell cta__inner">
+        <img
+          class="mascote"
+          src="/assets/img/dormindo.webp"
+          width="520"
+          height="520"
+          alt="A abelha do DBee dormindo."
+        />
+        <p class="section__kicker">Erro 404</p>
+        <h1>Esta página não existe.</h1>
+        <p>
+          O endereço está errado, ou a página saiu. As duas que existem estão
+          logo abaixo.
+        </p>
+        <div class="hero__actions hero__actions--center">
+          <a class="btn btn--primary" href="/">Início</a>
+          <a class="btn btn--ghost" href="/docs/">Documentação</a>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

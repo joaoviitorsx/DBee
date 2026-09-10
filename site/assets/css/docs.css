@@ -1,0 +1,353 @@
+/* ==========================================================================
+   DBee — docs demonstrativas
+   ==========================================================================
+
+   Carrega DEPOIS de site.css e reusa todos os tokens dele. Isto aqui é só a
+   camada de layout de documento: coluna de leitura, sumário fixo e a prosa.
+
+   Escopo, dito em voz alta: estas páginas são **demonstrativas**. A referência
+   completa e viva mora no repositório (docs/*.md), e cada bloco daqui aponta
+   para o arquivo de lá. Uma segunda cópia da documentação inteira num site
+   estático seria uma segunda cópia para envelhecer.
+   ========================================================================== */
+
+.docs {
+  padding-top: calc(var(--header-h) + clamp(40px, 6vw, 72px));
+  padding-bottom: clamp(64px, 9vw, 120px);
+  background: var(--sunken);
+}
+
+.docs__hero {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: clamp(32px, 5vw, 56px);
+  margin-bottom: clamp(32px, 5vw, 56px);
+}
+
+.docs__hero h1 {
+  font-size: clamp(2.2rem, 5.5vw, 3.6rem);
+  letter-spacing: -0.04em;
+  max-width: 18ch;
+}
+
+/*
+ * `<code>` dentro do H1 herdava o tracking -0.025em do título, e numa fonte
+ * mono isso abre um vão entre as palavras que parece erro de digitação
+ * ("docker  run"). Zera o tracking e vira uma pastilha, para o comando se ler
+ * como comando e não como um pedaço mal espaçado do título.
+ */
+.docs__hero h1 code {
+  font-size: 0.74em;
+  letter-spacing: 0;
+  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 0.06em 0.3em;
+}
+
+.docs__hero p {
+  margin-top: var(--sp-6);
+  color: var(--muted);
+  max-width: 60ch;
+  font-size: var(--step-1);
+}
+
+.docs__layout {
+  display: grid;
+  gap: clamp(32px, 5vw, 64px);
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .docs__layout {
+    grid-template-columns: 232px minmax(0, 1fr);
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Sumário
+   Abaixo de 1024px vira um <details> fechado: um sumário de dez itens aberto no
+   telefone empurra o primeiro parágrafo para fora da tela.
+   -------------------------------------------------------------------------- */
+.toc {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  padding: var(--sp-4) var(--sp-6);
+}
+
+.toc summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--subtle);
+  list-style: none;
+  padding-block: var(--sp-2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.toc summary::-webkit-details-marker {
+  display: none;
+}
+
+.toc summary::after {
+  content: "+";
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.toc[open] summary::after {
+  content: "\2212";
+}
+
+.toc ol {
+  list-style: none;
+  padding: 0;
+  margin-top: var(--sp-4);
+  display: grid;
+  gap: 2px;
+  counter-reset: toc;
+}
+
+.toc a {
+  display: flex;
+  gap: 10px;
+  padding: 7px 0;
+  font-size: 0.92rem;
+  color: var(--muted);
+  transition: color 180ms;
+}
+
+.toc li {
+  counter-increment: toc;
+}
+
+.toc a::before {
+  content: counter(toc, decimal-leading-zero);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--subtle);
+  padding-top: 3px;
+  flex: none;
+}
+
+.toc a:hover {
+  color: var(--accent);
+}
+
+@media (min-width: 1024px) {
+  .toc {
+    position: sticky;
+    top: calc(var(--header-h) + 24px);
+    max-height: calc(100svh - var(--header-h) - 48px);
+    overflow-y: auto;
+  }
+  .toc summary {
+    pointer-events: none;
+  }
+  .toc summary::after {
+    display: none;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Prosa
+   -------------------------------------------------------------------------- */
+.prose {
+  max-width: 74ch;
+  font-size: var(--step-0);
+  line-height: 1.68;
+}
+
+.prose > section {
+  padding-top: clamp(40px, 6vw, 72px);
+}
+
+.prose > section + section {
+  border-top: 1px solid var(--line);
+}
+
+.prose h2 {
+  font-size: var(--step-3);
+  letter-spacing: -0.03em;
+  margin-bottom: var(--sp-4);
+  scroll-margin-top: calc(var(--header-h) + 24px);
+}
+
+.prose h3 {
+  font-size: var(--step-1);
+  margin-top: var(--sp-12);
+  margin-bottom: var(--sp-3);
+  letter-spacing: -0.015em;
+}
+
+.prose p,
+.prose ul,
+.prose ol {
+  color: var(--muted);
+  margin-top: var(--sp-4);
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.3em;
+}
+
+.prose li {
+  margin-top: 8px;
+}
+
+.prose li::marker {
+  color: var(--accent-line);
+}
+
+.prose strong,
+.prose b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.prose a:not(.btn) {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--accent-line);
+}
+
+.prose a:not(.btn):hover {
+  text-decoration-color: var(--accent);
+}
+
+.prose code {
+  background: var(--raised);
+  color: var(--ink);
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.prose pre {
+  margin-top: var(--sp-6);
+  padding: var(--sp-6);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow-x: auto;
+  font-size: 0.82rem;
+  line-height: 1.75;
+  color: var(--ink);
+}
+
+.prose pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+.prose pre .c {
+  color: var(--subtle);
+}
+.prose pre .k {
+  color: var(--accent);
+}
+.prose pre .s {
+  color: var(--ok);
+}
+
+.prose .lede {
+  font-size: var(--step-1);
+  color: var(--ink);
+}
+
+/* Bloco de origem: cada seção diz de onde o que ela afirma veio. */
+.prose .src {
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-4);
+  border-top: 1px dashed var(--line-strong);
+}
+
+/* Nota e alerta reusam as cores semânticas do app. */
+.note,
+.danger-note {
+  margin-top: var(--sp-6);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-4) var(--sp-6);
+  font-size: 0.95rem;
+}
+
+.note {
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.note b {
+  color: var(--accent);
+}
+
+.danger-note {
+  border: 1px solid var(--danger-line);
+  background: var(--danger-surface);
+}
+
+.danger-note b {
+  color: var(--danger-ink);
+}
+
+.note p:first-child,
+.danger-note p:first-child {
+  margin-top: 0;
+}
+
+/* Tabela de docs — mesma pele da matriz da home. */
+.prose .tablewrap {
+  margin-top: var(--sp-6);
+}
+
+.prose table.matrix td:first-child {
+  white-space: normal;
+}
+
+/* Trilha "próximo passo" no fim do documento. */
+.next {
+  margin-top: clamp(48px, 7vw, 88px);
+  display: grid;
+  gap: var(--sp-3);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 640px) {
+  .next {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.next a {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-6);
+  background: var(--surface);
+  transition: border-color 220ms, background-color 220ms;
+}
+
+.next a:hover {
+  border-color: var(--accent-line);
+  background: var(--raised);
+}
+
+.next b {
+  display: block;
+  color: var(--ink);
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.next span {
+  color: var(--muted);
+  font-size: 0.92rem;
+}

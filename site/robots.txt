@@ -1,0 +1,7 @@
+# A landing é pública e pode ser indexada inteira.
+User-agent: *
+Allow: /
+
+# Sem Sitemap: aqui: ele exige URL absoluta, e o domínio final ainda não está
+# decidido (ver CNAME). Um sitemap apontando para o domínio errado é pior que
+# nenhum. Com duas páginas, o crawler acha as duas pelo link do cabeçalho.

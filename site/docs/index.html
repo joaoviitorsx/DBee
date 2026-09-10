@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Docs — DBee</title>
+    <meta
+      name="description"
+      content="Instalação, primeira conexão, papéis e permissões, e o que cada motor de banco faz hoje no DBee."
+    />
+    <meta name="theme-color" content="#141210" />
+    <meta name="color-scheme" content="dark" />
+
+    <link rel="icon" href="../assets/img/favicon-32.png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="../assets/img/apple-touch-icon.png" />
+
+    <meta property="og:type" content="article" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:title" content="Docs — DBee" />
+    <meta
+      property="og:description"
+      content="Instalação, primeira conexão, papéis e o que cada motor faz hoje."
+    />
+    <meta property="og:image" content="../assets/img/og.webp" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link
+      rel="preload"
+      href="../assets/fonts/sora-latin-wght-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="../assets/css/site.css" />
+    <link rel="stylesheet" href="../assets/css/docs.css" />
+
+    <script>
+      document.documentElement.classList.add("js");
+    </script>
+    <script defer src="../assets/js/site.js"></script>
+  </head>
+
+  <body>
+    <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+    <header class="header">
+      <div class="header__inner">
+        <a class="brand" href="../" aria-label="DBee — início">
+          <img src="../assets/img/marca.webp" alt="" width="26" height="26" />
+          <span>DBee</span>
+        </a>
+        <nav class="nav" aria-label="Principal">
+          <span class="nav__desktop">
+            <a href="../#motores">Motores</a>
+            <a href="../#garantias">Garantias</a>
+            <a href="../#telas">Telas</a>
+          </span>
+          <a href="#instalacao">Docs</a>
+          <a class="nav__cta" href="https://github.com/joaoviitorsx/DBee" rel="noopener">GitHub</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="docs" id="conteudo">
+      <div class="shell">
+        <div class="docs__hero">
+          <p class="section__kicker">Documentação</p>
+          <h1>Do <code>docker run</code> à primeira consulta.</h1>
+          <p>
+            Quatro capítulos: subir o container, cadastrar a primeira conexão,
+            entender quem pode o quê, e saber exatamente o que cada motor de
+            banco faz hoje. É documentação <b>demonstrativa</b> — a referência
+            completa vive no repositório, e cada capítulo diz qual arquivo de lá
+            aprofunda o assunto.
+          </p>
+        </div>
+
+        <div class="docs__layout">
+          <!-- ==========================================================
+               Sumário
+               ========================================================== -->
+          <aside>
+            <details class="toc" open>
+              <summary>Nesta página</summary>
+              <ol>
+                <li><a href="#instalacao">Instalação</a></li>
+                <li><a href="#primeiro-acesso">Primeiro acesso</a></li>
+                <li><a href="#primeira-conexao">Primeira conexão</a></li>
+                <li><a href="#papeis">Papéis e permissões</a></li>
+                <li><a href="#papel-no-banco">O papel do lado do banco</a></li>
+                <li><a href="#motores">O que cada motor faz</a></li>
+                <li><a href="#auditoria">Auditoria</a></li>
+                <li><a href="#rede">Rede e exposição</a></li>
+                <li><a href="#limites">O que o DBee não faz</a></li>
+              </ol>
+            </details>
+          </aside>
+
+          <!-- ==========================================================
+               Conteúdo
+               ========================================================== -->
+          <article class="prose">
+            <!-- ------------------------------------------------------ -->
+            <section id="instalacao">
+              <h2>1. Instalação</h2>
+              <p class="lede">
+                Um container, um volume, uma variável de ambiente. Não há
+                serviço adicional para subir — o estado local do DBee mora num
+                <code>bun:sqlite</code> dentro do volume.
+              </p>
+
+              <h3>Pré-requisitos</h3>
+              <ul>
+                <li>Docker num host <b>amd64</b>. A imagem é compilada com
+                  <code>bun build --target bun-linux-x64</code>; numa VM arm64 o
+                  container não sobe.</li>
+                <li>Um volume persistente. Perder <code>/data</code> é perder
+                  todas as conexões cadastradas.</li>
+                <li>Acesso de rede do container até a porta <b>direta</b> do
+                  banco. Nunca o PgBouncer na 6432 — o DBee usa recursos de
+                  sessão que o pooler em modo transação não preserva.</li>
+              </ul>
+
+              <h3>Subir</h3>
+<pre><code><span class="c"># 1. O segredo que cifra as senhas das conexões.</span>
+openssl rand <span class="k">-hex</span> 32
+
+<span class="c"># 2. O container. Sem -p de propósito — ver "Rede e exposição".</span>
+docker run <span class="k">-d</span> <span class="k">--name</span> dbee \
+  <span class="k">-e</span> APP_SECRET=<span class="s">"&lt;o hex do passo 1&gt;"</span> \
+  <span class="k">-v</span> dbee-data:/data \
+  ghcr.io/joaoviitorsx/dbee:latest
+
+<span class="c"># 3. O token do primeiro acesso.</span>
+docker exec dbee cat /data/setup-token</code></pre>
+
+              <h3>Variáveis de ambiente</h3>
+              <div class="tablewrap">
+                <table class="matrix">
+                  <thead>
+                    <tr>
+                      <th scope="col">Variável</th>
+                      <th scope="col">Obrigatória</th>
+                      <th scope="col">Para quê</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td><code>APP_SECRET</code></td>
+                      <td>em produção, sim</td>
+                      <td>
+                        Deriva a chave AES-256-GCM que cifra as senhas das
+                        conexões. O boot <b>aborta</b> se faltar com
+                        <code>NODE_ENV=production</code>.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><code>DBEE_DATA_DIR</code></td>
+                      <td>não</td>
+                      <td>
+                        Onde ficam o SQLite e o salt de cifra. Padrão
+                        <code>/data</code>. Precisa de volume persistente.
+                      </td>
+                    </tr>
+                    <tr>
+                      <td><code>PORT</code></td>
+                      <td>não</td>
+                      <td>Porta do servidor. Padrão <code>3001</code>. Valor inválido aborta o boot.</td>
+                    </tr>
+                    <tr>
+                      <td><code>DBEE_CA_CERT</code></td>
+                      <td>não</td>
+                      <td>CA em PEM para <code>sslmode=verify-full</code> contra um CA privado.</td>
+                    </tr>
+                    <tr>
+                      <td><code>DBEE_COOKIE_SECURE</code></td>
+                      <td>não</td>
+                      <td>
+                        Marca o cookie de sessão como <code>Secure</code>. Só
+                        defina <code>true</code> quando o TLS termina no proxy.
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="danger-note">
+                <p>
+                  <b>Perder o APP_SECRET ou o volume /data = conexões perdidas.</b>
+                  A chave de cifra vem do <code>APP_SECRET</code>
+                  <em>e</em> de um salt guardado dentro do SQLite. São dois
+                  pontos únicos de falha e não há recuperação — só recadastrar
+                  tudo. Guarde o segredo num gerenciador de segredos e declare o
+                  volume.
+                </p>
+              </div>
+
+              <p class="src">
+                <b>fonte:</b> README.md “Subir em três passos” e “Variáveis de
+                ambiente” · docs/operacao.md · CLAUDE.md regra 6 (PgBouncer).
+              </p>
+            </section>
+
+            <!-- ------------------------------------------------------ -->
+            <section id="primeiro-acesso">
+              <h2>2. Primeiro acesso</h2>
+              <p>
+                Abra o DBee pelo IP da tailnet ou pelo proxy interno. A primeira
+                tela pede o token que você leu de
+                <code>/data/setup-token</code>, e em seguida o usuário e a senha
+                da sua conta.
+              </p>
+              <p>
+                O token é <b>apagado do volume nesse instante</b>. Nenhuma senha
+                é gerada pelo sistema, nenhuma senha é impressa em log, e não
+                existe uma variável <code>ADMIN_PASSWORD</code> — a primeira
+                conta nasce pela tela, não pelo ambiente.
+              </p>
+
+              <p>
+                Se você perdeu o token antes de criar a conta, apague o arquivo
+                de estado e recomece: o container recria
+                <code>/data/setup-token</code> no próximo boot enquanto não
+                houver nenhuma conta.
+              </p>
+
+              <img
+                class="mascote mascote--mini"
+                src="../assets/img/sucesso.webp"
+                width="520"
+                height="520"
+                loading="lazy"
+                decoding="async"
+                alt=""
+              />
+
+              <p class="src"><b>fonte:</b> README.md · docs/operacao.md “Deploy no Dokploy”.</p>
+            </section>
+
+            <!-- ------------------------------------------------------ -->
+            <section id="primeira-conexao">
+              <h2>3. Primeira conexão</h2>
+              <p class="lede">
+                O formulário de conexão <b>muda por motor</b>. Ele não desabilita
+                campos que não se aplicam: ele não os renderiza.
+              </p>
+              <p>
+                A diferença mais visível é o interruptor
+                <b>Permitir escrita</b>. Ele existe no PostgreSQL e não existe no
+                MySQL nem no MariaDB — e isso não é uma feature faltando, é a
+                tela se recusando a mentir: nessas engines a garantia mora na
+                credencial, então não há nada “por execução” que um interruptor
+                pudesse ligar.
+              </p>
+
+              <div class="tablewrap">
+                <table class="matrix">
+                  <thead>
+                    <tr>
+                      <th scope="col">Campo</th>
+                      <th scope="col">PostgreSQL</th>
+                      <th scope="col">MySQL / MariaDB</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr><td>Host, Porta, Database</td><td>sim</td><td>sim</td></tr>
+                    <tr><td>Usuário, Senha</td><td>sim</td><td>sim</td></tr>
+                    <tr><td>Criptografia (SSL)</td><td>sim</td><td>sim</td></tr>
+                    <tr><td>Fuso horário</td><td>sim</td><td>sim</td></tr>
+                    <tr><td>Limite de tempo por consulta</td><td>sim</td><td>sim</td></tr>
+                    <tr><td>Permitir escrita</td><td>sim</td><td><b>não existe</b></td></tr>
+                    <tr><td>Porta preenchida ao escolher</td><td><code>5432</code></td><td><code>3306</code></td></tr>
+                    <tr><td>Níveis da árvore</td><td>conexão → banco → schema → tabela</td><td>conexão → banco → tabela</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h3>Teste antes de salvar</h3>
+              <p>
+                O botão <b>Testar</b> conecta de verdade e devolve dois tipos de
+                aviso que valem mais que o “conectou com sucesso”:
+              </p>
+              <ul>
+                <li>
+                  <b>Papel privilegiado.</b> Se a credencial for superusuário
+                  (ou tiver privilégios amplos), o DBee avisa. Somente-leitura é
+                  proteção contra o acidente comum, não caixa de contenção
+                  contra um papel que pode tudo.
+                </li>
+                <li>
+                  <b>TLS com <code>verify-full</code> e host por IP.</b> A
+                  combinação é <b>recusada</b> no MySQL/MariaDB: o driver zera o
+                  nome do servidor quando o host é um endereço IP, e a
+                  conferência de identidade cairia em <code>localhost</code> —
+                  ou seja, passaria sem verificar nada. Use o nome do host.
+                </li>
+              </ul>
+
+              <div class="note">
+                <p>
+                  <b>Nunca aponte para o PgBouncer.</b> Sempre a porta 5432
+                  direta. É regra do projeto, não preferência.
+                </p>
+              </div>
+
+              <p class="src">
+                <b>fonte:</b> packages/shared/src/engine.puro.ts
+                (<code>CAPACIDADES</code>) · docs/conexao-multi-engine.md ·
+                docs/multi-engine.md §3c · CLAUDE.md regra 6.
+              </p>
+            </section>
+
+            <!-- ------------------------------------------------------ -->
+            <section id="papeis">
+              <h2>4. Papéis e permissões</h2>
+              <p class="lede">
+                Duas camadas independentes, e escrever exige as duas.
+              </p>
+
+              <h3>No DBee</h3>
+              <ul>
+                <li>
+                  <b><code>admin</code></b> — administra contas, cadastra e edita
+                  conexões, concede permissões, vê a auditoria inteira.
+                </li>
+                <li>
+                  <b><code>member</code></b> — usa as conexões a que foi dado
+                  acesso. Não cria conexão, não administra conta.
+                </li>
+              </ul>
+              <p>
+                A permissão de escrita é concedida <b>por conexão</b>, não
+                globalmente. Uma pessoa pode escrever no banco de homologação e
+                só ler no de produção, com a mesma conta.
+              </p>
+
+              <h3>Na conexão</h3>
+              <p>
+                Cada conexão PostgreSQL tem o próprio interruptor
+                <b>Permitir escrita</b>. Com ele desligado, ninguém escreve por
+                aquela conexão — nem um <code>admin</code>.
+              </p>
+
+              <div class="note">
+                <p>
+                  <b>As duas camadas são conjuntivas.</b> A escrita só acontece
+                  quando a conexão está habilitada <em>e</em> a pessoa tem a
+                  permissão. Foi assim que um achado de auditoria interna
+                  apareceu e foi fechado: um <code>member</code> sem permissão
+                  de escrita conseguia executar <code>INSERT</code> e
+                  <code>DROP TABLE</code> numa conexão MySQL, porque ali a
+                  garantia é a credencial e nada no caminho conferia a pessoa.
+                  Hoje há portão explícito, e um teste de integração que falha se
+                  ele sair.
+                </p>
+              </div>
+
+              <p class="src">
+                <b>fonte:</b> migrations/004_user_roles.sql ·
+                services/portao-escrita.integration.test.ts · CHANGELOG.md
+                (auditoria adversarial da fatia multi-engine).
+              </p>
+            </section>
+
+            <!-- ------------------------------------------------------ -->
+            <section id="papel-no-banco">
+              <h2>5. O papel do lado do banco</h2>
+              <p class="lede">
+                A camada que o DBee não controla, e a que mais importa.
+              </p>
+              <p>
+                O DBee protege contra o acidente comum. Ele não substitui um
+                papel restrito no seu banco — e em MySQL, MariaDB, libSQL,
+                MongoDB e Redis o papel restrito <b>é</b> a garantia.
+              </p>
+
+              <h3>PostgreSQL — papel só de leitura</h3>
+<pre><code><span class="c">-- Tira do PUBLIC o CONNECT herdado: só quem receber GRANT explícito conecta.</span>
+REVOKE ALL ON DATABASE &lt;db&gt; FROM PUBLIC;
+REVOKE ALL ON SCHEMA &lt;schema&gt; FROM PUBLIC;
+
+<span class="c">-- Papel de login sem nenhum atributo privilegiado.</span>
+CREATE ROLE dbee_ro_&lt;slug&gt; LOGIN PASSWORD <span class="s">'&lt;senha-forte&gt;'</span>
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+
+GRANT CONNECT ON DATABASE &lt;db&gt; TO dbee_ro_&lt;slug&gt;;
+GRANT USAGE   ON SCHEMA   &lt;schema&gt; TO dbee_ro_&lt;slug&gt;;
+GRANT SELECT  ON ALL TABLES IN SCHEMA &lt;schema&gt; TO dbee_ro_&lt;slug&gt;;
+
+<span class="c">-- Ler o que for criado DEPOIS. FOR ROLE é o dono que cria as tabelas —</span>
+<span class="c">-- sem ele, o default vale só para o que ESTE usuário criar.</span>
+ALTER DEFAULT PRIVILEGES FOR ROLE &lt;dono&gt; IN SCHEMA &lt;schema&gt;
+  GRANT SELECT ON TABLES TO dbee_ro_&lt;slug&gt;;</code></pre>
+
+              <h3>MySQL / MariaDB — papel só de leitura</h3>
+<pre><code>CREATE USER <span class="s">'dbee_leitor'</span>@<span class="s">'%'</span> IDENTIFIED BY <span class="s">'&lt;senha forte&gt;'</span>;
+GRANT SELECT ON nome_do_banco.* TO <span class="s">'dbee_leitor'</span>@<span class="s">'%'</span>;</code></pre>
+              <p>
+                Só isso. Sem <code>GRANT ALL</code>, sem
+                <code>WITH GRANT OPTION</code>, sem <code>PROCESS</code>, sem
+                <code>FILE</code>. Medido contra MySQL 8.4.11 e MariaDB 11.8.9:
+                com esse papel, <code>TRUNCATE</code> volta <b>1142</b> e
+                <code>CREATE USER</code> volta <b>1227</b> — os dois casos que
+                escapavam de <code>START TRANSACTION READ ONLY</code> — e os
+                dados ficam intactos depois da bateria inteira.
+              </p>
+
+              <div class="danger-note">
+                <p>
+                  <b><code>GRANT SELECT ON loja.*</code> não é uma cerca em volta
+                  de <code>loja</code>.</b> Medido: uma view com
+                  <code>SQL SECURITY DEFINER</code> criada dentro do banco
+                  concedido lê de bancos <em>sem</em> grant. O escopo do grant é
+                  a porta, não a parede.
+                </p>
+              </div>
+
+              <p class="src">
+                <b>fonte:</b> docs/papeis-postgres.md · docs/papeis-mysql.md
+                (medido contra MySQL 8.4.11 e MariaDB 11.8.9).
+              </p>
+            </section>
+
+            <!-- ------------------------------------------------------ -->
+            <section id="motores">
+              <h2>6. O que cada motor faz</h2>
+              <p class="lede">
+                Estado de hoje. Nada aqui é roadmap escrito no presente.
+              </p>
+
+              <div class="tablewrap">
+                <table class="matrix">
+                  <thead>
+                    <tr>
+                      <th scope="col">Motor</th>
+                      <th scope="col">Estado</th>
+                      <th scope="col">Faz</th>
+                      <th scope="col">Não faz</th>
+                      <th scope="col">Garantia</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>PostgreSQL</td>
+                      <td>completo</td>
+                      <td>árvore, catálogo, grade, SQL, escrita, DDL, exportação, ERD</td>
+                      <td>—</td>
+                      <td>transação</td>
+                    </tr>
+                    <tr>
+                      <td>MySQL</td>
+                      <td>leitura</td>
+                      <td>árvore, catálogo, grade, SQL com cancelamento, ERD</td>
+                      <td>exportação, DDL, edição de linha</td>
+                      <td>credencial</td>
+                    </tr>
+                    <tr>
+                      <td>MariaDB</td>
+                      <td>leitura</td>
+                      <td>idem MySQL</td>
+                      <td>idem MySQL</td>
+                      <td>credencial</td>
+                    </tr>
+                    <tr>
+                      <td>libSQL</td>
+                      <td>leitura</td>
+                      <td>árvore, catálogo, grade, consulta</td>
+                      <td>credencial é o token JWT; selecionável no formulário</td>
+                      <td>claim <code>"a":"ro"</code> do JWT</td>
+                    </tr>
+                    <tr>
+                      <td>SQLite</td>
+                      <td>planejado · bloqueado</td>
+                      <td>—</td>
+                      <td>tudo</td>
+                      <td>abertura do handle</td>
+                    </tr>
+                    <tr>
+                      <td>MongoDB</td>
+                      <td>planejado</td>
+                      <td>—</td>
+                      <td>tudo</td>
+                      <td>papel <code>read</code></td>
+                    </tr>
+                    <tr>
+                      <td>Redis</td>
+                      <td>planejado</td>
+                      <td>—</td>
+                      <td>tudo</td>
+                      <td>ACL <code>+@read</code></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <h3>Por que o SQLite está bloqueado</h3>
+              <p>
+                Não é falta de tempo, é uma medição:
+                <code>bun:sqlite</code> é síncrono, e uma consulta de 47&nbsp;s
+                produziu <b>zero</b> tiques num temporizador de 10&nbsp;ms — o
+                processo inteiro para, e não há timeout nem cancelamento. Num app
+                multiusuário isso é negação de serviço por um
+                <code>SELECT</code> malfeito. Sai do bloqueio com uma de duas
+                decisões: rodar SQLite fora do processo principal, ou aceitar o
+                risco explicitamente e documentá-lo.
+              </p>
+
+              <h3>Por que MySQL não tem escrita</h3>
+              <p>
+                Porque a garantia lá é a credencial, e uma credencial só tem um
+                modo. Ou a conexão passa a guardar <b>duas</b> credenciais (uma
+                de leitura e uma de escrita), ou a escrita fica desligada nessas
+                engines. Prometer por lista de comandos proibidos é exatamente o
+                que este projeto recusa — foi assim que o <code>TRUNCATE</code>
+                escapou.
+              </p>
+
+              <p class="src">
+                <b>fonte:</b> docs/multi-engine.md §1 e §2 ·
+                docs/multi-engine-progresso.md ·
+                packages/shared/src/engine.puro.ts.
+              </p>
+            </section>
+
+            <!-- ------------------------------------------------------ -->
+            <section id="auditoria">
+              <h2>7. Auditoria</h2>
+              <p>
+                Toda query executada vira uma linha em <code>query_log</code>,
+                não só as de escrita. A linha guarda o SQL literal, a conexão e o
+                banco, o status (<code>ok</code>, <code>error</code>,
+                <code>cancelled</code>), a mensagem de erro quando houve, a
+                contagem de linhas, a duração, se a execução foi somente-leitura
+                de fato, quem executou e quando.
+              </p>
+              <p>
+                As consultas da grade registram <b>os valores</b> dos parâmetros
+                num comentário <code>-- args: [...]</code>, com aspas e quebras
+                de linha escapadas — sem isso, “quem consultou o CPF de fulano”
+                não era uma pergunta respondível, porque o log guardava
+                <code>$1</code>.
+              </p>
+              <p>
+                Custo medido: a 1 milhão de linhas de log, o filtro por ator
+                responde em <b>0,093&nbsp;ms</b>, e o <code>INSERT</code> de cada
+                query custa <b>12,3&nbsp;µs</b>. Auditar tudo é barato o
+                bastante para não ser opcional.
+              </p>
+
+              <p class="src">
+                <b>fonte:</b> migrations/001_initial.sql (esquema) ·
+                migrations/006_audit_indexes.sql (os dois números, medidos) ·
+                CHANGELOG.md.
+              </p>
+            </section>
+
+            <!-- ------------------------------------------------------ -->
+            <section id="rede">
+              <h2>8. Rede e exposição</h2>
+              <p class="lede">
+                O DBee não é exposto à internet. Duas formas de acesso, nunca uma
+                porta pública.
+              </p>
+
+              <h3>Pelo proxy interno (preferido)</h3>
+              <p>
+                Sem porta publicada. O proxy alcança o container pela rede
+                interna e o domínio aponta para a porta <code>3001</code>.
+              </p>
+
+              <h3>Porta bindada no IP da tailnet</h3>
+              <p>
+                Se publicar a porta, binde no IP <code>100.x</code> do Tailscale
+                — nunca em <code>0.0.0.0</code>. E o bind sozinho não basta: o
+                Docker escreve regras de NAT que <b>furam o UFW</b>.
+              </p>
+<pre><code><span class="c"># A ordem importa: -I insere no topo, então o ACCEPT (inserido por</span>
+<span class="c"># último) fica ACIMA do DROP.</span>
+iptables <span class="k">-I</span> DOCKER-USER <span class="k">-p</span> tcp <span class="k">--dport</span> 3001 <span class="k">-j</span> DROP
+iptables <span class="k">-I</span> DOCKER-USER <span class="k">-i</span> tailscale0 <span class="k">-p</span> tcp <span class="k">--dport</span> 3001 <span class="k">-j</span> ACCEPT</code></pre>
+              <p>
+                O container roda como usuário não-root (uid 10001) e <b>não</b>
+                monta o socket do Docker. A resposta carrega cabeçalhos de
+                segurança com CSP restritiva — <code>connect-src 'self'</code> é
+                a peça que transforma “o dado vazou do navegador” em “o navegador
+                recusou o envio”.
+              </p>
+
+              <p class="src">
+                <b>fonte:</b> docs/operacao.md “Segurança” ·
+                routes/cabecalhos.ts · CHANGELOG.md.
+              </p>
+            </section>
+
+            <!-- ------------------------------------------------------ -->
+            <section id="limites">
+              <h2>9. O que o DBee não faz</h2>
+              <p>
+                Uma seção de docs que lista limites vale mais que três de
+                features, porque é a que evita a instalação frustrada.
+              </p>
+              <ul>
+                <li><b>Não provisiona banco.</b> Ele opera um que já existe.</li>
+                <li><b>Não é SaaS</b> e não tem plano pago. Roda na sua infraestrutura ou não roda.</li>
+                <li><b>Não instala agente</b> no servidor de banco.</li>
+                <li><b>Não escreve em MySQL, MariaDB, libSQL, MongoDB nem Redis.</b> Nenhuma delas tem transação somente-leitura que resista.</li>
+                <li><b>Não exporta</b> fora do PostgreSQL.</li>
+                <li><b>Não contém um papel privilegiado.</b> Num superusuário do Postgres, <code>COPY … TO PROGRAM</code> executa comando no host do banco de dentro de uma transação “somente leitura”. O DBee detecta e avisa; conter exigiria um parser de SQL, e parser de SQL sempre deixa um caso passar.</li>
+                <li><b>Não roda em arm64.</b> A imagem é amd64.</li>
+              </ul>
+
+              <p class="src">
+                <b>fonte:</b> README.md “Segurança” · CLAUDE.md regra 8 e §11.37
+                · docs/multi-engine.md §1 · docs/operacao.md.
+              </p>
+            </section>
+
+            <div class="next">
+              <a href="../#instalar">
+                <b>Voltar ao comando de instalação</b>
+                <span>Os três passos, copiáveis, na página inicial.</span>
+              </a>
+              <a href="https://github.com/joaoviitorsx/DBee/tree/main/docs" rel="noopener">
+                <b>A documentação completa</b>
+                <span>Operação, arquitetura, papéis, design system e o plano multi-engine.</span>
+              </a>
+            </div>
+          </article>
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="shell shell--wide">
+        <div class="footer__grid">
+          <div class="footer__about">
+            <a class="brand" href="../">
+              <img src="../assets/img/marca.webp" alt="" width="26" height="26" />
+              <span>DBee</span>
+            </a>
+            <p>
+              Cliente de banco de dados web, self-hosted, um container. Sem
+              SaaS, sem plano pago, sem agente instalado no seu servidor.
+            </p>
+          </div>
+          <div>
+            <h4>Docs</h4>
+            <ul>
+              <li><a href="#instalacao">Instalação</a></li>
+              <li><a href="#primeira-conexao">Primeira conexão</a></li>
+              <li><a href="#papeis">Papéis</a></li>
+              <li><a href="#motores">Motores</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Produto</h4>
+            <ul>
+              <li><a href="../#oque">O que é</a></li>
+              <li><a href="../#garantias">Garantias</a></li>
+              <li><a href="../#telas">Telas</a></li>
+              <li><a href="../#instalar">Instalar</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4>Repositório</h4>
+            <ul>
+              <li><a href="https://github.com/joaoviitorsx/DBee" rel="noopener">Código</a></li>
+              <li><a href="https://github.com/joaoviitorsx/DBee/releases" rel="noopener">Releases</a></li>
+              <li><a href="https://github.com/joaoviitorsx/DBee/blob/main/CHANGELOG.md" rel="noopener">Changelog</a></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="footer__bottom">
+          <span>© <span data-ano>2026</span> DBee · <code>v0.3.7</code></span>
+          <span>Documentação demonstrativa. A referência completa vive em <code>docs/</code> no repositório.</span>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>

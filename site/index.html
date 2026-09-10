@@ -1,0 +1,991 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DBee — cliente de banco de dados web, self-hosted, um container</title>
+    <meta
+      name="description"
+      content="Cliente de banco web e self-hosted. Um container, sem SaaS e sem agente. PostgreSQL completo; MySQL, MariaDB e libSQL em leitura. A proteção contra escrita é o modo da transação, não uma regex no seu SQL."
+    />
+    <meta name="theme-color" content="#141210" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- Sem canonical absoluto: o domínio final ainda não está decidido (ver
+         site/CNAME). Um canonical apontando para o domínio errado é pior que
+         nenhum — ele desindexa o certo. -->
+    <link rel="icon" href="assets/img/favicon-32.png" sizes="32x32" />
+    <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content="pt_BR" />
+    <meta property="og:title" content="DBee — o cliente de banco que não escreve sem você mandar" />
+    <meta
+      property="og:description"
+      content="Web, self-hosted, um container. PostgreSQL completo; MySQL, MariaDB e libSQL em leitura. A proteção contra escrita é o modo da transação."
+    />
+    <meta property="og:image" content="assets/img/og.webp" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!--
+      Pré-carregamento das duas fontes: elas são a primeira dobra inteira. Sem
+      isto o navegador só descobre o .woff2 depois de baixar e parsear o CSS, e
+      o título pisca na fonte de sistema.
+      `crossorigin` é obrigatório mesmo em mesma origem — fonte é sempre
+      requisição CORS, e sem o atributo o preload é ignorado e o arquivo baixa
+      duas vezes.
+    -->
+    <link
+      rel="preload"
+      href="assets/fonts/sora-latin-wght-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="assets/fonts/space-grotesk-latin-wght-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="stylesheet" href="assets/css/site.css" />
+
+    <!--
+      `html.js` antes de qualquer pintura. É o que decide se os estados iniciais
+      da animação existem: sem JS eles não são aplicados e a página nasce
+      legível, em vez de nascer com tudo em opacity:0 esperando um script que
+      não vai rodar.
+    -->
+    <script>
+      document.documentElement.classList.add("js");
+    </script>
+    <script defer src="assets/js/site.js"></script>
+  </head>
+
+  <body>
+    <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+    <!--
+      Preloader: a primeira tela nunca é branca. Sai por transformação.
+      O mascote é o humor "carregando" — o único lugar do site onde ele é a
+      coisa literal, e não decoração. Reduzido a 108px (2x do tamanho exibido)
+      porque a versão de 520px são 28 KB gastos num elemento que vive 1,2 s.
+    -->
+    <div class="preload" aria-hidden="true">
+      <img class="preload__mark" src="assets/img/carregando-108.webp" alt="" width="54" height="54" />
+    </div>
+
+    <!--
+      Glifos das engines. Sete formas de UMA cor só, herdando currentColor — a
+      mesma decisão do seletor de motor do app: a FORMA diz qual banco é, a COR
+      diz em que estado ele está. Sete paletas de marca competiriam com o âmbar,
+      que aqui já significa outra coisa.
+    -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true" focusable="false">
+      <symbol id="i-postgres" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="12" cy="6" rx="7.5" ry="3" />
+        <path d="M4.5 6v12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V6" />
+        <path d="M4.5 12c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3" />
+      </symbol>
+      <symbol id="i-mysql" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="12" cy="6" rx="7.5" ry="3" />
+        <path d="M4.5 6v6c0 1.66 3.36 3 7.5 3 .9 0 1.77-.06 2.56-.18" />
+        <path d="M19.5 6v5" />
+        <path d="M13 20c1.4-2.2 3.4-3.4 6-3.6-1.3-1.5-2-3-2-4.4" />
+      </symbol>
+      <symbol id="i-mariadb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <ellipse cx="12" cy="8" rx="7.5" ry="3" />
+        <path d="M4.5 8v8c0 1.66 3.36 3 7.5 3s7.5-1.34 7.5-3V8" />
+        <path d="M8.5 4.5 12 1.8l3.5 2.7" />
+      </symbol>
+      <symbol id="i-libsql" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M7 18a4 4 0 0 1-.6-7.95A5.5 5.5 0 0 1 17.3 9.2 3.9 3.9 0 0 1 17 18Z" />
+        <path d="M10 13.5h4" />
+        <path d="M12 11.5v4" />
+      </symbol>
+      <symbol id="i-sqlite" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5Z" />
+        <path d="M14 2.5v5h5" />
+        <path d="M8.5 13h7M8.5 16.5h4" />
+      </symbol>
+      <symbol id="i-mongodb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2.5c3.2 3.4 5 6.5 5 9.6 0 3.6-2.2 6.2-5 7.4-2.8-1.2-5-3.8-5-7.4 0-3.1 1.8-6.2 5-9.6Z" />
+        <path d="M12 6.5v15" />
+      </symbol>
+      <symbol id="i-redis" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <path d="m3 7.5 9-4 9 4-9 4Z" />
+        <path d="m3 12 9 4 9-4" />
+        <path d="m3 16.5 9 4 9-4" />
+      </symbol>
+    </svg>
+
+    <!-- ==================================================================
+         Cabeçalho
+         ================================================================== -->
+    <header class="header">
+      <div class="header__inner">
+        <a class="brand" href="#topo" aria-label="DBee — início">
+          <img src="assets/img/marca.webp" alt="" width="26" height="26" />
+          <span>DBee</span>
+        </a>
+
+        <nav class="nav" aria-label="Principal">
+          <span class="nav__desktop">
+            <a href="#oque">O que é</a>
+            <a href="#motores">Motores</a>
+            <a href="#garantias">Garantias</a>
+            <a href="#telas">Telas</a>
+            <a href="#instalar">Instalar</a>
+          </span>
+          <a href="docs/">Docs</a>
+          <a class="nav__cta" href="https://github.com/joaoviitorsx/DBee" rel="noopener">
+            GitHub
+          </a>
+        </nav>
+      </div>
+    </header>
+
+    <main id="conteudo">
+      <!-- ================================================================
+           1. Hero
+           O que esta seção afirma: o que o DBee é (cliente de banco web,
+           self-hosted, um container), qual é a promessa central (não escreve
+           sem ordem) e que ele está em uso real. Nada aqui é aspiracional.
+           ================================================================ -->
+      <section class="hero" id="topo">
+        <div class="hero__halo" aria-hidden="true" data-parallax="0.06"></div>
+
+        <div class="shell shell--wide hero__inner">
+          <p class="hero__badge" data-fx="fade" data-enter>
+            <img class="badge__mark" src="assets/img/marca.webp" alt="" width="20" height="20" />
+            <span>
+              <!-- fonte: package.json "version" -->
+              <b>v0.3.7</b> · em produção diária desde a v0.1
+            </span>
+            <i class="dot" aria-hidden="true"></i>
+          </p>
+
+          <h1 class="hero__title split-words" data-enter>
+            O cliente de banco que não escreve sem você mandar.
+          </h1>
+
+          <p class="hero__sub" data-fx="up" data-enter>
+            Web, <strong>self-hosted</strong>, um container. Abre no navegador do time,
+            roda na sua infraestrutura, e nenhuma linha muda por acidente — a
+            proteção é o <strong>modo da transação</strong>, não uma regex no seu SQL.
+          </p>
+
+          <div class="hero__actions" data-fx="up" data-enter>
+            <a class="btn btn--primary" href="#instalar">
+              Subir o meu
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6" /></svg>
+            </a>
+            <a class="btn btn--ghost" href="#telas">Ver as telas</a>
+            <a class="btn btn--ghost" href="docs/">Ler as docs</a>
+          </div>
+
+          <p class="hero__meta" data-fx="fade" data-enter>
+            <span>Bun + Elysia + React</span>
+            <span>bun:sqlite embutido</span>
+            <span>sem SaaS, sem agente</span>
+          </p>
+
+          <figure class="hero__shot" data-fx="scale" data-enter>
+            <img
+              src="assets/img/grid.webp"
+              width="1440"
+              height="900"
+              fetchpriority="high"
+              decoding="async"
+              alt="Tela do DBee: à esquerda a árvore de conexões, bancos e schemas; à direita uma grade de resultados com as colunas de uma tabela."
+            />
+            <figcaption>
+              Grade virtualizada — 100&nbsp;mil linhas sem travar, paginação por
+              keyset, arraste para navegar. As telas usam um catálogo de música
+              de exemplo, gerado só para a documentação.
+            </figcaption>
+          </figure>
+
+          <p class="hero__scroll" data-fx="fade" data-enter>
+            <i aria-hidden="true"></i> role
+          </p>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           2. Faixa de motores
+           Afirma: quais bancos o DBee fala HOJE, e em que grau. É a faixa de
+           logos do Dokploy sem a mentira que ela costuma carregar — chip de
+           engine não implementada aparece apagado e diz "planejado".
+           ================================================================ -->
+      <div class="strip">
+        <div class="shell shell--wide">
+          <p class="strip__label">Motores — estado real, não roadmap disfarçado</p>
+          <div class="strip__row" data-fx-group>
+            <span class="chip chip--live" data-fx="up">
+              <svg aria-hidden="true"><use href="#i-postgres" /></svg>
+              PostgreSQL <small>completo</small>
+            </span>
+            <span class="chip chip--partial" data-fx="up">
+              <svg aria-hidden="true"><use href="#i-mysql" /></svg>
+              MySQL <small>leitura</small>
+            </span>
+            <span class="chip chip--partial" data-fx="up">
+              <svg aria-hidden="true"><use href="#i-mariadb" /></svg>
+              MariaDB <small>leitura</small>
+            </span>
+            <span class="chip chip--soon" data-fx="up">
+              <svg aria-hidden="true"><use href="#i-libsql" /></svg>
+              libSQL <small>leitura</small>
+            </span>
+            <span class="chip chip--soon" data-fx="up">
+              <svg aria-hidden="true"><use href="#i-sqlite" /></svg>
+              SQLite <small>planejado</small>
+            </span>
+            <span class="chip chip--soon" data-fx="up">
+              <svg aria-hidden="true"><use href="#i-mongodb" /></svg>
+              MongoDB <small>planejado</small>
+            </span>
+            <span class="chip chip--soon" data-fx="up">
+              <svg aria-hidden="true"><use href="#i-redis" /></svg>
+              Redis <small>planejado</small>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================================================================
+           3. O que é
+           Afirma: o DBee OPERA um banco que já existe — não provisiona, não
+           hospeda, não é SaaS. É a distinção que o próprio docs/multi-engine.md
+           faz questão de deixar clara.
+           ================================================================ -->
+      <section class="section section--surface" id="oque">
+        <div class="shell">
+          <div class="split">
+            <div>
+              <p class="section__kicker">O que é</p>
+              <h2 class="section__title split-words">Ele opera o banco que você já tem.</h2>
+              <p class="section__lede">
+                O DBee não provisiona nada, não sobe container de banco, não
+                guarda seus dados. Ele conecta no Postgres que já está em pé,
+                lê o catálogo, executa consulta, pagina resultado, edita linha e
+                exporta — pelo navegador, com uma conta por pessoa.
+              </p>
+              <p class="section__lede">
+                Ele nasceu de um problema chato: abrir um cliente pesado só para
+                responder “quantas notas essa empresa emitiu em março?” é caro
+                demais, e mandar o banco do cliente para uma ferramenta SaaS não
+                é uma opção. Está em produção diária num escritório contábil
+                desde a v0.1.
+              </p>
+              <span class="src">
+                <b>fonte:</b> README.md · docs/multi-engine.md (“o Dokploy
+                provisiona, o DBee opera”)
+              </span>
+            </div>
+            <div data-parallax="0.05">
+              <img
+                class="mascote"
+                src="assets/img/laptop.webp"
+                width="520"
+                height="650"
+                loading="lazy"
+                decoding="async"
+                alt="A abelha do DBee sentada em frente a um notebook."
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           4. Motores, em detalhe — a jornada horizontal
+           Afirma, por engine, exatamente o que existe e o que NÃO existe. O que
+           não existe aparece com travessão vermelho, no mesmo cartão. Nenhum
+           cartão promete paridade.
+           ================================================================ -->
+      <section class="section engines engines--rail" id="motores">
+        <!--
+          O cabeçalho mora DENTRO do bloco preso, não acima dele. Fora, a tela
+          presa nasceria vazia: o título ocupava a primeira dobra e os cartões
+          só apareciam 700px depois. Dentro, a tela presa está sempre completa —
+          título parado, cartões correndo por baixo. É a diferença entre uma
+          seção que conta uma história e uma que tem um buraco.
+        -->
+        <div data-rail>
+          <div class="engines__pin">
+            <div class="shell shell--wide engines__head-rail">
+              <div class="section__head">
+                <p class="section__kicker">Multi-engine</p>
+                <h2 class="section__title split-words">Sete motores, sete verdades diferentes.</h2>
+                <p class="section__lede">
+                  Uma grade de ícones do mesmo tamanho diz que os bancos fazem o
+                  mesmo — e não fazem. Cada cartão lista o que existe hoje, o que
+                  não existe, e onde mora a garantia de que uma leitura não vira
+                  escrita.
+                </p>
+              </div>
+            </div>
+
+            <div class="engines__track" data-rail-track>
+              <div class="shell shell--wide engines__stack" data-fx-group>
+                <!-- PostgreSQL -->
+                <article class="engine engine--full" data-fx="up">
+                  <header class="engine__top">
+                    <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-postgres" /></svg></span>
+                    <div>
+                      <h3 class="engine__name">PostgreSQL</h3>
+                      <p class="engine__state">completo</p>
+                    </div>
+                  </header>
+                  <ul class="engine__list">
+                    <li>Árvore: conexão → banco → schema → tabela</li>
+                    <li>Grade virtualizada com keyset, filtro e ordenação</li>
+                    <li>Editor SQL com autocomplete do catálogo real</li>
+                    <li>Escrita e DDL, com o comando na tela antes de aplicar</li>
+                    <li>Exportação CSV, TSV, JSON, NDJSON e SQL</li>
+                    <li>Diagrama ERD gerado das chaves estrangeiras</li>
+                  </ul>
+                  <p class="engine__guard">
+                    Garantia em <b>transação</b> — <code>BEGIN READ ONLY</code>.
+                    Cobre DML e DDL, e o SQL do usuário não desliga.
+                  </p>
+                </article>
+
+                <!-- MySQL -->
+                <article class="engine engine--read" data-fx="up">
+                  <header class="engine__top">
+                    <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-mysql" /></svg></span>
+                    <div>
+                      <h3 class="engine__name">MySQL</h3>
+                      <p class="engine__state">leitura</p>
+                    </div>
+                  </header>
+                  <ul class="engine__list">
+                    <li>Árvore: conexão → banco → tabela (sem schema)</li>
+                    <li>Catálogo: colunas, chave primária, índices e FKs</li>
+                    <li>Grade com filtro, ordenação e paginação por cursor</li>
+                    <li>Consulta livre, com cancelamento</li>
+                    <li data-no>Exportação, DDL e edição de linha</li>
+                  </ul>
+                  <p class="engine__guard">
+                    Garantia em <b>credencial</b> — <code>GRANT SELECT</code>.
+                    Não há interruptor de escrita por execução, porque não
+                    haveria o que ele ligasse.
+                  </p>
+                </article>
+
+                <!-- MariaDB -->
+                <article class="engine engine--read" data-fx="up">
+                  <header class="engine__top">
+                    <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-mariadb" /></svg></span>
+                    <div>
+                      <h3 class="engine__name">MariaDB</h3>
+                      <p class="engine__state">leitura</p>
+                    </div>
+                  </header>
+                  <ul class="engine__list">
+                    <li>As mesmas capacidades de tela do MySQL</li>
+                    <li>Driver próprio onde os dois divergem: limite de tempo, JSON e <code>SEQUENCE</code> no catálogo</li>
+                    <li data-no>Exportação, DDL e edição de linha</li>
+                  </ul>
+                  <p class="engine__guard">
+                    Garantia em <b>credencial</b>. “MariaDB é MySQL com outra
+                    string de versão” foi medido, e é falso.
+                  </p>
+                </article>
+
+                <!-- libSQL -->
+                <article class="engine" data-fx="up">
+                  <header class="engine__top">
+                    <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-libsql" /></svg></span>
+                    <div>
+                      <h3 class="engine__name">libSQL</h3>
+                      <p class="engine__state">leitura</p>
+                    </div>
+                  </header>
+                  <ul class="engine__list">
+                    <li>Árvore, catálogo, grade e consulta — falado por HTTP, sem cliente nativo</li>
+                    <li>Selecionável no formulário; a credencial é o token JWT</li>
+                  </ul>
+                  <p class="engine__guard">
+                    Garantia em <b>credencial</b> — o claim
+                    <code>"a":"ro"</code> do JWT. O
+                    <code>PRAGMA query_only</code> do SQLite <b>não existe</b>
+                    aqui: devolve erro de sintaxe.
+                  </p>
+                </article>
+
+                <!-- SQLite -->
+                <article class="engine engine--planned" data-fx="up">
+                  <header class="engine__top">
+                    <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-sqlite" /></svg></span>
+                    <div>
+                      <h3 class="engine__name">SQLite</h3>
+                      <p class="engine__state">planejado · bloqueado</p>
+                    </div>
+                  </header>
+                  <ul class="engine__list">
+                    <li data-no>Bloqueado por medição, não por falta de tempo</li>
+                    <li>
+                      <code>bun:sqlite</code> é síncrono: uma consulta de 47&nbsp;s
+                      produziu <b>zero</b> tiques num temporizador de 10&nbsp;ms —
+                      negação de serviço por um <code>SELECT</code> malfeito.
+                    </li>
+                  </ul>
+                  <p class="engine__guard">
+                    Garantia na <b>abertura do handle</b>
+                    (<code>readonly: true</code>) — o
+                    <code>PRAGMA query_only</code> o próprio usuário desliga.
+                  </p>
+                </article>
+
+                <!-- MongoDB -->
+                <article class="engine engine--planned" data-fx="up">
+                  <header class="engine__top">
+                    <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-mongodb" /></svg></span>
+                    <div>
+                      <h3 class="engine__name">MongoDB</h3>
+                      <p class="engine__state">planejado</p>
+                    </div>
+                  </header>
+                  <ul class="engine__list">
+                    <li data-no>Nada implementado</li>
+                    <li>
+                      Precisa de outra vista: documento aninhado sem esquema fixo
+                      não cabe numa grade de colunas com chave primária
+                    </li>
+                  </ul>
+                  <p class="engine__guard">
+                    Garantia em <b>credencial</b> — papel <code>read</code>. Um
+                    Mongo sem <code>--auth</code> não tem somente-leitura
+                    nenhum, faça o DBee o que fizer.
+                  </p>
+                </article>
+
+                <!-- Redis -->
+                <article class="engine engine--planned" data-fx="up">
+                  <header class="engine__top">
+                    <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-redis" /></svg></span>
+                    <div>
+                      <h3 class="engine__name">Redis</h3>
+                      <p class="engine__state">planejado</p>
+                    </div>
+                  </header>
+                  <ul class="engine__list">
+                    <li data-no>Nada implementado</li>
+                    <li>
+                      Vista de par chave/valor, seis tipos. Sem tabela não há
+                      grade, keyset nem ERD
+                    </li>
+                  </ul>
+                  <p class="engine__guard">
+                    Garantia em <b>credencial</b> — ACL <code>+@read</code>.
+                  </p>
+                </article>
+              </div>
+            </div>
+
+            <div class="engines__progress" aria-hidden="true"><i data-rail-bar></i></div>
+          </div>
+        </div>
+
+        <div class="shell shell--wide">
+          <span class="src">
+            <b>fonte:</b> docs/multi-engine.md §1 e §3 ·
+            packages/shared/src/engine.puro.ts (<code>CAPACIDADES</code>,
+            <code>ENGINES_IMPLEMENTADAS</code>) ·
+            docs/multi-engine-progresso.md. Medido contra PostgreSQL 16,
+            MySQL 8.4.11 e MariaDB 11.8.9 reais.
+          </span>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           5. Garantias
+           Afirma o incômodo: a garantia de somente-leitura muda de lugar por
+           engine, e o DBee mostra qual. Traz o escape medido do MySQL, que é a
+           parte que ninguém coloca no site.
+           ================================================================ -->
+      <section class="section guard" id="garantias">
+        <div class="shell">
+          <div class="section__head">
+            <p class="section__kicker">Somente leitura, de verdade</p>
+            <h2 class="section__title split-words">A regex sempre deixa um caso passar.</h2>
+          </div>
+
+          <div class="guard__grid">
+            <div class="guard__body">
+              <p class="guard__quote">
+                A proteção é o <em>modo da transação</em>, declarado no próprio
+                <code>BEGIN</code> — não um parser sobre o SQL que você digitou.
+              </p>
+              <p>
+                Um cliente que tenta adivinhar se a sua consulta escreve precisa
+                acertar em cima de CTEs, funções, <code>DO</code> blocks e
+                identificadores citados. Sempre tem um caso que escapa. No
+                Postgres o DBee não tenta: a transação nasce
+                <code>BEGIN READ ONLY</code>, e o servidor recusa a escrita
+                antes de o DBee opinar.
+              </p>
+              <p>
+                A parte incômoda é que <b>isso só vale no Postgres</b>. Em toda
+                outra engine a garantia mora em outro lugar, e o DBee mostra
+                onde em vez de fingir que é igual.
+              </p>
+              <img
+                class="mascote mascote--mini"
+                src="assets/img/pensando.webp"
+                width="520"
+                height="520"
+                loading="lazy"
+                decoding="async"
+                alt=""
+              />
+            </div>
+
+            <div>
+              <div class="tablewrap" data-fx="up">
+                <table class="matrix">
+                  <caption class="sr">
+                    Onde mora a garantia de somente-leitura em cada engine, e o
+                    que escapa do mecanismo mais óbvio
+                  </caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Engine</th>
+                      <th scope="col">O óbvio, e o que escapa dele</th>
+                      <th scope="col">Onde a garantia mora</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>PostgreSQL 16</td>
+                      <td><code>BEGIN READ ONLY</code> — nada encontrado</td>
+                      <td>transação</td>
+                    </tr>
+                    <tr>
+                      <td>MySQL 8.4</td>
+                      <td>
+                        <code>START TRANSACTION READ ONLY</code> — escapam
+                        <span class="esc"><code>TRUNCATE</code></span> e
+                        <span class="esc"><code>CREATE USER</code></span>
+                      </td>
+                      <td>credencial</td>
+                    </tr>
+                    <tr>
+                      <td>MariaDB 11</td>
+                      <td>idem MySQL</td>
+                      <td>credencial</td>
+                    </tr>
+                    <tr>
+                      <td>SQLite</td>
+                      <td>
+                        <code>PRAGMA query_only</code> — o próprio usuário
+                        desliga com <span class="esc"><code>= OFF</code></span>
+                      </td>
+                      <td>abertura do handle</td>
+                    </tr>
+                    <tr>
+                      <td>libSQL</td>
+                      <td>
+                        <code>PRAGMA query_only</code> —
+                        <span class="esc">não existe</span>
+                      </td>
+                      <td>claim <code>"a":"ro"</code> do JWT</td>
+                    </tr>
+                    <tr>
+                      <td>MongoDB 7</td>
+                      <td>—</td>
+                      <td>papel <code>read</code></td>
+                    </tr>
+                    <tr>
+                      <td>Redis 7</td>
+                      <td>—</td>
+                      <td>ACL <code>+@read</code></td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+
+              <div class="callout" data-fx="up">
+                <h3>E o que a proteção não é</h3>
+                <p>
+                  Somente-leitura é proteção contra o acidente comum, não caixa
+                  de contenção contra um papel privilegiado. Num superusuário do
+                  Postgres, <code>COPY … TO PROGRAM</code> continua executando
+                  comando no host do banco de dentro de uma transação
+                  “somente leitura”. O DBee <b>detecta o papel privilegiado ao
+                  testar a conexão e avisa</b> — consertar isso exigiria um
+                  parser de SQL, que é exatamente o que esta página acabou de
+                  dizer que não funciona.
+                </p>
+              </div>
+
+              <span class="src">
+                <b>fonte:</b> docs/multi-engine.md §1 (tabela medida contra
+                servidor real de cada engine) · CLAUDE.md regra 8 · README.md
+                “Segurança”. As versões da tabela são as usadas na medição.
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           6. Diferenciais
+           Afirma seis coisas verificáveis. Cada cartão fecha com a origem do
+           que ele diz.
+           ================================================================ -->
+      <section class="section section--surface" id="diferenciais">
+        <div class="shell shell--wide">
+          <div class="section__head">
+            <p class="section__kicker">Por que este e não outro</p>
+            <h2 class="section__title split-words">Seis decisões que dá para conferir.</h2>
+          </div>
+
+          <div class="bento" data-fx-group>
+            <article class="bento__card" data-fx="up">
+              <svg class="bento__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M3 8.5 12 4l9 4.5-9 4.5Z" /><path d="M3 12.5 12 17l9-4.5" /><path d="M3 16.5 12 21l9-4.5" />
+              </svg>
+              <h3>Um container. Só.</h3>
+              <p>
+                Sem Redis de sessão, sem Postgres de metadado, sem fila. O
+                estado local mora em <code>bun:sqlite</code>, dentro do próprio
+                binário, num volume. <code>docker run</code> e acabou.
+              </p>
+              <p class="bento__note">fonte: Dockerfile · deploy/docker-compose.yml</p>
+            </article>
+
+            <article class="bento__card" data-fx="up">
+              <svg class="bento__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M14 2.5H7a2 2 0 0 0-2 2v15a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7.5Z" /><path d="M14 2.5v5h5" /><path d="M8.5 12.5h7M8.5 16h5" />
+              </svg>
+              <h3>Auditoria de todo comando</h3>
+              <p>
+                Cada query executada vira uma linha em <code>query_log</code>:
+                o SQL literal, quem executou, em qual conexão e banco, o status,
+                a contagem de linhas e a duração. Não é só escrita — é tudo.
+              </p>
+              <p class="bento__note">
+                fonte: migrations/001_initial.sql · queryLog.repo.ts. A 1 milhão
+                de linhas, o filtro por ator responde em 0,093 ms (medido em
+                migrations/006_audit_indexes.sql).
+              </p>
+            </article>
+
+            <article class="bento__card" data-fx="up">
+              <svg class="bento__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="9" cy="8" r="3.2" /><path d="M2.8 20a6.4 6.4 0 0 1 12.4 0" /><path d="M16.5 5.2a3.2 3.2 0 0 1 0 5.6" /><path d="M18.5 20a6 6 0 0 0-2.2-4.6" />
+              </svg>
+              <h3>Papéis e permissão por conexão</h3>
+              <p>
+                Conta individual por pessoa, papel <code>admin</code> ou
+                <code>member</code>, e a permissão de escrita é concedida
+                <b>por conexão</b>. Escrever exige as duas coisas: a conexão
+                habilitada <em>e</em> a permissão da pessoa.
+              </p>
+              <p class="bento__note">fonte: migrations/004_user_roles.sql · README.md “Operar”</p>
+            </article>
+
+            <article class="bento__card" data-fx="up">
+              <svg class="bento__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="3.5" y="10.5" width="17" height="10.5" rx="2" /><path d="M7.5 10.5V7a4.5 4.5 0 0 1 9 0v3.5" />
+              </svg>
+              <h3>Feito para a tailnet</h3>
+              <p>
+                Sem porta pública por padrão. O acesso é pelo proxy interno ou
+                por uma porta bindada no IP <code>100.x</code> do Tailscale —
+                nunca em <code>0.0.0.0</code>. O container roda como usuário
+                não-root (uid 10001) e <b>não</b> monta o socket do Docker.
+              </p>
+              <p class="bento__note">fonte: docs/operacao.md “Segurança” · Dockerfile</p>
+            </article>
+
+            <article class="bento__card" data-fx="up">
+              <svg class="bento__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3v12" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /><path d="M4 20h16" />
+              </svg>
+              <h3>Exportação em stream</h3>
+              <p>
+                CSV, TSV, JSON, NDJSON e SQL, com a memória não crescendo com a
+                tabela — o cursor é <code>DECLARE CURSOR</code> em SQL, com
+                <code>FETCH</code> em lotes. Várias tabelas num
+                <code>.zip</code>, todas do mesmo instante consistente, com os
+                mesmos filtros da tela.
+              </p>
+              <p class="bento__note">fonte: README.md “Exportar” · CLAUDE.md regra 7. Só PostgreSQL.</p>
+            </article>
+
+            <article class="bento__card" data-fx="up">
+              <svg class="bento__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3.2 4 6.4v5.2c0 4.6 3.2 8.2 8 9.2 4.8-1 8-4.6 8-9.2V6.4Z" /><path d="m9 12 2.2 2.2L15.5 10" />
+              </svg>
+              <h3>A senha não sai daí</h3>
+              <p>
+                As senhas das conexões são cifradas com AES-256-GCM, por uma
+                chave derivada do <code>APP_SECRET</code> e de um salt que vive
+                dentro do SQLite. Credencial não é logada, não volta em resposta
+                e não volta em erro.
+              </p>
+              <p class="bento__note">fonte: README.md “Variáveis de ambiente” · CLAUDE.md regra 5</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           7. Telas
+           Afirma o que as capturas mostram. As legendas são as do README,
+           porque foram escritas olhando para as mesmas imagens.
+           ================================================================ -->
+      <section class="section shots" id="telas">
+        <div class="shell shell--wide">
+          <div class="section__head">
+            <p class="section__kicker">Capturas reais</p>
+            <h2 class="section__title split-words">O produto, sem mockup.</h2>
+            <p class="section__lede">
+              Nenhuma imagem desta página é ilustração. São quatro telas do DBee
+              rodando, contra um catálogo de música de exemplo gerado só para a
+              documentação.
+            </p>
+          </div>
+        </div>
+
+        <div class="shots__rail" tabindex="0" role="group" aria-label="Capturas do DBee — role na horizontal">
+          <figure class="shot">
+            <img src="assets/img/grid.webp" width="1440" height="900" loading="lazy" decoding="async" alt="Grade de resultados do DBee, com a árvore de schemas à esquerda." />
+            <figcaption>
+              <b>Grade de linhas</b>
+              Virtualizada — 100 mil linhas sem travar. Ordenação, filtro e
+              paginação por keyset. Clicar numa chave estrangeira abre a tabela
+              referenciada já filtrada.
+            </figcaption>
+          </figure>
+
+          <figure class="shot">
+            <img src="assets/img/sql.webp" width="1440" height="900" loading="lazy" decoding="async" alt="Editor SQL do DBee com uma consulta agregada e o resultado logo abaixo." />
+            <figcaption>
+              <b>Editor SQL</b>
+              Autocomplete alimentado pelo catálogo real, vários statements por
+              execução com o tempo de cada um, e o selo <em>somente leitura</em>
+              dizendo em que modo a transação vai nascer.
+            </figcaption>
+          </figure>
+
+          <figure class="shot">
+            <img src="assets/img/diagrama.webp" width="1440" height="900" loading="lazy" decoding="async" alt="Diagrama ERD gerado a partir do catálogo, com as tabelas ligadas pelas chaves estrangeiras." />
+            <figcaption>
+              <b>Diagrama ERD</b>
+              Gerado do catálogo, layout em camadas pelas FKs, atravessando
+              schemas. Tabelas sem relação vão para uma grade abaixo, em vez de
+              virar uma coluna de 13 mil pixels.
+            </figcaption>
+          </figure>
+
+          <figure class="shot shot--portrait">
+            <img src="assets/img/vitrine-login.webp" width="1800" height="2249" loading="lazy" decoding="async" alt="Tela de entrada do DBee, com o formulário de acesso." />
+            <figcaption>
+              <b>Entrada</b>
+              Conta individual por pessoa. A primeira nasce por um token escrito
+              em <code>/data/setup-token</code>, que é apagado no instante em
+              que a conta é criada.
+            </figcaption>
+          </figure>
+        </div>
+
+        <div class="shell shell--wide">
+          <p class="shots__hint">↔ role o trilho para ver as quatro</p>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           8. Instalar
+           Afirma: o caminho de subida cabe em três passos, e o que acontece se
+           você perder o APP_SECRET. O aviso é tão importante quanto o comando.
+           ================================================================ -->
+      <section class="section install" id="instalar">
+        <div class="shell">
+          <div class="section__head">
+            <p class="section__kicker">Instalar</p>
+            <h2 class="section__title split-words">Três passos, um container.</h2>
+            <p class="section__lede">
+              A imagem é publicada no GHCR e é <b>amd64</b>. Numa VM arm64 o
+              container não sobe.
+            </p>
+          </div>
+
+          <div class="install__grid">
+            <div>
+              <div class="terminal" data-fx="up">
+                <div class="terminal__bar">
+                  <i></i><i></i><i></i>
+                  <span>bash</span>
+                </div>
+                <div class="terminal__body">
+<pre id="cmd"><span class="c"># 1. O segredo que cifra as senhas das conexões. Guarde num cofre.</span>
+openssl rand <span class="k">-hex</span> 32
+
+<span class="c"># 2. Suba o container (sem -p: veja o aviso sobre rede)</span>
+docker run <span class="k">-d</span> <span class="k">--name</span> dbee \
+  <span class="k">-e</span> APP_SECRET=<span class="s">"&lt;o hex do passo 1&gt;"</span> \
+  <span class="k">-v</span> dbee-data:/data \
+  ghcr.io/joaoviitorsx/dbee:latest
+
+<span class="c"># 3. Leia o token do primeiro acesso</span>
+docker exec dbee cat /data/setup-token</pre>
+                </div>
+              </div>
+              <button class="copy" type="button" data-copy="cmd">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <rect x="9" y="9" width="12" height="12" rx="2" /><path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                </svg>
+                <span class="copy__txt">Copiar os três comandos</span>
+              </button>
+
+              <span class="src">
+                <b>fonte:</b> README.md “Subir em três passos” · docs/operacao.md
+              </span>
+            </div>
+
+            <div>
+              <ol class="steps" data-fx-group>
+                <li data-fx="up">
+                  <h3>Abra pela rede interna</h3>
+                  <p>
+                    Pelo IP da tailnet ou pelo proxy interno. O DBee não é
+                    exposto à internet, e o comando acima de propósito não
+                    publica porta.
+                  </p>
+                </li>
+                <li data-fx="up">
+                  <h3>Informe o token</h3>
+                  <p>
+                    Escolha seu usuário e senha. O token é apagado do volume
+                    nesse instante — nenhuma senha é gerada nem impressa em log.
+                  </p>
+                </li>
+                <li data-fx="up">
+                  <h3>Cadastre a primeira conexão</h3>
+                  <p>
+                    Escolha o motor, preencha host e credencial, e clique em
+                    testar. O teste diz se o papel é privilegiado antes de você
+                    salvar. Sempre a porta direta do banco — nunca o PgBouncer.
+                  </p>
+                </li>
+              </ol>
+
+              <p class="warn">
+                <b>Perder o APP_SECRET ou o volume /data = conexões perdidas.</b>
+                A chave que cifra as senhas é derivada do
+                <code>APP_SECRET</code> e de um salt que vive dentro do volume.
+                São dois pontos únicos de falha, e não há recuperação — só
+                recadastrar tudo. Guarde o segredo no gerenciador de segredos e
+                declare o volume.
+              </p>
+
+              <img
+                class="mascote mascote--mini"
+                src="assets/img/joia.webp"
+                width="520"
+                height="520"
+                loading="lazy"
+                decoding="async"
+                alt=""
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================
+           9. Chamada final
+           ================================================================ -->
+      <section class="section cta">
+        <div class="cta__halo" aria-hidden="true"></div>
+        <div class="shell cta__inner">
+          <img
+            class="mascote"
+            src="assets/img/feliz.webp"
+            width="520"
+            height="520"
+            loading="lazy"
+            decoding="async"
+            alt=""
+            data-parallax="0.04"
+          />
+          <h2 class="split-words">Suba o seu, e leia com calma.</h2>
+          <p>
+            As docs cobrem instalação, a primeira conexão, os papéis e o que
+            cada motor faz hoje. Tudo o que a página afirma tem um arquivo do
+            repositório atrás.
+          </p>
+          <div class="hero__actions hero__actions--center">
+            <a class="btn btn--primary" href="docs/">Ler as docs</a>
+            <a class="btn btn--ghost" href="https://github.com/joaoviitorsx/DBee" rel="noopener">Ver o código</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- ==================================================================
+         Rodapé
+         ================================================================== -->
+    <footer class="footer">
+      <div class="shell shell--wide">
+        <div class="footer__grid">
+          <div class="footer__about">
+            <a class="brand" href="#topo">
+              <img src="assets/img/marca.webp" alt="" width="26" height="26" />
+              <span>DBee</span>
+            </a>
+            <p>
+              Cliente de banco de dados web, self-hosted, um container. Sem
+              SaaS, sem plano pago, sem agente instalado no seu servidor.
+            </p>
+          </div>
+
+          <div>
+            <h4>Produto</h4>
+            <ul>
+              <li><a href="#oque">O que é</a></li>
+              <li><a href="#motores">Motores</a></li>
+              <li><a href="#garantias">Garantias</a></li>
+              <li><a href="#telas">Telas</a></li>
+              <li><a href="#instalar">Instalar</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4>Documentação</h4>
+            <ul>
+              <li><a href="docs/">Visão geral</a></li>
+              <li><a href="docs/#instalacao">Instalação</a></li>
+              <li><a href="docs/#primeira-conexao">Primeira conexão</a></li>
+              <li><a href="docs/#papeis">Papéis e permissões</a></li>
+              <li><a href="docs/#motores">O que cada motor faz</a></li>
+            </ul>
+          </div>
+
+          <div>
+            <h4>Repositório</h4>
+            <ul>
+              <li><a href="https://github.com/joaoviitorsx/DBee" rel="noopener">Código</a></li>
+              <li><a href="https://github.com/joaoviitorsx/DBee/releases" rel="noopener">Releases</a></li>
+              <li><a href="https://github.com/joaoviitorsx/DBee/blob/main/CHANGELOG.md" rel="noopener">Changelog</a></li>
+              <li><a href="https://github.com/joaoviitorsx/DBee/issues" rel="noopener">Issues</a></li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="footer__bottom">
+          <span>© <span data-ano>2026</span> DBee · <code>v0.3.7</code></span>
+          <span>Feito com Bun, Elysia e React. Esta página não usa CDN, cookie nem rastreador.</span>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
