@@ -47,6 +47,12 @@ export const Connection = t.Object({
    * numa engine de credencial.
    */
   hasWriteCredential: t.Boolean(),
+  /**
+   * `authSource` do MongoDB: o database onde a credencial autentica. `null` nas
+   * outras engines. Não é segredo — só diz onde a credencial mora —, então
+   * viaja na resposta, ao contrário da senha.
+   */
+  authSource: t.Union([t.String(), t.Null()]),
   createdAt: t.String(),
   updatedAt: t.String(),
 });
@@ -88,6 +94,12 @@ const FIELDS = {
    */
   writeUsername: t.String({ maxLength: 100 }),
   writePassword: t.String({ maxLength: 1000 }),
+  /**
+   * `authSource` do MongoDB — o database da credencial, quase sempre `admin`.
+   * Campo próprio e obrigatório nessa engine: reaproveitar `database` produz
+   * falha de autenticação indiagnosticável (medido).
+   */
+  authSource: t.String({ minLength: 1, maxLength: 100 }),
   color: t.Union([t.String({ maxLength: 32 }), t.Null()]),
   sslMode: SslMode,
   writeEnabled: t.Boolean(),
@@ -143,6 +155,7 @@ export const CreateConnection = t.Object({
   timezone: t.Optional(FIELDS.timezone),
   writeUsername: t.Optional(FIELDS.writeUsername),
   writePassword: t.Optional(FIELDS.writePassword),
+  authSource: t.Optional(FIELDS.authSource),
 });
 export type CreateConnection = Static<typeof CreateConnection>;
 

@@ -384,6 +384,8 @@ export const en: Record<ChaveI18n, string> = {
   "form.usuarioEscrita": "Write username",
   "form.senhaEscrita": "Write password",
   "form.tokenEscrita": "Write token",
+  "form.authSource": "authSource",
+  "form.authSourceAjuda": "The database the credential authenticates against — almost always 'admin'. Not the data database.",
   "form.token": "Token",
   "form.tokenAjuda":
     "sqld JWT. A token carrying the \"a\":\"ro\" claim is read-only — enforced by the server, DDL included. Leave blank for a server without SQLD_AUTH_JWT_KEY.",

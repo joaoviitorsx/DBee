@@ -1,0 +1,12 @@
+-- authSource do MongoDB: o database onde a credencial é autenticada.
+--
+-- Medido (docs/multi-engine.md fase 4): um usuário criado em `zzapp` com papel
+-- `read` FALHA autenticando contra `admin` e funciona contra `zzapp`.
+-- Reaproveitar o campo `database` produziria uma falha de autenticação
+-- indiagnosticável — o database dos dados e o database da credencial são coisas
+-- diferentes no Mongo, e com frequência não coincidem (a credencial mora em
+-- `admin`, os dados em outro lugar).
+--
+-- Nula por padrão e só o MongoDB a usa. Aditiva: binário anterior segue abrindo
+-- o banco, rollback de deploy continua possível.
+ALTER TABLE connections ADD COLUMN auth_source TEXT;

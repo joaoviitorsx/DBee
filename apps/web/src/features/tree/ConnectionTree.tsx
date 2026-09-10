@@ -589,7 +589,10 @@ function DatabaseBranch({
    * capacidade declarada) desenha o nível, que é o comportamento de sempre.
    */
   const capacidades = capacidadesDe(connection.engine);
-  const semNivelDeSchema = capacidades?.niveis === "conexao/database/tabela";
+  // Todas as engines sem nível de schema (MySQL, MariaDB, libSQL, MongoDB) —
+  // só o Postgres tem "schema" no meio. Checar a ausência de "schema" no lugar
+  // de uma string exata faz a árvore acompanhar cada engine nova sozinha.
+  const semNivelDeSchema = capacidades !== null && !capacidades.niveis.includes("schema");
   const expanded = tree.isExpanded(node);
   const perigo = connection.writeEnabled;
 

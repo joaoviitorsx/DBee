@@ -2,6 +2,7 @@ import { engineImplementada, type Engine } from "@dbee/shared/puro";
 
 import type { PoolManager } from "../pg/pool";
 import { DriverLibsql } from "./libsql";
+import { DriverMongo } from "./mongo";
 import { DriverMysql } from "./mysql";
 import { DriverPostgres } from "./postgres";
 import type { DriverLeitura } from "./tipos";
@@ -41,6 +42,11 @@ export class Drivers {
      * funcionaria contra certificado de CA pública.
      */
     this.#porEngine.set("libsql", new DriverLibsql(caCert));
+    /*
+     * MongoDB. Cache de `MongoClient` próprio, como o de MySQL tem o seu pool.
+     * O `caCert` vai para o TLS do cliente (o `verify-full` valida contra ele).
+     */
+    this.#porEngine.set("mongodb", new DriverMongo(caCert));
   }
 
   /**

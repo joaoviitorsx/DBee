@@ -384,6 +384,8 @@ export const pt = {
   "form.usuarioEscrita": "Usuário de escrita",
   "form.senhaEscrita": "Senha de escrita",
   "form.tokenEscrita": "Token de escrita",
+  "form.authSource": "authSource",
+  "form.authSourceAjuda": "O database onde a credencial autentica — quase sempre 'admin'. Não é o database dos dados.",
   "form.token": "Token",
   "form.tokenAjuda":
     "JWT do sqld. Um token com o claim \"a\":\"ro\" é somente leitura — e o servidor aplica, inclusive para DDL. Em branco vale para servidor sem SQLD_AUTH_JWT_KEY.",

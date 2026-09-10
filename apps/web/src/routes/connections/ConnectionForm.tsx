@@ -76,6 +76,9 @@ function initialDraft(editing: Connection | null): ConnectionDraft {
      */
     writeUsername: "",
     writePassword: "",
+    // `authSource` só existe no Mongo; vazio nas outras. `admin` é o padrão de
+    // fato do Mongo, e preencher ajuda mais que deixar em branco.
+    authSource: editing?.authSource ?? "",
   };
 }
 
@@ -140,7 +143,7 @@ export function ConnectionForm({
       color: d.color,
       password: d.password,
     };
-    for (const campo of ["host", "port", "database", "username", "sslMode", "timezone", "statementTimeoutMs", "writeEnabled", "writeUsername", "writePassword"] as const) {
+    for (const campo of ["host", "port", "database", "username", "sslMode", "timezone", "statementTimeoutMs", "writeEnabled", "writeUsername", "writePassword", "authSource"] as const) {
       if (permitidos.has(campo)) saida[campo] = d[campo];
     }
     return saida as unknown as ConnectionDraft;
@@ -365,6 +368,24 @@ export function ConnectionForm({
                   autoComplete="new-password"
                   value={draft.password}
                   onChange={(e) => { set("password", e.target.value); }}
+                />
+              </Field>
+              ) : null}
+
+              {mostra("authSource") ? (
+              <Field
+                label={t("form.authSource")}
+                htmlFor="auth-source"
+                hint={t("form.authSourceAjuda")}
+              >
+                <Input
+                  id="auth-source"
+                  mono
+                  required
+                  autoComplete="off"
+                  placeholder="admin"
+                  value={draft.authSource ?? ""}
+                  onChange={(e) => { set("authSource", e.target.value); }}
                 />
               </Field>
               ) : null}

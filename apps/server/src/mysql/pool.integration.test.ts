@@ -35,7 +35,7 @@ function conexao(porta: number, extra: Partial<ResolvedConnection> = {}): Resolv
     host: "127.0.0.1", port: porta, database: "loja",
     username: "root", password: SENHA,
     sslMode: "disable", timezone: "America/Bahia", statementTimeoutMs: 30_000,
-    writeEnabled: false, hasWriteCredential: false, createdAt: "", updatedAt: "",
+    writeEnabled: false, hasWriteCredential: false, authSource: null, createdAt: "", updatedAt: "",
     ...extra,
   };
 }

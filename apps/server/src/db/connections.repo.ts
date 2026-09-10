@@ -17,6 +17,7 @@ const PUBLIC_COLUMNS = `
   ssl_mode AS sslMode, write_enabled AS writeEnabled,
   statement_timeout_ms AS statementTimeoutMs, timezone,
   (write_password_enc IS NOT NULL) AS hasWriteCredential,
+  auth_source AS authSource,
   created_at AS createdAt, updated_at AS updatedAt
 `;
 
@@ -32,6 +33,7 @@ const PUBLIC_COLUMNS_C = `
   c.ssl_mode AS sslMode, c.write_enabled AS writeEnabled,
   c.statement_timeout_ms AS statementTimeoutMs, c.timezone,
   (c.write_password_enc IS NOT NULL) AS hasWriteCredential,
+  c.auth_source AS authSource,
   c.created_at AS createdAt, c.updated_at AS updatedAt
 `;
 
@@ -50,6 +52,7 @@ interface ConnectionRow {
   statementTimeoutMs: number;
   timezone: string;
   hasWriteCredential: number;
+  authSource: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -312,9 +315,9 @@ export class ConnectionsRepository {
         `INSERT INTO connections (
            id, name, color, engine, host, port, database, username, password_enc,
            ssl_mode, write_enabled, statement_timeout_ms, timezone,
-           write_username, write_password_enc,
+           write_username, write_password_enc, auth_source,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -358,6 +361,8 @@ export class ConnectionsRepository {
         input.writePassword === undefined || input.writePassword === ""
           ? null
           : encrypt(this.#key, aadEscrita(id), input.writePassword),
+        // `authSource` só existe no Mongo; vazio ou ausente vira null.
+        input.authSource === undefined || input.authSource === "" ? null : input.authSource,
         now,
         now,
       );
@@ -396,6 +401,9 @@ export class ConnectionsRepository {
       put("statement_timeout_ms", patch.statementTimeoutMs);
     }
     if (patch.timezone !== undefined) put("timezone", patch.timezone);
+    if (patch.authSource !== undefined) {
+      put("auth_source", patch.authSource === "" ? null : patch.authSource);
+    }
 
     /*
      * A credencial de escrita. Espelha a semântica da senha de leitura, com um

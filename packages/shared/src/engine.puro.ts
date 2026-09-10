@@ -50,7 +50,13 @@ export const ENGINES: readonly Engine[] = [
  * de escrita ali mora na credencial, e sem uma segunda credencial por conexão
  * não há modo de escrita para oferecer (`docs/papeis-mysql.md`).
  */
-export const ENGINES_IMPLEMENTADAS: readonly Engine[] = ["postgres", "mysql", "mariadb", "libsql"];
+export const ENGINES_IMPLEMENTADAS: readonly Engine[] = [
+  "postgres",
+  "mysql",
+  "mariadb",
+  "libsql",
+  "mongodb",
+];
 
 /**
  * Onde mora a garantia de que uma leitura não vira escrita.
@@ -125,7 +131,8 @@ export type CampoConexao =
   | "statementTimeoutMs"
   | "writeEnabled"
   | "writeUsername"
-  | "writePassword";
+  | "writePassword"
+  | "authSource";
 
 /**
  * As capacidades de cada engine.
@@ -135,7 +142,7 @@ export type CampoConexao =
  * a tabela afirmando o que o app não faz.
  */
 export const CAPACIDADES: Readonly<
-  Record<"postgres" | "mysql" | "mariadb" | "libsql", Capacidades>
+  Record<"postgres" | "mysql" | "mariadb" | "libsql" | "mongodb", Capacidades>
 > = {
   postgres: {
     niveis: "conexao/database/schema/tabela",
@@ -231,6 +238,35 @@ export const CAPACIDADES: Readonly<
    * que é do cliente e não do servidor — e por isso não vira campo que promete
    * "o banco vai parar em N ms".
    */
+  mongodb: {
+    niveis: "conexao/database/colecao",
+    escopoReadOnly: "credencial",
+    // Não há transação somente-leitura no Mongo tampouco; a garantia é o papel
+    // do usuário (papel `read` contra `readWrite`). Coberto por credencial.
+    readOnlyCobreDdl: false,
+    /*
+     * `authSource` é campo próprio e obrigatório: o database da credencial não
+     * é o database dos dados (medido). Sem `timezone` (o Mongo guarda data em
+     * UTC, não há fuso de sessão) e sem `statementTimeoutMs` como campo — o
+     * limite existe (`maxTimeMS`) mas não é configuração de conexão.
+     * `writeUsername`/`writePassword` destravam a escrita como nas outras.
+     */
+    // Leitura primeiro (como MySQL e libSQL entraram): a escrita de documento é a
+    // fatia seguinte, e sem caminho de escrita os campos de credencial gravável
+    // seriam a tela prometendo o que a engine ainda não faz.
+    campos: [
+      "host", "port", "database", "username", "password", "authSource", "sslMode",
+    ],
+    portaPadrao: 27017,
+    // Não há SQL. A navegação é pela grade de documentos e filtros; o editor de
+    // SQL livre não existe nesta engine.
+    dialeto: "postgres",
+    sqlLivre: false,
+    cancelarQuery: false,
+    // Sem schema fixo e sem chave estrangeira: não há diagrama ERD.
+    diagramaErd: false,
+  },
+
   libsql: {
     niveis: "conexao/database/tabela",
     escopoReadOnly: "credencial",
@@ -255,7 +291,13 @@ export const CAPACIDADES: Readonly<
  * não tem. Um valor errado aqui vira promessa falsa lá.
  */
 export function capacidadesDe(engine: Engine): Capacidades | null {
-  return engine === "postgres" || engine === "mysql" || engine === "mariadb" || engine === "libsql"
+  return (
+    engine === "postgres" ||
+    engine === "mysql" ||
+    engine === "mariadb" ||
+    engine === "libsql" ||
+    engine === "mongodb"
+  )
     ? CAPACIDADES[engine]
     : null;
 }
