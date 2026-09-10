@@ -19,3 +19,17 @@ export class RowsError extends Error {
     this.name = "RowsError";
   }
 }
+
+/**
+ * Erro ao aplicar uma edição de linha numa engine de credencial (Mongo/Redis).
+ *
+ * Separado do `RowsError` porque a fase é outra — escrita, não leitura — e o
+ * serviço de mutação o traduz para `write_forbidden`/`bad_request`, não para o
+ * erro de grade. Mensagem pronta para a tela, sem eco de credencial.
+ */
+export class MutacaoError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MutacaoError";
+  }
+}

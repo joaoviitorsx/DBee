@@ -3,6 +3,10 @@ import type {
   DatabaseSchema,
   DatabaseTree,
   Relation,
+  RowDeleteRequest,
+  RowInsertRequest,
+  RowMutationResult,
+  RowUpdateRequest,
   RowsRequest,
   RowsResponse,
   Engine,
@@ -86,6 +90,12 @@ export interface ResultadoExecucao {
   readonly error: (QueryError & { index: number }) | null;
 }
 
+/** Uma edição de linha, na forma que o driver de credencial aplica. */
+export type MutacaoLinha =
+  | { readonly tipo: "update"; readonly req: RowUpdateRequest }
+  | { readonly tipo: "delete"; readonly req: RowDeleteRequest }
+  | { readonly tipo: "insert"; readonly req: RowInsertRequest };
+
 export interface DriverLeitura {
   readonly engine: Engine;
 
@@ -129,6 +139,19 @@ export interface DriverLeitura {
 
   /** Executa o SQL do usuário, statement a statement, parando no primeiro erro. */
   executar(conexao: ResolvedConnection, opcoes: OpcoesExecucao): Promise<ResultadoExecucao>;
+
+  /**
+   * Aplica uma edição de linha (update/delete/insert) pela **credencial de
+   * escrita**, nas engines cuja garantia é a credencial e que não têm SQL de
+   * edição (Mongo: documento; Redis: chave).
+   *
+   * Opcional: o Postgres não o implementa — a edição dele é SQL parametrizado
+   * com guarda por tipo (`mutation.service`), e roteá-la aqui perderia isso. O
+   * serviço só chama este método quando o driver o oferece; sem ele, cai no
+   * caminho SQL. A guarda otimista (o `from`/`guard` do request) vira o filtro
+   * da operação — se a linha mudou, nada é afetado.
+   */
+  mutarLinha?(conexao: ResolvedConnection, mut: MutacaoLinha): Promise<RowMutationResult>;
 
   /**
    * A **credencial** desta conexão pode escrever no servidor?

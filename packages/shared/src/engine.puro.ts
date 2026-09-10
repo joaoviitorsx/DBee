@@ -252,11 +252,11 @@ export const CAPACIDADES: Readonly<
      * limite existe (`maxTimeMS`) mas não é configuração de conexão.
      * `writeUsername`/`writePassword` destravam a escrita como nas outras.
      */
-    // Leitura primeiro (como MySQL e libSQL entraram): a escrita de documento é a
-    // fatia seguinte, e sem caminho de escrita os campos de credencial gravável
-    // seriam a tela prometendo o que a engine ainda não faz.
+    // Escrita de documento via credencial de escrita, como nas engines SQL de
+    // credencial. `writeUsername`/`writePassword` destravam a edição da grade.
     campos: [
       "host", "port", "database", "username", "password", "authSource", "sslMode",
+      "writeUsername", "writePassword",
     ],
     portaPadrao: 27017,
     // Não há SQL. A navegação é pela grade de documentos e filtros; o editor de

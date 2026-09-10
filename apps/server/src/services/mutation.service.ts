@@ -16,6 +16,10 @@ import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { PoolClient } from "pg";
 
 import type { PoolManager } from "../pg/pool";
+import type { Drivers } from "../driver/registro";
+import type { MutacaoLinha } from "../driver/tipos";
+import { MutacaoError } from "../driver/erros";
+import { gravaPorCredencialSeparada } from "@dbee/shared/puro";
 import { exigirPostgres } from "./engine.guarda";
 import { type MutationResult, mutFail, mutOk } from "./result";
 
@@ -35,6 +39,8 @@ export interface MutationServiceDeps {
   readonly repository: ConnectionsRepository;
   readonly pools: PoolManager;
   readonly log: QueryLogRepository;
+  /** Quem fala com cada engine — para rotear a edição das engines de credencial. */
+  readonly drivers?: Drivers;
 }
 
 /**
@@ -58,38 +64,55 @@ export class MutationService {
   readonly #repository: ConnectionsRepository;
   readonly #pools: PoolManager;
   readonly #log: QueryLogRepository;
+  readonly #drivers: Drivers | undefined;
 
-  constructor({ repository, pools, log }: MutationServiceDeps) {
+  constructor({ repository, pools, log, drivers }: MutationServiceDeps) {
     this.#repository = repository;
     this.#pools = pools;
     this.#log = log;
+    this.#drivers = drivers;
   }
 
-  update(
+  async update(
     connectionId: string,
     request: RowUpdateRequest,
     ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
+    const viaDriver = await this.#viaDriver(connectionId, request.database, ator, {
+      tipo: "update",
+      req: request,
+    });
+    if (viaDriver !== null) return viaDriver;
     return this.#aplicar(connectionId, request.database, ator, request, (tipos) =>
       construirUpdate(request, tipos),
     );
   }
 
-  delete(
+  async delete(
     connectionId: string,
     request: RowDeleteRequest,
     ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
+    const viaDriver = await this.#viaDriver(connectionId, request.database, ator, {
+      tipo: "delete",
+      req: request,
+    });
+    if (viaDriver !== null) return viaDriver;
     return this.#aplicar(connectionId, request.database, ator, request, (tipos) =>
       construirDelete(request, tipos),
     );
   }
 
-  insert(
+  async insert(
     connectionId: string,
     request: RowInsertRequest,
     ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
+    const viaDriver = await this.#viaDriver(connectionId, request.database, ator, {
+      tipo: "insert",
+      req: request,
+    });
+    if (viaDriver !== null) return viaDriver;
     // Reusa #aplicar: um INSERT de uma linha afeta exatamente 1 (ou o Postgres
     // recusa por constraint, e o erro vai inteiro para a tela).
     //
@@ -274,6 +297,78 @@ export class MutationService {
 
       const message = err instanceof Error ? err.message : "erro desconhecido";
       this.#registrar(connectionId, database, construido.literal, "error", message, null, inicio, ator);
+      return mutFail("upstream_error", message);
+    }
+  }
+
+  /**
+   * Aplica a edição pela **credencial de escrita**, nas engines que gravam por
+   * credencial (Mongo/Redis). Devolve `null` quando não é o caso — e aí o
+   * chamador segue pelo caminho SQL (Postgres).
+   *
+   * O portão é o mesmo do SQL livre: a credencial de escrita tem que existir na
+   * conexão **e** o ator ter concessão. Faltando qualquer uma, recusa com
+   * `write_forbidden` e registra a tentativa — escrita barrada é o evento que a
+   * auditoria existe para provar.
+   */
+  async #viaDriver(
+    connectionId: string,
+    database: string,
+    ator: Ator,
+    mut: MutacaoLinha,
+  ): Promise<MutationResult<RowMutationResult> | null> {
+    let connection;
+    try {
+      connection = this.#repository.resolve(connectionId, ator);
+    } catch {
+      return mutFail("decryption_failed");
+    }
+    if (connection === null) return mutFail("not_found");
+
+    // Não é engine de credencial, ou não há driver com mutação: caminho SQL.
+    if (!gravaPorCredencialSeparada(connection.engine)) return null;
+    const driver = this.#drivers?.para(connection.engine);
+    if (driver?.mutarLinha === undefined) return null;
+
+    const inicio = performance.now();
+
+    // Portão: credencial de escrita presente E ator concedido.
+    const podeGravar =
+      connection.hasWriteCredential && this.#repository.podeEscrever(connectionId, ator);
+    if (!podeGravar) {
+      const motivo = !connection.hasWriteCredential
+        ? "esta conexão não tem credencial de escrita configurada"
+        : "você não tem concessão de escrita nesta conexão";
+      this.#registrar(
+        connectionId,
+        database,
+        `-- edição recusada: ${motivo}`,
+        "error",
+        `write_forbidden: ${motivo}`,
+        null,
+        inicio,
+        ator,
+      );
+      return mutFail("write_forbidden", motivo);
+    }
+
+    try {
+      const r = await driver.mutarLinha(connection, mut);
+      this.#registrar(connectionId, database, r.sql, "ok", null, r.rowCount, inicio, ator);
+      /*
+       * `matchedCount`/`deletedCount` 0 é a guarda otimista pegando: a linha
+       * mudou (ou sumiu) entre a leitura e o clique. Reporta como conflito, não
+       * como sucesso silencioso — o mesmo espírito da prova de cardinalidade do
+       * Postgres.
+       */
+      if (r.rowCount === 0 && mut.tipo !== "insert") {
+        return mutFail("row_changed");
+      }
+      return mutOk(r);
+    } catch (err: unknown) {
+      const message =
+        err instanceof MutacaoError ? err.message : err instanceof Error ? err.message : String(err);
+      this.#registrar(connectionId, database, `-- ${mut.tipo}`, "error", message, null, inicio, ator);
       return mutFail("upstream_error", message);
     }
   }

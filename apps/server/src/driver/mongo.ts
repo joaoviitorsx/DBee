@@ -17,8 +17,15 @@ import {
   NOME_PADRAO,
 } from "../mongo/introspect";
 import { lerLinhas, planejarLinhas } from "../mongo/rows";
+import { atualizar, excluir, inserir } from "../mongo/mutacao";
 import { testConnectionMongo } from "../mongo/test-connection";
-import type { DriverLeitura, ResultadoExecucao, ResultadoLinhas } from "./tipos";
+import type {
+  DriverLeitura,
+  MutacaoLinha,
+  ResultadoExecucao,
+  ResultadoLinhas,
+} from "./tipos";
+import type { RowMutationResult } from "@dbee/shared";
 
 /**
  * O driver de MongoDB, em leitura.
@@ -100,6 +107,45 @@ export class DriverMongo implements DriverLeitura {
   // eslint-disable-next-line @typescript-eslint/require-await -- o contrato é assíncrono.
   async executar(): Promise<ResultadoExecucao> {
     throw new Error("o MongoDB não tem editor de SQL livre — a navegação é pela grade e filtros");
+  }
+
+  /**
+   * Edição de documento pela credencial de **escrita**. A coleção é o `table`
+   * do request; o database, o `database`. O serviço só chega aqui com a
+   * credencial de escrita presente e o ator concedido.
+   */
+  async mutarLinha(conexao: ResolvedConnection, mut: MutacaoLinha): Promise<RowMutationResult> {
+    const cliente = await this.#clientes.escrita(conexao);
+    const db = this.#db(conexao, mut.req.database);
+    const colecao = mut.req.table;
+
+    /*
+     * Os tipos inferidos dos campos, pela credencial de **leitura** — a de
+     * escrita pode não ter permissão de amostrar, e o tipo é o mesmo. É o que
+     * faz a guarda casar (`{preco: 18.9}`, não `{preco: "18.9"}`): o valor da
+     * grade é texto, e sem o tipo o filtro não bate no documento.
+     */
+    const tipos = await this.#tiposDe(conexao, db, colecao);
+
+    switch (mut.tipo) {
+      case "update":
+        return await atualizar(cliente, db, colecao, mut.req, tipos);
+      case "delete":
+        return await excluir(cliente, db, colecao, mut.req, tipos);
+      case "insert":
+        return await inserir(cliente, db, colecao, mut.req, tipos);
+    }
+  }
+
+  /** Mapa campo → tipo inferido de uma coleção, pela credencial de leitura. */
+  async #tiposDe(
+    conexao: ResolvedConnection,
+    db: string,
+    colecao: string,
+  ): Promise<ReadonlyMap<string, string>> {
+    const esquema = await introspectarCompleto(await this.#clientes.leitura(conexao), db);
+    const rel = esquema.schemas[0]?.relations.find((r) => r.name === colecao);
+    return new Map((rel?.columns ?? []).map((c) => [c.name, c.dataType]));
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await -- o contrato é assíncrono.

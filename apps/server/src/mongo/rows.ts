@@ -5,6 +5,7 @@ import type { Relation, RowCursor, RowFilter, RowsRequest, RowsResponse } from "
 
 import { RowsError } from "../driver/erros";
 import { documentoEmLinha, paraTexto } from "./tipos";
+import { coagir } from "./valores";
 
 /**
  * A grade de documentos do MongoDB: filtro, ordenação e paginação.
@@ -45,38 +46,6 @@ const OPERADOR: Record<string, string> = {
   gte: "$gte",
 };
 
-/**
- * O valor de um filtro/cursor, coagido ao **tipo inferido da coluna**.
- *
- * O valor chega sempre em texto (regra 10), e o Mongo compara por faixa de
- * tipo: `{idade: "30"}` (texto) não casa `idade: 30` (número), e um `_id`
- * inteiro nunca é igual à string `"1"`. O catálogo inferiu o tipo de cada campo
- * por amostragem, e é ele que diz como o texto volta ao tipo do banco:
- *
- * - `number` → número; `bool` → booleano; `date` → `Date`; `objectId` → `ObjectId`;
- * - o resto (inclusive `mixed`) fica texto — que é o comportamento seguro.
- *
- * Coerção que falha (um texto que não é número numa coluna `number`) devolve o
- * texto original: melhor não casar nada do que estourar.
- */
-function coagir(texto: string, tipo: string | undefined): unknown {
-  switch (tipo) {
-    case "number": {
-      const n = Number(texto);
-      return Number.isFinite(n) ? n : texto;
-    }
-    case "bool":
-      return texto === "true" ? true : texto === "false" ? false : texto;
-    case "date": {
-      const d = new Date(texto);
-      return Number.isNaN(d.getTime()) ? texto : d;
-    }
-    case "objectId":
-      return /^[0-9a-f]{24}$/i.test(texto) ? new ObjectId(texto) : texto;
-    default:
-      return texto;
-  }
-}
 
 /** Um filtro da grade vira uma cláusula de query do Mongo. */
 function clausula(filtro: RowFilter, tipos: ReadonlyMap<string, string>): Document {
