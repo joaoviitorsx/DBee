@@ -36,6 +36,7 @@ const PAGINA = 500;
 export function DataTab({
   target,
   onConsultar,
+  permiteConsulta = true,
   estimatedRows = null,
   writeEnabled = false,
   colunasSchema,
@@ -47,6 +48,8 @@ export function DataTab({
 }: {
   readonly target: TableTarget;
   readonly onConsultar: () => void;
+  /** A engine tem editor de SQL livre? Falso no Mongo — sem "Consultar". */
+  readonly permiteConsulta?: boolean;
   /** `reltuples` do catálogo, para a escolha "exportar tudo" ter um número. */
   readonly estimatedRows?: number | null;
   /** A conexão permite escrita — habilita a edição de célula e o excluir linha. */
@@ -250,9 +253,11 @@ export function DataTab({
         ) : null}
 
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={onConsultar}>
-            {t("aba.consultar")}
-          </Button>
+          {permiteConsulta ? (
+            <Button size="sm" variant="secondary" onClick={onConsultar}>
+              {t("aba.consultar")}
+            </Button>
+          ) : null}
 
           {editavel && (colunasSchema?.length ?? 0) > 0 ? (
             <Button size="sm" variant="secondary" onClick={() => { setInserindo(true); }}>

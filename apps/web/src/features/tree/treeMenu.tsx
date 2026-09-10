@@ -1,10 +1,11 @@
 import { Activity, Code2, Copy, Database, DatabaseZap, Download, Pencil, Plug, RefreshCw, ScrollText, Share2, Table2, TableProperties, Trash2 } from "lucide-react";
 
-import type { MenuSection } from "../../components/ContextMenu";
+import type { MenuItem, MenuSection } from "../../components/ContextMenu";
 import type { TableTarget } from "../../app/workspace";
 import { api } from "../../lib/api";
 import type { TreeTarget } from "./ConnectionTree";
 import type { Tradutor } from "../../i18n";
+import { capacidadesDe } from "@dbee/shared/puro";
 import { copiarTexto } from "../../lib/navegador";
 
 /** Copia para a área de transferência, em silêncio se o navegador recusar. */
@@ -128,30 +129,39 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
         },
       ];
 
-    case "database":
+    case "database": {
+      // O que a engine faz decide o que o menu oferece. Um item que a engine não
+      // suporta (SQL no Mongo, diagrama sem FK, export só-Postgres) some — em vez
+      // de aparecer e falhar, que treina a pessoa a ignorar o menu (§5).
+      const capDb = capacidadesDe(target.connection.engine);
+      const itensNavegacao: MenuItem[] = [];
+      if (capDb?.sqlLivre !== false) {
+        itensNavegacao.push({
+          id: "new-query",
+          label: t("menu.novaConsultaAqui"),
+          icon: <Code2 aria-hidden className={icone} />,
+          onSelect: () => { actions.onNewQuery(target.connection.id, target.database); },
+        });
+      }
+      if (capDb?.diagramaErd !== false) {
+        itensNavegacao.push({
+          id: "diagram",
+          label: t("menu.verDiagrama"),
+          icon: <Share2 aria-hidden className={icone} />,
+          onSelect: () => { actions.onOpenDiagram(target.connection.id, target.database); },
+        });
+      }
+      // Export é só do Postgres hoje (as outras engines o recusam no servidor).
+      if (target.connection.engine === "postgres") {
+        itensNavegacao.push({
+          id: "export",
+          label: t("menu.exportar"),
+          icon: <Download aria-hidden className={icone} />,
+          onSelect: () => { actions.onOpenExport(target.connection.id, target.database); },
+        });
+      }
       return [
-        {
-          items: [
-            {
-              id: "new-query",
-              label: t("menu.novaConsultaAqui"),
-              icon: <Code2 aria-hidden className={icone} />,
-              onSelect: () => { actions.onNewQuery(target.connection.id, target.database); },
-            },
-            {
-              id: "diagram",
-              label: t("menu.verDiagrama"),
-              icon: <Share2 aria-hidden className={icone} />,
-              onSelect: () => { actions.onOpenDiagram(target.connection.id, target.database); },
-            },
-            {
-              id: "export",
-              label: t("menu.exportar"),
-              icon: <Download aria-hidden className={icone} />,
-              onSelect: () => { actions.onOpenExport(target.connection.id, target.database); },
-            },
-          ],
-        },
+        ...(itensNavegacao.length > 0 ? [{ items: itensNavegacao }] : []),
         /*
          * Criar só aparece com escrita ligada.
          *
@@ -197,6 +207,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
           ],
         },
       ];
+    }
 
     case "schema":
       return [
@@ -249,22 +260,27 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
             },
           ],
         },
-        {
-          items: [
-            {
-              id: "query-here",
-              label: t("menu.consultarTabela"),
-              icon: <Code2 aria-hidden className={icone} />,
-              onSelect: () => {
-                actions.onNewQuery(
-                  target.connection.id,
-                  target.database,
-                  `SELECT *\nFROM ${target.schema}.${target.relation.name}\nLIMIT 100;`,
-                );
+        // "Consultar tabela" só onde há editor de SQL — no Mongo não há.
+        ...(capacidadesDe(target.connection.engine)?.sqlLivre === false
+          ? []
+          : [
+              {
+                items: [
+                  {
+                    id: "query-here",
+                    label: t("menu.consultarTabela"),
+                    icon: <Code2 aria-hidden className={icone} />,
+                    onSelect: () => {
+                      actions.onNewQuery(
+                        target.connection.id,
+                        target.database,
+                        `SELECT *\nFROM ${target.schema}.${target.relation.name}\nLIMIT 100;`,
+                      );
+                    },
+                  },
+                ],
               },
-            },
-          ],
-        },
+            ]),
         {
           items: [
             {

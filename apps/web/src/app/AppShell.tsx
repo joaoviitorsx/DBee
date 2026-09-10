@@ -35,7 +35,8 @@ import { SubTabButtons, SubTabs, TabStrip } from "../features/tabs/TabStrip";
 import { FronteiraDeErro } from "../components/FronteiraDeErro";
 import { ConnectionTree, type ConnectionHealth, type TreeTarget } from "../features/tree/ConnectionTree";
 import { treeMenuSections, treeMenuTitle, type TreeMenuActions } from "../features/tree/treeMenu";
-import { useSchema, useTreeExpansion } from "../features/tree/useTree";
+import { capacidadesDe } from "@dbee/shared/puro";
+import { useConnections, useSchema, useTreeExpansion } from "../features/tree/useTree";
 import {
   activeTab,
   closeTab,
@@ -801,6 +802,11 @@ function TableTabContent({
   const t = useT();
   const { connectionId, database, schema, relation } = tab.target;
   const arvore = useSchema(connectionId, database, true);
+  // A aba Diagrama não existe nas engines sem ERD (Mongo: sem schema, sem FK).
+  const conexoesAba = useConnections();
+  const engineDaAba = conexoesAba.data?.find((c) => c.id === connectionId)?.engine ?? "postgres";
+  const semDiagrama = capacidadesDe(engineDaAba)?.diagramaErd === false;
+  const permiteConsulta = capacidadesDe(engineDaAba)?.sqlLivre !== false;
 
   const rel =
     arvore.data?.schemas.find((s) => s.name === schema)?.relations.find((r) => r.name === relation) ??
@@ -828,7 +834,7 @@ function TableTabContent({
    * comum, com o inspetor no `trailing`.
    */
   const barraComum = (
-    <SubTabs value={tab.view} onChange={onView} counts={counts} trailing={inspetorBtn} />
+    <SubTabs value={tab.view} onChange={onView} counts={counts} trailing={inspetorBtn} semDiagrama={semDiagrama} />
   );
 
   return (
@@ -891,13 +897,14 @@ function TableTabContent({
         <DataTab
           target={tab.target}
           onConsultar={onConsultar}
+          permiteConsulta={permiteConsulta}
           estimatedRows={rel.estimatedRows}
           writeEnabled={danger}
           colunasSchema={rel.columns}
           foreignKeys={rel.foreignKeys}
           onOpenTableFiltered={onOpenTableFiltered}
           {...(tab.initialFilters !== undefined ? { initialFilters: tab.initialFilters } : {})}
-          leading={<SubTabButtons value={tab.view} onChange={onView} counts={counts} />}
+          leading={<SubTabButtons value={tab.view} onChange={onView} counts={counts} semDiagrama={semDiagrama} />}
           trailing={inspetorBtn}
         />
       )}
