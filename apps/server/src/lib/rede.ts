@@ -82,7 +82,7 @@ export function ehLinkLocal(hostname: string): boolean {
   // O IPv4-mapeado é o mesmo endereço por outra escrita: desembrulha e reaplica
   // a regra do 169.254. Sem isto, `[::ffff:169.254.169.254]` passava.
   const mapeado = ipv4Mapeado(semColchete);
-  if (mapeado !== null && mapeado.startsWith("169.254.")) return true;
+  if (mapeado?.startsWith("169.254.") === true) return true;
   return semColchete.startsWith("fe80:") || semColchete === "fd00:ec2::254";
 }
 

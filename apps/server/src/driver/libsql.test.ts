@@ -18,7 +18,7 @@ const conexao = (sslMode: "disable" | "require" | "verify-full"): ResolvedConnec
     host: "db.exemplo.com", port: 8080, database: "", username: "",
     sslMode, timezone: "UTC", statementTimeoutMs: 30_000,
     writeEnabled: false, createdAt: "", updatedAt: "", password: "tok",
-  }) as ResolvedConnection;
+  });
 
 describe("alvoLibsqlDe — os três modos de SSL", () => {
   it("disable é http e não configura TLS", () => {
