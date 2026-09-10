@@ -17,8 +17,15 @@ import {
   numeroDoDb,
 } from "../redis/introspect";
 import { lerLinhas, planejarLinhas } from "../redis/rows";
+import { atualizar, excluir, inserir } from "../redis/mutacao";
 import { testConnectionRedis } from "../redis/test-connection";
-import type { DriverLeitura, ResultadoExecucao, ResultadoLinhas } from "./tipos";
+import type {
+  DriverLeitura,
+  MutacaoLinha,
+  ResultadoExecucao,
+  ResultadoLinhas,
+} from "./tipos";
+import type { RowMutationResult } from "@dbee/shared";
 
 /**
  * O driver de Redis, em leitura.
@@ -85,6 +92,35 @@ export class DriverRedis implements DriverLeitura {
   async cancelar(): Promise<boolean> {
     // `cancelarQuery: false`: a tela não oferece o botão.
     return false;
+  }
+
+  /**
+   * Edição de chave pela credencial de **escrita**. O db numerado vem do
+   * `database` do request; a chave, da PK. O serviço só chega aqui com a
+   * credencial de escrita e o ator concedido.
+   */
+  async mutarLinha(conexao: ResolvedConnection, mut: MutacaoLinha): Promise<RowMutationResult> {
+    const db = numeroDoDb(mut.req.database === "" ? "db0" : mut.req.database);
+    /*
+     * A escrita usa o cliente da credencial de **escrita** — a mesma conexão
+     * apontada para o db, mas autenticada com o token/senha gravável. No Redis
+     * a credencial é só senha; o `writeCredential.password` é o que muda.
+     */
+    const wc = conexao.writeCredential;
+    if (wc === undefined) {
+      throw new Error("escrita pedida sem credencial de escrita nesta conexão");
+    }
+    const conexaoEscrita: ResolvedConnection = { ...conexao, password: wc.password };
+    const cliente = await this.#clientes.cliente(conexaoEscrita, db);
+
+    switch (mut.tipo) {
+      case "update":
+        return await atualizar(cliente, mut.req);
+      case "delete":
+        return await excluir(cliente, mut.req);
+      case "insert":
+        return await inserir(cliente, mut.req);
+    }
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await -- fecho é síncrono no cliente.

@@ -282,7 +282,9 @@ export const CAPACIDADES: Readonly<
     niveis: "conexao/db-numerado",
     escopoReadOnly: "credencial",
     readOnlyCobreDdl: false,
-    campos: ["host", "port", "password", "sslMode"],
+    // `writePassword` (só a senha; o Redis não usa username por padrão)
+    // destrava a edição de chave pela credencial de escrita.
+    campos: ["host", "port", "password", "sslMode", "writePassword"],
     portaPadrao: 6379,
     dialeto: "postgres",
     sqlLivre: false,
