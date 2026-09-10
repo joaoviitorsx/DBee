@@ -359,6 +359,7 @@ export function AppShell({
               key={abaExport.id}
               connectionId={abaExport.connectionId}
               database={abaExport.database}
+              postgres={connections.find((c) => c.id === abaExport.connectionId)?.engine === "postgres"}
             />
           ) : abaDiagrama !== null ? (
             <DiagramTabContent
