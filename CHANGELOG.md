@@ -136,6 +136,31 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
   campo que a amostra revelou em profundidade ou um índice de array; `__proto__`
   e campo nunca amostrado são recusados. O catálogo aninhado é amostrado pela
   credencial de leitura (a de escrita pode não poder), como os tipos já eram.
+- **Dump de várias tabelas (bundle) nas engines SQL não-Postgres (MySQL,
+  MariaDB, libSQL, SQLite).** O `POST /:id/export/bundle` deixou de ser só do
+  Postgres: `exportBundle` ramifica por engine como o export de uma tabela já
+  fazia. Fora do Postgres, cada tabela é paginada pela grade de keyset do driver
+  (regra 7 — não há o cursor do `pg`) e as páginas são costuradas num stream só.
+  No formato `.sql`, o `CREATE TABLE` de referência sai no **dialeto da engine**
+  (crase no MySQL, aspas duplas no SQLite/libSQL, via `montarCreateTableGenerico`)
+  seguido dos `INSERT`s; os formatos não-`.sql` (csv/csv-comma/tsv/json/ndjson)
+  saem como um arquivo por tabela dentro de um `.zip`, o mesmo container do
+  Postgres. Mongo e Redis seguem recusados (capacidade `exportar: false`).
+
+  O que este caminho **não** tem, por honestidade e não por esquecimento:
+  índices, triggers e rotinas (são `pg_get_*` do catálogo do Postgres — as
+  opções `indexes`/`triggers`/`routines` são ignoradas nessas engines); `COPY`
+  e `ON CONFLICT` (do Postgres / de dialeto divergente — os dados saem sempre
+  como `INSERT` simples); e o **snapshot transacional entre tabelas** — sem a
+  transação `REPEATABLE READ`, tabelas diferentes podem refletir instantes
+  ligeiramente diferentes, e o cabeçalho do `.sql` registra isso.
+
+  Provado recarregando o `.sql` gerado: num segundo `bun:sqlite` limpo
+  (autocontido, sem Docker) e num MySQL vazio via `mysql2` — a tabela é criada e
+  os valores voltam idênticos (aspa simples, acento, NULL, decimal, DEFAULT do
+  SQLite). O `nomeDeEntrada`/`linhaTabular` do zip foram extraídos para
+  `lib/bundle-formato.ts` e são compartilhados pelos dois caminhos, para a regra
+  de segurança do nome da entrada viver num lugar só.
 
 - **DDL por formulário nas engines SQL não-Postgres (MySQL, MariaDB, libSQL,
   SQLite).** Criar tabela deixou de ser só do Postgres: o montador de `CREATE

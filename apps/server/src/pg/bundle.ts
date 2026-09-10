@@ -1,15 +1,13 @@
 import type { PoolClient } from "pg";
 
 import {
-  csvLine,
   EXPORT_BATCH,
-  EXTENSAO_BUNDLE,
-  SEPARADOR_BUNDLE,
   sqlInsertLine,
   type BundleData,
   type BundleFormat,
 } from "@dbee/shared";
 
+import { linhaTabular, nomeDeEntrada } from "../lib/bundle-formato";
 import { ZipWriter } from "../lib/zip";
 import { TUDO_TEXTO } from "./tipos";
 
@@ -97,22 +95,6 @@ function cabecalhoSql(planos: readonly BundleTablePlan[], opcoes: BundleOptions)
   );
 }
 
-/** Cabeçalho de coluna dos formatos tabulares. */
-function linhaTabular(
-  valores: readonly (string | null)[],
-  format: BundleFormat,
-): string {
-  const sep = SEPARADOR_BUNDLE[format];
-  if (format === "tsv") {
-    return (
-      valores
-        .map((v) => (v ?? "").replaceAll("\t", " ").replaceAll("\n", " ").replaceAll("\r", ""))
-        .join("\t") + "\r\n"
-    );
-  }
-  return csvLine(valores, sep);
-}
-
 /**
  * Estado de escrita: ou um arquivo contínuo (SQL), ou um zip com um arquivo por
  * tabela. Separar isso do laço evita um `if (zip)` em cada emissão.
@@ -132,42 +114,6 @@ function recipienteSql(): Recipiente {
     fecharTabela: () => null,
     finalizar: () => null,
   };
-}
-
-/**
- * Nome da entrada no `.zip`, a partir de schema e tabela.
- *
- * Era `${schema}.${table}.${ext}` cru, e nome de tabela é **entrada do
- * usuário**: identificador do Postgres aceita ponto, barra e quase tudo quando
- * citado. Isso trazia dois problemas de verdade, não hipotéticos — as tabelas
- * existem no banco de teste:
- *
- * - **Barra vira diretório.** `zz_barra/tabela` produzia a entrada
- *   `zz_hostil.zz_barra/tabela.csv`, isto é, uma pasta dentro do zip. Com `..`
- *   no nome, o caminho ainda tenta sair dela — o `unzip` do Info-ZIP recusa,
- *   mas depender da educação do extrator alheio não é contenção.
- * - **Colisão silenciosa.** `zz_a` + `"b.c"` e `"zz_a.b"` + `c` dão o mesmo
- *   nome; o zip aceita duas entradas homônimas e, ao extrair, uma sobrescreve a
- *   outra. A pessoa pediu duas tabelas e recebeu um arquivo, sem aviso.
- *
- * Separador some, byte de controle some, e o desempate é sufixo numérico — a
- * segunda tabela sai como `nome (2).csv` em vez de sumir.
- */
-function nomeDeEntrada(
-  schema: string,
-  table: string,
-  format: BundleFormat,
-  usados: Set<string>,
-): string {
-  // Separador de caminho e byte de controle viram `_`. O resto fica como
-  // está: acento, espaço e hífen são legítimos num nome de tabela.
-  // eslint-disable-next-line no-control-regex -- o byte de controle é o alvo
-  const limpo = `${schema}.${table}`.replace(/[/\\\u0000-\u001f]/g, "_");
-  const ext = EXTENSAO_BUNDLE[format];
-  let nome = `${limpo}.${ext}`;
-  for (let i = 2; usados.has(nome); i++) nome = `${limpo} (${String(i)}).${ext}`;
-  usados.add(nome);
-  return nome;
 }
 
 function recipienteZip(format: BundleFormat): Recipiente {

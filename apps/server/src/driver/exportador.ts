@@ -83,7 +83,8 @@ function valorSql(valor: string | null, dialeto: DialetoSql): string {
   return sqlValue(valor);
 }
 
-function linhaInsert(
+/** Uma linha de `INSERT INTO … VALUES (…);` citada e escapada pelo dialeto. */
+export function linhaInsert(
   tabela: string,
   colunas: readonly string[],
   valores: readonly (string | null)[],

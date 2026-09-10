@@ -19,6 +19,11 @@ import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { Drivers } from "../driver/registro";
 import { citarIdent, exportarEmStream, type PaginaExport } from "../driver/exportador";
+import {
+  streamBundleDriver,
+  type BundleOpcoesDriver,
+  type BundleTablePlanoDriver,
+} from "../driver/bundle";
 import type { DriverLeitura } from "../driver/tipos";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import { streamBundle, type BundleOptions, type BundleTablePlan } from "../pg/bundle";
@@ -26,7 +31,7 @@ import { streamExport } from "../pg/exporter";
 import type { PoolManager } from "../pg/pool";
 import { RowsError, planRows } from "../pg/rows";
 import type { SchemaService } from "./schema.service";
-import { exigirExportacao, exigirPostgres } from "./engine.guarda";
+import { exigirExportacao } from "./engine.guarda";
 import { type ServiceResult, fail, ok } from "./result";
 
 
@@ -567,13 +572,23 @@ export class ExportService {
     if (connection === null) return fail("not_found");
 
     /*
-     * Só o Postgres faz isto. Sem esta guarda, uma conexão MySQL faria o
-     * `PoolManager` do Postgres falar protocolo de Postgres com a porta 3306,
-     * e o erro seria de handshake — sem relação com a verdade, que é
-     * "isto não existe aqui".
+     * O dump existe em todas as engines SQL; só o Mongo e o Redis o recusam
+     * (o documento e a chave não viram linha de tabela). A guarda lê a
+     * capacidade, não a engine — a mesma que o export de uma tabela usa.
      */
-    const semSuporte = exigirPostgres<never>(connection.engine, "exportação");
+    const semSuporte = exigirExportacao<ExportStream>(connection.engine);
     if (semSuporte !== null) return semSuporte;
+
+    /*
+     * As engines que não são o Postgres não têm o cursor do `pg` nem a
+     * transação `REPEATABLE READ` que dá ao dump do Postgres o instante único
+     * (regra 7). Elas paginam pela grade de keyset do driver, no caminho
+     * próprio abaixo — que também emite o `CREATE TABLE` no dialeto delas e
+     * registra, no cabeçalho, que as tabelas não vêm de um instante único.
+     */
+    if (connection.engine !== "postgres") {
+      return await this.#exportBundleDriver(connectionId, connection, request, ator);
+    }
 
     const database = request.database ?? connection.database;
     const format = request.format ?? "sql";
@@ -714,6 +729,128 @@ export class ExportService {
       });
       return fail("upstream_error", message);
     }
+  }
+
+  /**
+   * Dump de várias tabelas nas engines SQL que não são o Postgres (MySQL,
+   * MariaDB, libSQL, SQLite).
+   *
+   * Ramifica de `exportBundle` como `#exportDriver` ramifica de `export()`, e
+   * pela mesma razão: sem o cursor do `pg` e sem a transação `REPEATABLE READ`,
+   * cada tabela pagina pela grade de keyset do driver (`#produtorTabela`) e o
+   * laço genérico (`streamBundleDriver`) costura as páginas num stream só.
+   *
+   * ## O que este caminho NÃO tem, e por quê
+   *
+   * - **Sem snapshot único entre tabelas.** Não há a transação que dá ao
+   *   Postgres o instante compartilhado; as tabelas podem refletir instantes
+   *   ligeiramente diferentes. Aceitável e honesto — o cabeçalho do `.sql` diz.
+   * - **Sem índices, triggers nem rotinas.** São `pg_get_*` do catálogo do
+   *   Postgres. As opções `indexes`/`triggers`/`routines` são **ignoradas** aqui
+   *   em vez de recusadas: uma linha desmarcada da UI que veio ligada não é erro.
+   * - **Sem `COPY` nem `ON CONFLICT`.** O `COPY … FROM stdin` é do Postgres e o
+   *   `ON CONFLICT` diverge de dialeto entre estas engines; os dados saem sempre
+   *   como `INSERT` simples, o mesmo do export de uma tabela. `data: "none"`
+   *   ainda desliga os dados.
+   *
+   * O que cobre: `CREATE TABLE` de referência no dialeto da engine (via
+   * `montarCreateTableGenerico`, com o identificador citado por `citarIdent`) +
+   * os `INSERT`s. Os formatos não-`.sql` saem como um arquivo por tabela num
+   * `.zip`, o mesmo container do Postgres.
+   */
+  async #exportBundleDriver(
+    connectionId: string,
+    connection: ResolvedConnection,
+    request: ExportBundleRequest,
+    ator: Ator,
+  ): Promise<ServiceResult<ExportStream>> {
+    const database = request.database ?? connection.database;
+    const format = request.format ?? "sql";
+    const structure = request.structure ?? "create";
+    const dataMode = request.data ?? "insert";
+    const output = request.output ?? "download";
+    const ehSql = format === "sql";
+    const dialeto = dialetoDe(connection.engine);
+    const driver = this.#drivers.para(connection.engine);
+
+    const arvore = await this.#schema.get(connectionId, database, false, ator);
+    if (!arvore.ok) return arvore;
+
+    const schemasDaArvore = arvore.value.schemas;
+    type Rel = (typeof schemasDaArvore)[number]["relations"][number];
+    const acharRelation = (schema: string, table: string): Rel | undefined =>
+      schemasDaArvore.find((sc) => sc.name === schema)?.relations.find((r) => r.name === table);
+
+    const planos: BundleTablePlanoDriver[] = [];
+    for (const escolha of request.tables) {
+      // Uma tabela sem estrutura nem dados é uma linha desmarcada que veio
+      // junto, não um erro — pular é o que a UI espera.
+      if (!escolha.structure && !escolha.data) continue;
+
+      const relation = acharRelation(escolha.schema, escolha.table);
+      if (relation === undefined) {
+        return fail("not_found", `${escolha.schema}.${escolha.table} não existe neste database`);
+      }
+
+      // Estrutura só faz sentido em SQL: um CSV não carrega DDL.
+      const querEstrutura = ehSql && escolha.structure && structure !== "none";
+      const querDados = escolha.data && dataMode !== "none";
+      // Nestas engines a tabela é qualificada pela conexão (banco/arquivo), não
+      // por schema: o destino do INSERT é só o nome citado pelo dialeto.
+      const qualified = citarIdent(escolha.table, dialeto);
+
+      planos.push({
+        schema: escolha.schema,
+        table: escolha.table,
+        qualified,
+        ddl: querEstrutura ? montarCreateTableGenerico(qualified, relation, dialeto) : null,
+        columns: relation.columns.map((c) => c.name),
+        dropFirst: structure === "drop-create" && querEstrutura,
+        proximaPagina: querDados
+          ? this.#produtorTabela(
+              driver,
+              connection,
+              database,
+              escolha.schema,
+              relation,
+              { kind: "table", schema: escolha.schema, table: escolha.table },
+              // Sem teto: o dump traz a tabela inteira.
+              undefined,
+              // A auditoria do bundle registra a lista de tabelas, não o SELECT
+              // de cada uma — o produtor não precisa reportar o SQL aqui.
+              () => {
+                /* sem auditoria por tabela no bundle */
+              },
+            )
+          : null,
+      });
+    }
+
+    if (planos.length === 0) return fail("bad_request", "nenhuma tabela selecionada");
+
+    const opcoes: BundleOpcoesDriver = { format, dialeto };
+
+    const inicio = performance.now();
+    const resumo = planos.map((p) => `${p.schema}.${p.table}`).join(", ");
+    const sqlDoLog = `-- export ${format} de ${String(planos.length)} tabela(s): ${resumo}`;
+
+    // Sem `withStreamingTransaction`: os drivers devolvem a conexão ao pool a
+    // cada página, então não há transação a manter viva enquanto o stream vive.
+    const stream = streamBundleDriver(planos, opcoes, (resultado, erro) => {
+      this.#log.record({
+        connectionId,
+        database,
+        sql: sqlDoLog,
+        status: erro === null ? "ok" : "error",
+        error: erro,
+        rowCount: resultado.rows,
+        durationMs: Math.round(performance.now() - inicio),
+        readOnly: true,
+        actor: ator.id,
+      });
+    });
+
+    return ok(this.#embrulhar(stream, database, format, output));
   }
 
   /**
