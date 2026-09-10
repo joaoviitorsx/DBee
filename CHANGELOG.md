@@ -5,6 +5,43 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 ## [Não lançado]
 
 ### Adicionado
+- **libSQL: protocolo, cliente e catálogo** — primeiras peças da fase 3 do
+  multi-engine. Ainda não conecta pela interface.
+
+  **O DBee fala o protocolo com `fetch`, sem cliente.** O `sqld` expõe
+  `POST /v2/pipeline` em JSON puro. O cliente oficial (`@libsql/client`) foi
+  medido e reprovou em duas frentes: **traz módulo nativo** (23 MB), o que a
+  regra 4 proíbe porque quebra o `bun build --compile`; e **quebra numa tabela
+  que o DBee precisa conseguir ler** — uma coluna `REAL` com infinito faz ele
+  lançar `HRANA_PROTO_ERROR` e a consulta inteira falha.
+
+  **A regra 10 vem quase de graça.** O protocolo manda cada célula com o tipo
+  explícito e o valor **já em string**, então um inteiro de 64 bits chega
+  inteiro sem passar por `number` — o que no Postgres exigiu `TUDO_TEXTO` e no
+  MySQL exigiu `typeCast` com bytes crus. Três exceções: `float` vem como número
+  JSON, `blob` vem em base64 (vira hexadecimal, como o `bytea`), e o infinito
+  **perde o sinal**. Mas ele **não se confunde com `NULL`**: o campo `type`
+  ainda os separa, e devolver `null` ali diria que a célula é vazia quando ela
+  não é.
+
+  **Sem pool, e não por economia:** a engine não tem sessão. Cada requisição é
+  independente, então somem o contrato de descarte, a configuração de sessão e a
+  fila de vagas que o MySQL precisou. Em troca, não há limite de tempo por
+  statement nem cancelamento — o protocolo não os oferece, e isso vira
+  capacidade em vez de um botão que não faz nada.
+
+  **A garantia de somente-leitura é a mais forte depois do Postgres.** O claim
+  `"a":"ro"` do JWT é aplicado pelo **servidor** e cobre até DDL: `INSERT`,
+  `UPDATE`, `DELETE`, `DROP` e `CREATE` todos bloqueados, e as duas saídas
+  clássicas do SQLite — `PRAGMA query_only = OFF` e `ATTACH` — recusadas como
+  statement não suportado. Não depende de montar `GRANT` certo como no MySQL.
+
+  **O catálogo** sai de `sqlite_master` e das funções `pragma_*`, em lote. Dois
+  casos travados por teste porque quebrariam o keyset em silêncio: a chave
+  primária composta vem na ordem do campo `pk` e **não** na das colunas da
+  tabela (o teste cria `comp(a, b, v)` com `PRIMARY KEY (b, a)`), e a chave
+  estrangeira composta é pareada pelo `seq`.
+
 - **A fase 2 fechada: introspecção completa e grade de linhas no
   MySQL/MariaDB.**
 

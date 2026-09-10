@@ -159,6 +159,82 @@ números e as datas chegam em ASCII.
 **Quarta divergência MariaDB/MySQL:** o MySQL descreve JSON como `columnType`
 245; o MariaDB, como `BLOB` (252) com `extendedFormat: "json"`.
 
+### 3d. libSQL: o protocolo entrega a regra 10, e o cliente oficial atrapalha
+
+Medido contra `ghcr.io/tursodatabase/libsql-server` real.
+
+**O `sqld` fala JSON por `POST /v2/pipeline`, e cada célula vem com o tipo
+explícito e o valor já como string:**
+
+```json
+{"type":"integer","value":"9223372036854775807"}
+```
+
+Inteiro de 64 bits chega inteiro, sem passar por `number`. O que no Postgres
+exigiu `TUDO_TEXTO` e no MySQL exigiu `typeCast` com bytes crus, aqui o servidor
+já entrega pronto.
+
+Três exceções, e a terceira é perda de dado:
+
+| tipo | como chega | tratamento |
+|---|---|---|
+| `integer`, `text` | string | direto |
+| `float` | **número JSON** | precisão sobrevive (IEEE 754 dos dois lados); a formatação é nossa |
+| `blob` | **`base64`**, em campo próprio | vira hexadecimal `0x…`, como o `bytea` e o `BLOB` |
+| infinito | **`{"type":"float","value":null}`** | ver abaixo |
+
+**O infinito não sobrevive ao JSON.** O SQLite guarda infinito numa coluna
+`REAL` sem reclamar (`typeof` devolve `real`, `CAST(v AS TEXT)` devolve `Inf`),
+e o protocolo o entrega como `value: null`. O **tipo** ainda distingue de um
+`NULL` de verdade, que chega com `type: "null"` — e é isso que permite não
+mentir. O **sinal** não sobrevive: `+Inf` e `-Inf` chegam idênticos.
+
+**O cliente oficial reprovou em duas frentes**, e por isso o DBee fala o
+protocolo com `fetch`:
+
+1. **Traz módulo nativo** (`@libsql/linux-x64-gnu/index.node`, 23 MB). A regra 4
+   proíbe módulo nativo no backend porque quebra o `bun build --compile`.
+2. **Quebra na tabela com infinito**: `HRANA_PROTO_ERROR: Expected number,
+   received null`, e a consulta inteira falha. Com `fetch`, a mesma tabela é
+   lida.
+
+Sem cliente também não há pool, configuração de sessão nem contrato de descarte:
+cada requisição é independente, e o `fetch` do Bun reusa a conexão TCP por
+baixo. Menos peças porque a engine tem menos estado.
+
+### 3e. A garantia do libSQL é a mais forte depois do Postgres
+
+O claim `"a":"ro"` do JWT é aplicado **pelo servidor**, e cobre até DDL. Medido
+com `SQLD_AUTH_JWT_KEY` e um par Ed25519:
+
+| statement | com token `ro` |
+|---|---|
+| `SELECT` | passa |
+| `INSERT` / `UPDATE` / `DELETE` | **bloqueado** — `Current session doesn't have Write permission` |
+| `DROP TABLE` / `CREATE TABLE` | **bloqueado** |
+| `PRAGMA query_only = OFF` | **bloqueado** — `unsupported statement` |
+| `ATTACH DATABASE` | **bloqueado** — `unsupported statement` |
+
+Dados intactos depois da bateria. É melhor que o MySQL em dois aspectos: não
+depende de montar `GRANT` certo, e cobre DDL. E melhor que o SQLite local, onde
+o `PRAGMA query_only` está ao alcance do usuário.
+
+**O que falta ali:** limite de tempo por statement e cancelamento não existem no
+protocolo. Vira `cancelarQuery: false` na capacidade, e a tela deixa de oferecer
+o botão em vez de oferecer um que não faz nada.
+
+### 3f. A forma do keyset: três engines, três respostas
+
+| engine | comparação de linha | disjunção `OR` | NULL em `ASC` | `NULLS LAST` |
+|---|---|---|---|---|
+| PostgreSQL 16 | `Index Cond`, **0,25 ms** | `Filter`, 76,4 ms | por último | existe |
+| MySQL 8.4 / MariaDB 11 | `type=index`, 24 ms | `type=range`, **1 ms** | **primeiro** | **não existe** |
+| libSQL | covering index, ~0,4 ms | covering index, ~0,4 ms | **primeiro** | existe |
+
+O libSQL é o único indiferente à forma — as duas dão o mesmo plano e o mesmo
+tempo. Ele aceita `NULLS LAST`, mas usá-lo para imitar a ordem do Postgres
+custaria o índice, então a ordem nativa é respeitada, como no MySQL.
+
 ### 3c. `verify-full` no MySQL: possível por nome, impossível por IP
 
 O ADR 003 diz que só existem três modos de SSL e que **cada um precisa
