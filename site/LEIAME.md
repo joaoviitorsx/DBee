@@ -54,7 +54,7 @@ trilho). Estado de hoje:
 | legenda de captura | 150 | 5 | 120 | 131 |
 | rótulo de número | 62 | 4 | 31 | 53 |
 
-**113 rótulos medidos, 0 fora do teto.**
+**115 rótulos medidos, 0 fora do teto.**
 
 ## Capturar as telas
 
@@ -128,6 +128,7 @@ imersão é a de lá.
 | Contadores | números | sobem com `easeOutExpo` ao entrar na tela |
 | Botão magnético | todos os CTAs | o botão é puxado pelo cursor; o conteúdo anda em contra-fase |
 | Cursor com rótulo | trilho de capturas | vira pastilha âmbar escrita "arraste" |
+| Índice que se retira | rodapé na tela | some quando a narrativa que ele numera acaba |
 | Arraste com o ponteiro | trilho de capturas | além da rolagem nativa, que continua funcionando |
 | Sobreposição de seções | todas | a seção seguinte sobe por cima com o canto arredondado |
 
@@ -184,6 +185,31 @@ scripts/site-copy.ts    mede toda label contra o teto do papel dela
 `readme-banner.png` (1,2 MB) **não** foi copiado: dele saiu só `og.webp`
 (22 KB, 1200×630), que é o único uso que ele teria aqui. O original continua em
 `assets/` na raiz do repositório.
+
+---
+
+## O que envelhece aqui quando o produto anda
+
+A landing afirma estado de produto, e estado de produto muda. Estes são os
+pontos que **precisam** ser revisados junto com a fatia que os mexe — cada um
+já ficou desatualizado uma vez, dentro da mesma sessão em que a página nasceu
+(o libSQL saiu de "em construção" para leitura completa enquanto ela era
+escrita).
+
+| se mudar isto | atualize |
+|---|---|
+| `ENGINES_IMPLEMENTADAS` (`packages/shared/src/engine.puro.ts`) | o chip da faixa, o cartão do motor, a tabela das docs §6, **e o contador "motores falando hoje"** |
+| `CAPACIDADES` de qualquer engine | o que o cartão daquele motor lista em "faz" e em "não faz" |
+| A tabela §1 do `docs/multi-engine.md` | a matriz de garantias da home e a coluna "garantia" das docs |
+| A versão em `package.json` | o selo do herói e a linha do rodapé (dois lugares, os dois marcados com comentário `fonte:`) |
+| Os números medidos em `migrations/006_audit_indexes.sql` | o cartão de `0,093 ms` |
+| Os formatos de exportação | o cartão "Exportação em stream" e o contador `5` |
+
+A regra que evita o pior caso: **um cartão de motor nunca lista só o que a
+engine faz.** Toda vez que ele lista, a linha `data-no` do que ela não faz é o
+que impede a página de virar promessa. Foi o que aconteceu com a linha do
+libSQL na tabela das docs, onde a coluna "Não faz" chegou a listar coisas que
+ele faz.
 
 ---
 

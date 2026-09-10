@@ -295,6 +295,26 @@
     capitulos.forEach(function (c) {
       ioCap.observe(c);
     });
+
+    /*
+     * O índice some quando o rodapé entra.
+     *
+     * Ele é `position: fixed` no canto inferior esquerdo, que é exatamente onde
+     * a linha de copyright do rodapé termina — na captura em 1440 a pastilha
+     * cobria o "v0.3.7". E some por decisão, não só por colisão: o índice
+     * orienta dentro da narrativa, e sobre o rodapé a narrativa acabou.
+     */
+    var rodape = doc.querySelector(".footer");
+    if (rodape !== null) {
+      new IntersectionObserver(
+        function (es) {
+          es.forEach(function (e) {
+            indice.classList.toggle("is-fim", e.isIntersecting);
+          });
+        },
+        { rootMargin: "0px 0px -10% 0px", threshold: 0 }
+      ).observe(rodape);
+    }
   }
 
   /* ------------------------------------------------------------------------

@@ -427,11 +427,13 @@
                   <ul class="engine__list">
                     <li>Árvore, catálogo, grade e consulta — falado por HTTP</li>
                     <li>Selecionável no formulário; a credencial é o token JWT</li>
+                    <li data-no>Cancelar consulta: o protocolo não tem</li>
+                    <li data-no>Exportação, DDL e edição de linha</li>
                   </ul>
                   <p class="engine__guard">
                     Garantia em <b>credencial</b> — o claim
-                    <code>"a":"ro"</code> do JWT. O
-                    <code>PRAGMA query_only</code> <b>não existe</b> aqui.
+                    <code>"a":"ro"</code>, <b>lido</b> do token, não sondado. O
+                    <code>PRAGMA query_only</code> não existe aqui.
                   </p>
                 </article>
 
@@ -645,7 +647,7 @@
         <div class="shell shell--wide">
           <div class="numeros__grid" data-fx-group>
             <div class="numero" data-fx="up">
-              <b><span data-conta="3">0</span></b>
+              <b><span data-conta="4">0</span></b>
               <p>motores falando hoje</p>
               <small>engine.puro.ts · ENGINES_IMPLEMENTADAS</small>
             </div>
@@ -958,9 +960,8 @@ docker exec dbee cat /data/setup-token</pre>
       <div class="shell shell--wide">
         <div class="footer__grid">
           <div class="footer__about">
-            <a class="brand" href="#topo">
-              <img src="assets/img/marca.webp" alt="" width="26" height="26" />
-              <span>DBee</span>
+            <a class="brand brand--lockup" href="#topo">
+              <img src="assets/img/logo-nome.webp" alt="DBee" width="720" height="240" loading="lazy" decoding="async" />
             </a>
             <p>
               Cliente de banco de dados web, self-hosted, um container. Sem

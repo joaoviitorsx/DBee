@@ -423,6 +423,14 @@ body::after {
   border-radius: 22%; /* --radius-brand: só a placa da marca */
 }
 
+/* O lockup inteiro, só no rodapé. A placa arredondada do cabeçalho é a marca
+   comprimida para caber ao lado da navegação; aqui ela cabe por extenso. */
+.brand--lockup img {
+  width: auto;
+  height: 34px;
+  border-radius: 0;
+}
+
 .nav {
   display: flex;
   align-items: center;
@@ -1968,6 +1976,17 @@ html:not(.js) .progresso {
   .indice.is-troca span {
     opacity: 0;
     transform: translate3d(0, 6px, 0);
+  }
+
+  .indice {
+    transition: opacity 320ms var(--ease-out), transform 320ms var(--ease-out);
+  }
+
+  /* Rodapé na tela: o índice sai. Ele cobria a linha de copyright, e ali a
+     narrativa que ele numera já terminou. */
+  .indice.is-fim {
+    opacity: 0;
+    transform: translate3d(0, 12px, 0);
   }
 }
 

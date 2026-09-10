@@ -275,6 +275,22 @@ docker exec dbee cat /data/setup-token</code></pre>
                 </table>
               </div>
 
+              <h3>libSQL: o formulário é outro</h3>
+              <p>
+                Quatro campos, não nove. <b>Host</b> e <b>porta</b> são o
+                endereço do <code>sqld</code> (8080 por padrão),
+                <b>criptografia</b> escolhe entre http e https, e o campo de
+                <b>senha</b> guarda o <b>token JWT</b> — cifrado como qualquer
+                outra credencial. Não há usuário nem database: o protocolo não
+                tem os dois.
+              </p>
+              <p>
+                A permissão de escrita é <b>lida do token</b>, não sondada —
+                sondar exigiria tentar escrever no banco de alguém para
+                descobrir se dá. O claim <code>"a":"ro"</code> está no próprio
+                JWT.
+              </p>
+
               <h3>Teste antes de salvar</h3>
               <p>
                 O botão <b>Testar</b> conecta de verdade e devolve dois tipos de
@@ -464,8 +480,8 @@ GRANT SELECT ON nome_do_banco.* TO <span class="s">'dbee_leitor'</span>@<span cl
                     <tr>
                       <td>libSQL</td>
                       <td>leitura</td>
-                      <td>árvore, catálogo, grade, consulta</td>
-                      <td>credencial é o token JWT; selecionável no formulário</td>
+                      <td>árvore, catálogo, grade paginada, SQL livre, ERD</td>
+                      <td>cancelar consulta, exportação, DDL, edição de linha</td>
                       <td>claim <code>"a":"ro"</code> do JWT</td>
                     </tr>
                     <tr>
@@ -505,7 +521,7 @@ GRANT SELECT ON nome_do_banco.* TO <span class="s">'dbee_leitor'</span>@<span cl
                 risco explicitamente e documentá-lo.
               </p>
 
-              <h3>Por que MySQL não tem escrita</h3>
+              <h3>Por que MySQL e libSQL não têm escrita</h3>
               <p>
                 Porque a garantia lá é a credencial, e uma credencial só tem um
                 modo. Ou a conexão passa a guardar <b>duas</b> credenciais (uma
@@ -634,9 +650,8 @@ iptables <span class="k">-I</span> DOCKER-USER <span class="k">-i</span> tailsca
       <div class="shell shell--wide">
         <div class="footer__grid">
           <div class="footer__about">
-            <a class="brand" href="../">
-              <img src="../assets/img/marca.webp" alt="" width="26" height="26" />
-              <span>DBee</span>
+            <a class="brand brand--lockup" href="../">
+              <img src="../assets/img/logo-nome.webp" alt="DBee" width="720" height="240" loading="lazy" decoding="async" />
             </a>
             <p>
               Cliente de banco de dados web, self-hosted, um container. Sem
