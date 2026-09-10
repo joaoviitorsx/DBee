@@ -98,6 +98,31 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
 
 ### Adicionado
 
+- **MongoDB e Redis acesos — leitura e escrita.** As duas últimas engines
+  entraram, e com elas todas as seis que o DBee implementa são navegáveis e
+  editáveis. A escrita segue o modelo das engines de credencial: segunda
+  credencial opcional, portão de concessão do ator, guarda otimista.
+
+  **MongoDB** (`mongodb@6` — JS puro, compila; o `@7` quebra no Bun). Árvore
+  cluster → database → coleção; grade de documentos com colunas **inferidas por
+  amostragem**; keyset por `_id`; toda célula em texto (ObjectId hex, data ISO,
+  aninhado em JSON). `authSource` é campo próprio (o database da credencial não
+  é o dos dados — medido). Escrita: célula → `updateOne({_id,...guarda},{$set})`,
+  exclusão → `deleteOne`, inserção → `insertOne`, com coerção de tipo (o Mongo
+  casa por tipo, e o valor da grade é texto).
+
+  **Redis** (primitiva `Bun.RedisClient`, zero dependência). Árvore conexão → db
+  numerado; grade de chaves navegada por **SCAN, nunca KEYS**; os seis tipos de
+  valor renderizados em texto (string cru, hash/list/set/zset em JSON, stream
+  resumido); `MATCH` filtra por nome de chave. A sonda de teste é `DBSIZE`, não
+  `PING` (medido: `+@read` recebe NOPERM em PING). Escrita: `SET`/`DEL`/`EXPIRE`
+  de chave string (a edição estruturada dos tipos coleção é fatia futura).
+
+  A UI esconde o que a engine não faz — sem "Consultar" (não há SQL), sem
+  "Diagrama" (sem schema/FK), derivado das capacidades. Cada engine verificada
+  end-to-end na tela e por teste de integração contra servidor real.
+
+
 - **Escrita nas engines de credencial (MySQL, MariaDB, libSQL), por uma segunda
   credencial.** Essas engines não têm transação somente-leitura que resista, e
   até aqui eram só leitura. A escrita entrou sem afrouxar a garantia: uma

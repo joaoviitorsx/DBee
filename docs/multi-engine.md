@@ -12,8 +12,8 @@ realmente difere, não do que parece diferir.
 | MariaDB | 2 | grade | **credencial** | **leitura + escrita** |
 | libSQL | 3 | grade | **credencial** (claim `"a":"ro"` do JWT) | **leitura + escrita** |
 | SQLite | adiado | grade | abertura do handle (`readonly: true`) | ver risco do event loop |
-| MongoDB | 4 | árvore de documentos | **credencial** (papel `read`) | descrito, não agendado |
-| Redis | 5 | par chave/valor (6 tipos) | **credencial** (ACL `+@read`) | descrito, não agendado |
+| MongoDB | 4 | grade de documentos | **credencial** (papel `read`/`readWrite`) | **leitura + escrita** |
+| Redis | 5 | grade de chaves (6 tipos de valor) | **credencial** (ACL `+@read`) | **leitura + escrita** |
 
 > **Correção de uma versão anterior deste documento.** A tabela dizia que todas
 > as garantias tinham sido medidas. Não tinham: MariaDB e libSQL eram
@@ -480,7 +480,7 @@ Decisões que a implementação fixou:
   pela concessão. O selo de escrita e o interruptor da consulta valem para as
   quatro engines sem mudança de código neles.
 
-**Fase 4 — MongoDB.** É aqui que a UI deixa de ser reaproveitada:
+**Fase 4 — MongoDB. Fechada em leitura + escrita.** O que foi entregue:
 
 - **Árvore**: conexão → database → coleção. Sem schema e sem FK — logo, **sem
   diagrama ERD**.
@@ -498,7 +498,7 @@ Decisões que a implementação fixou:
 - **Export**: JSON e NDJSON saem naturais; CSV exige achatar documento
   aninhado, e achatar é decisão que o usuário tem de ver antes.
 
-**Fase 5 — Redis.** A mais distante do que o DBee é hoje:
+**Fase 5 — Redis. Fechada em leitura + escrita.** O que foi entregue:
 
 - **Árvore**: conexão → banco numerado. E o número **não** é 0–15 fixo: é
   `CONFIG GET databases`, config do servidor. Pior, medido: uma credencial
