@@ -7,6 +7,36 @@ Rastro vivo da implementação. `docs/multi-engine.md` diz **o quê** e **por qu
 Atualizar este arquivo faz parte de cada fatia. Um plano sem rastro vira
 arqueologia na terceira sessão.
 
+## Estado atual (2026-09-10) — resumo no topo
+
+As **sete** engines estão implementadas. Além da leitura (árvore, grade por
+keyset, catálogo), por engine:
+
+- **Postgres:** SQL livre, export (tabela + bundle), DDL, edição de linha,
+  cancelamento, diagrama ERD — a referência.
+- **MySQL / MariaDB:** SQL livre, export (tabela + bundle), DDL (create
+  table/database), edição de linha por credencial, cancelamento (`KILL`),
+  diagrama.
+- **libSQL:** SQL livre, export (tabela + bundle), DDL (create table; sem create
+  database — banco único), edição por credencial, diagrama. Sem cancelamento (o
+  protocolo HTTP não oferece).
+- **SQLite:** SQL livre (no worker), export (tabela + bundle), DDL (create
+  table; sem create database — arquivo), edição por handle r/w, cancelamento
+  (terminação do worker), diagrama.
+- **MongoDB:** grade de documentos + filtros, edição de campo (topo e
+  **aninhado** por dot-notation, com validador de path), sem SQL/export/diagrama
+  (capacidades `false`). Cancelamento killOp e export próprio: ver `ATRITO.md`.
+- **Redis:** grade de chaves (SCAN), edição de `string` e **estruturada** de
+  hash/list/set/zset, sem SQL/export/diagrama. 
+
+O que cada engine **não** faz é capacidade declarada `false` (`engine.puro.ts`
+`CAPACIDADES`) e a tela esconde — não é dívida. As pendências reais restantes
+estão no `ATRITO.md` (editor de documento aninhado do Mongo em árvore
+completa/add-remove, killOp do Mongo). Detalhe por commit no `CHANGELOG.md`.
+
+O histórico por fase abaixo é o rastro de como se chegou aqui; os checkboxes
+refletem o momento de cada fase, não o estado de hoje (que é o resumo acima).
+
 ## Estado
 
 | fase | o que entrega | estado |
