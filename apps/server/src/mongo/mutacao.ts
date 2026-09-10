@@ -54,6 +54,26 @@ function filtroId(pk: readonly { column: string; value: string }[]): Filter<Docu
   return { _id: valorId(id.value) } as Filter<Document>;
 }
 
+/**
+ * Recusa um nome de campo que não seja do catálogo, ou que comece com `$`/`.`.
+ *
+ * O caminho de leitura já valida nome de campo contra o catálogo (`rows.ts`
+ * `exigirColuna`). A escrita precisa da mesma tranca: sem ela, um
+ * `column: "$where"` na guarda vira operador do Mongo — JavaScript no servidor
+ * (achado ALTO do red-team). O `_id` sempre passa; o resto tem que estar nos
+ * tipos inferidos e nunca começar com `$` (operador) nem conter `.`
+ * (dot-notation, que navega para outro campo).
+ */
+function exigirCampo(nome: string, tipos: ReadonlyMap<string, string>): void {
+  if (nome === "_id") return;
+  if (nome.startsWith("$") || nome.includes(".")) {
+    throw new MutacaoError(`nome de campo inválido: "${nome}"`);
+  }
+  if (!tipos.has(nome)) {
+    throw new MutacaoError(`o campo "${nome}" não existe nesta coleção`);
+  }
+}
+
 export async function atualizar(
   cliente: MongoClient,
   database: string,
@@ -61,6 +81,7 @@ export async function atualizar(
   req: RowUpdateRequest,
   tipos: ReadonlyMap<string, string>,
 ): Promise<RowMutationResult> {
+  for (const c of req.changes) exigirCampo(c.column, tipos);
   const filtro: Document = { ...filtroId(req.pk) };
   // Guarda otimista: o valor ORIGINAL de cada campo alterado entra no filtro.
   for (const c of req.changes) filtro[c.column] = valorCelula(c.from, tipos.get(c.column));
@@ -79,6 +100,7 @@ export async function excluir(
   req: RowDeleteRequest,
   tipos: ReadonlyMap<string, string>,
 ): Promise<RowMutationResult> {
+  for (const g of req.guard) exigirCampo(g.column, tipos);
   const filtro: Document = { ...filtroId(req.pk) };
   // Guarda: os valores originais das colunas não-PK lidas.
   for (const g of req.guard) filtro[g.column] = valorCelula(g.value, tipos.get(g.column));
@@ -95,6 +117,12 @@ export async function inserir(
   req: RowInsertRequest,
   tipos: ReadonlyMap<string, string>,
 ): Promise<RowMutationResult> {
+  for (const v of req.values) {
+    // Insert pode criar campos novos (não exige catálogo), mas nunca operador.
+    if (v.column.startsWith("$") || v.column.includes(".")) {
+      throw new MutacaoError(`nome de campo inválido: "${v.column}"`);
+    }
+  }
   const doc: Document = {};
   for (const v of req.values) doc[v.column] = valorCelula(v.value, tipos.get(v.column));
   // Se o usuário deu `_id` texto, respeita o tipo; senão o Mongo gera um ObjectId.

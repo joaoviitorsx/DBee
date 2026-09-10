@@ -160,3 +160,17 @@ describe.skipIf(pular)("escrita de documento no MongoDB", () => {
     expect(res.status).toBe(403);
   });
 });
+
+  it("recusa nome de campo com operador ($where) — injeção NoSQL barrada", async () => {
+    const c = await conexao();
+    // O achado ALTO do red-team: `$where` na guarda do delete virava JS no
+    // servidor. Agora o nome de campo é validado contra o catálogo.
+    const res = await chamar("POST", `/connections/${c.id}/rows/delete`, adminCookie, {
+      database: "loja", schema: "loja", table: "produto", readOnly: false,
+      pk: [{ column: "_id", value: "1" }],
+      guard: [{ column: "$where", value: "function(){return true}" }],
+    });
+    // MutacaoError → upstream_error (502), e nada foi apagado.
+    expect(res.status).toBe(502);
+    expect(await doc(1)).not.toBeNull();
+  });

@@ -1,6 +1,7 @@
 import { MongoClient, type MongoClientOptions } from "mongodb";
 
 import type { ResolvedConnection } from "../db/connections.repo";
+import { ehMetadadoDeNuvem } from "../lib/rede";
 
 /**
  * Falar com o MongoDB — um cache de `MongoClient`, não um pool próprio.
@@ -70,6 +71,15 @@ export class ClienteMongo {
     const existente = this.#porChave.get(chave);
     if (existente !== undefined) return existente;
 
+    /*
+     * Consistência com o libSQL (ADR/achado do red-team): nenhuma engine deve
+     * discar para o serviço de metadado da nuvem. O Mongo fala protocolo
+     * binário — o metadado (HTTP) não completa o handshake —, então o risco é
+     * menor que no libSQL, mas a regra é a mesma e barata.
+     */
+    if (ehMetadadoDeNuvem(conexao.host)) {
+      throw new Error("esse endereço é um serviço de metadado de nuvem, não um MongoDB");
+    }
     const uri = `mongodb://${conexao.host}:${String(conexao.port)}`;
     const cliente = new MongoClient(uri, this.#opcoes(conexao, usuario, senha));
     await cliente.connect();

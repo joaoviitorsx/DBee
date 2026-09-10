@@ -1,6 +1,7 @@
 import { RedisClient } from "bun";
 
 import type { ResolvedConnection } from "../db/connections.repo";
+import { ehMetadadoDeNuvem } from "../lib/rede";
 
 /**
  * Falar com o Redis pela **primitiva do Bun** (`Bun.RedisClient`), sem dependência.
@@ -27,23 +28,50 @@ export class ClienteRedis {
     this.#caCert = caCert;
   }
 
-  #url(conexao: ResolvedConnection, db: number): string {
+  #url(conexao: ResolvedConnection, db: number, usuario: string, senha: string): string {
     const esquema = conexao.sslMode === "disable" ? "redis" : "rediss";
-    const auth = conexao.password === "" ? "" : `:${encodeURIComponent(conexao.password)}@`;
-    return `${esquema}://${auth}${conexao.host}:${String(conexao.port)}/${String(db)}`;
+    /*
+     * `user:senha@` quando há usuário (ACL, Redis 6+); `:senha@` quando é só a
+     * senha do `requirepass`; nada quando não há credencial. Sem o usuário na
+     * URL, uma conexão com usuário ACL (onde mora a garantia `+@read`) nem
+     * conecta — achado do red-team.
+     */
+    const cred =
+      senha === "" && usuario === ""
+        ? ""
+        : `${encodeURIComponent(usuario)}:${encodeURIComponent(senha)}@`;
+    return `${esquema}://${cred}${conexao.host}:${String(conexao.port)}/${String(db)}`;
   }
 
-  #chave(id: string, db: number): string {
-    return `${id}\u0000${String(db)}`;
+  #chave(id: string, db: number, usuario: string): string {
+    // O usuario entra na chave pelo mesmo motivo do Mongo/MySQL: leitura e
+    // escrita usam credenciais distintas e nao podem compartilhar cliente —
+    // senao a escrita cacheada serviria leitura sob a credencial gravavel, ou
+    // a leitura cacheada faria a escrita falhar com NOPERM (achado do red-team).
+    return `${id}\u0000${String(db)}\u0000${usuario}`;
   }
 
-  /** O cliente conectado para um db numerado, criando e cacheando sob demanda. */
-  async cliente(conexao: ResolvedConnection, db: number): Promise<RedisClient> {
-    const chave = this.#chave(conexao.id, db);
+  /**
+   * O cliente conectado para um db numerado e uma credencial, criando e
+   * cacheando sob demanda. `usuario`/`senha` explicitos: a leitura passa os da
+   * conexao; a escrita, os da credencial de escrita.
+   */
+  async cliente(
+    conexao: ResolvedConnection,
+    db: number,
+    usuario: string = conexao.username,
+    senha: string = conexao.password,
+  ): Promise<RedisClient> {
+    const chave = this.#chave(conexao.id, db, usuario);
     const existente = this.#porChave.get(chave);
     if (existente !== undefined) return existente;
 
-    const cliente = new RedisClient(this.#url(conexao, db), {
+    // Consistência com o libSQL: nenhuma engine disca para o metadado de nuvem.
+    if (ehMetadadoDeNuvem(conexao.host)) {
+      throw new Error("esse endereço é um serviço de metadado de nuvem, não um Redis");
+    }
+
+    const cliente = new RedisClient(this.#url(conexao, db, usuario, senha), {
       // Uma conexão morta tem que falhar rápido, não pendurar a requisição.
       connectionTimeout: 8000,
       // `rediss://` já liga TLS; a CA própria entra aqui quando há uma.

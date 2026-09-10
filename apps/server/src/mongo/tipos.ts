@@ -22,6 +22,15 @@ import { Binary, ObjectId, Timestamp, type Document } from "mongodb";
  * —, mas é a projeção que faz a grade existente servir ao caso comum sem uma UI
  * nova. É o "com projeção das chaves de primeiro nível numa tabela" do plano.
  */
+/** Teto de caracteres do texto de uma célula (o aninhado renderizado). */
+const LIMITE_CELULA = 4000;
+
+/** Trunca com a marca do que sobrou. */
+function truncar(texto: string): string {
+  if (texto.length <= LIMITE_CELULA) return texto;
+  return `${texto.slice(0, LIMITE_CELULA)}…(+${String(texto.length - LIMITE_CELULA)})`;
+}
+
 export function paraTexto(valor: unknown): string | null {
   if (valor === null || valor === undefined) return null;
   if (typeof valor === "string") return valor;
@@ -49,8 +58,10 @@ export function paraTexto(valor: unknown): string | null {
       return obj.toString();
     }
     // Objeto/array comum: JSON, com os valores internos também normalizados
-    // (uma data aninhada vira ISO, um ObjectId aninhado vira hex).
-    return JSON.stringify(valor, substituto);
+    // (uma data aninhada vira ISO, um ObjectId aninhado vira hex). Truncado: a
+    // grade é uma visão, não um dump — um documento de megabytes por célula,
+    // vezes a página, é pressão de memória sem ganho de leitura.
+    return truncar(JSON.stringify(valor, substituto));
   }
 
   // Só sobram `symbol` e `function`, que não aparecem num documento BSON. A
