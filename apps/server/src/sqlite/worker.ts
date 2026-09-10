@@ -14,21 +14,26 @@ import { Database } from "bun:sqlite";
  *
  * O cancelamento e o timeout são por **terminação do worker**: quem chama, do
  * lado principal, dá `worker.terminate()` se a resposta não vier no prazo. A
- * consulta síncrona não tem outro jeito de ser interrompida — não há sinal que
- * atravesse uma chamada nativa bloqueante —, e matar a thread é o que o
- * `bun:sqlite` permite. O pool do lado principal recria o worker depois.
+ * consulta síncrona não tem outro jeito de ser interrompida.
  *
- * ## Um worker, um arquivo
+ * ## Um handle por worker, e o readonly é a garantia
  *
- * Cada worker abre **um** arquivo, em modo somente-leitura (`readonly: true`) —
- * a garantia de leitura do SQLite é o handle, não um PRAGMA que o SQL do usuário
- * possa desligar. O caminho já vem validado do lado principal (dentro da raiz
- * permitida); o worker confia nele.
+ * Cada worker abre **um** handle, no modo que o `abrir` pediu: `readonly: true`
+ * para o worker de leitura, `false` para o de escrita. O `bun:sqlite` recusa
+ * dois handles ao mesmo arquivo na mesma thread (`SQLITE_MISUSE`), então a
+ * separação leitura/escrita é feita com **dois workers** (o gerente cria o de
+ * escrita só quando uma escrita autorizada chega). É o análogo do
+ * `BEGIN READ ONLY` do Postgres: a proteção é o handle readonly, não um
+ * `PRAGMA query_only` que o SQL do usuário poderia desligar entre dois
+ * statements. Um `member` sem concessão nunca alcança o worker de escrita — o
+ * serviço o roteia para o de leitura, e o `INSERT` dele falha ali.
  */
 
 interface PedidoAbrir {
   readonly tipo: "abrir";
   readonly caminho: string;
+  /** `true` abre o handle readonly (worker de leitura); `false`, r/w. */
+  readonly readonly: boolean;
 }
 interface PedidoConsulta {
   readonly tipo: "consulta";
@@ -37,6 +42,8 @@ interface PedidoConsulta {
   readonly params: (string | null)[];
   /** Teto de linhas materializadas; a `+1` revela truncamento. */
   readonly maxRows: number;
+  /** `true` é escrita (`.run`, devolve `changes`); `false` é leitura. */
+  readonly escrita: boolean;
 }
 type Pedido = PedidoAbrir | PedidoConsulta;
 
@@ -45,6 +52,8 @@ interface RespostaOk {
   readonly id: number;
   readonly columns: string[];
   readonly rows: (string | null)[][];
+  /** Linhas afetadas — para a prova de cardinalidade do row-edit. */
+  readonly changes: number;
 }
 interface RespostaErro {
   readonly tipo: "erro";
@@ -79,10 +88,16 @@ self.onmessage = (evento: MessageEvent<Pedido>): void => {
   const pedido = evento.data;
 
   if (pedido.tipo === "abrir") {
-    // `readonly` é a garantia: o arquivo não pode ser modificado por este
-    // handle, faça o SQL o que fizer. `create: false` recusa criar um arquivo
-    // novo se o caminho não existe — abrir por engano não vira banco vazio.
-    db = new Database(pedido.caminho, { readonly: true, create: false });
+    /*
+     * O modo vem do gerente: readonly para o worker de leitura, r/w para o de
+     * escrita. `create: false` nos dois recusa criar arquivo novo (abrir por
+     * engano não vira banco vazio). O r/w usa `{ readwrite: true, create:
+     * false }`, e **não** `{ readonly: false, create: false }` — este último o
+     * `bun:sqlite` recusa com SQLITE_MISUSE (medido).
+     */
+    db = pedido.readonly
+      ? new Database(pedido.caminho, { readonly: true, create: false })
+      : new Database(pedido.caminho, { readwrite: true, create: false });
     const pronto: RespostaPronto = { tipo: "pronto" };
     self.postMessage(pronto);
     return;
@@ -95,15 +110,22 @@ self.onmessage = (evento: MessageEvent<Pedido>): void => {
   }
 
   try {
+    if (pedido.escrita) {
+      // Escrita: `.run()` devolve `changes` (a prova de cardinalidade do
+      // row-edit). Não materializa linhas — um `INSERT`/`UPDATE`/`DELETE` não
+      // as tem, e um `RETURNING` fica para fatia futura.
+      const r = db.query(pedido.sql).run(...pedido.params);
+      const ok: RespostaOk = { tipo: "ok", id: pedido.id, columns: [], rows: [], changes: r.changes };
+      self.postMessage(ok);
+      return;
+    }
+
+    // Leitura: `.values()` devolve linhas como arrays na ordem das colunas.
     const stmt = db.query(pedido.sql);
-    // `.values()` devolve linhas como arrays na ordem das colunas — sem custo
-    // de montar objeto por linha, e é a forma que a grade consome.
     const brutas = stmt.values(...pedido.params) as unknown[][];
     const columns = stmt.columnNames;
-    const rows = brutas
-      .slice(0, pedido.maxRows + 1)
-      .map((linha) => linha.map(paraTexto));
-    const ok: RespostaOk = { tipo: "ok", id: pedido.id, columns, rows };
+    const rows = brutas.slice(0, pedido.maxRows + 1).map((linha) => linha.map(paraTexto));
+    const ok: RespostaOk = { tipo: "ok", id: pedido.id, columns, rows, changes: 0 };
     self.postMessage(ok);
   } catch (err: unknown) {
     const erro: RespostaErro = {

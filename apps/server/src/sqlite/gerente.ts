@@ -54,6 +54,11 @@ interface Vivo {
   readonly aberto: Promise<void>;
 }
 
+/** A chave de um worker: a conexão e o modo (leitura/escrita são workers distintos). */
+function chave(id: string, escrita: boolean): string {
+  return `${id}:${escrita ? "rw" : "ro"}`;
+}
+
 export interface LinhasCruas {
   readonly columns: string[];
   readonly rows: (string | null)[][];
@@ -63,26 +68,32 @@ export class GerenteSqlite {
   readonly #porId = new Map<string, Vivo>();
   #seq = 0;
 
-  /** O worker de uma conexão, criado e com o arquivo aberto sob demanda. */
-  #vivo(conexao: ResolvedConnection): Vivo {
-    const existente = this.#porId.get(conexao.id);
+  /**
+   * O worker de uma conexão e modo, criado e com o arquivo aberto sob demanda.
+   *
+   * Leitura e escrita são workers **distintos** — o `bun:sqlite` recusa dois
+   * handles ao mesmo arquivo na mesma thread. O de escrita nasce só quando uma
+   * escrita autorizada chega (`escrita: true`).
+   */
+  #vivo(conexao: ResolvedConnection, escrita: boolean): Vivo {
+    const k = chave(conexao.id, escrita);
+    const existente = this.#porId.get(k);
     if (existente !== undefined) return existente;
 
     const caminho = validarCaminho(conexao.filePath ?? "");
     const worker = new Worker(new URL("./worker.ts", import.meta.url).href);
     const aberto = new Promise<void>((resolver, rejeitar) => {
       const aoPronto = (): void => {
-        // A primeira mensagem do worker é sempre o "pronto" da abertura.
         worker.removeEventListener("message", aoPronto);
         resolver();
       };
       worker.addEventListener("message", aoPronto);
       worker.addEventListener("error", (e) => { rejeitar(new Error(e.message)); }, { once: true });
     });
-    worker.postMessage({ tipo: "abrir", caminho } satisfies Pedido);
+    worker.postMessage({ tipo: "abrir", caminho, readonly: !escrita } satisfies Pedido);
 
     const vivo: Vivo = { worker, aberto };
-    this.#porId.set(conexao.id, vivo);
+    this.#porId.set(k, vivo);
     return vivo;
   }
 
@@ -96,12 +107,13 @@ export class GerenteSqlite {
     sql: string,
     params: (string | null)[],
     maxRows: number,
-  ): Promise<LinhasCruas> {
-    const vivo = this.#vivo(conexao);
+    escrita = false,
+  ): Promise<LinhasCruas & { changes: number }> {
+    const vivo = this.#vivo(conexao, escrita);
     await vivo.aberto;
     const id = ++this.#seq;
 
-    return await new Promise<LinhasCruas>((resolver, rejeitar) => {
+    return await new Promise<LinhasCruas & { changes: number }>((resolver, rejeitar) => {
       const prazo = setTimeout(() => {
         limpar();
         // Mata a thread bloqueada e esquece o worker: o próximo pedido recria.
@@ -112,7 +124,9 @@ export class GerenteSqlite {
       const aoResponder = (e: MessageEvent<RespostaOk | RespostaErro>): void => {
         if (e.data.id !== id) return;
         limpar();
-        if (e.data.tipo === "ok") resolver({ columns: e.data.columns, rows: e.data.rows });
+        if (e.data.tipo === "ok") {
+          resolver({ columns: e.data.columns, rows: e.data.rows, changes: e.data.changes });
+        }
         else rejeitar(new Error(e.data.message));
       };
       const aoErro = (e: ErrorEvent): void => {
@@ -128,15 +142,18 @@ export class GerenteSqlite {
 
       vivo.worker.addEventListener("message", aoResponder);
       vivo.worker.addEventListener("error", aoErro);
-      vivo.worker.postMessage({ tipo: "consulta", id, sql, params, maxRows } satisfies Pedido);
+      vivo.worker.postMessage({ tipo: "consulta", id, sql, params, maxRows, escrita } satisfies Pedido);
     });
   }
 
   esquecer(id: string): void {
-    const vivo = this.#porId.get(id);
-    if (vivo === undefined) return;
-    this.#porId.delete(id);
-    vivo.worker.terminate();
+    for (const escrita of [false, true]) {
+      const k = chave(id, escrita);
+      const vivo = this.#porId.get(k);
+      if (vivo === undefined) continue;
+      this.#porId.delete(k);
+      vivo.worker.terminate();
+    }
   }
 
   desligar(): void {

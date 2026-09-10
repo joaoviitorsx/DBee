@@ -99,9 +99,12 @@ describe("driver do SQLite local", () => {
     expect(r.results[0]?.rows[0]?.[0]).toBe("3");
   });
 
-  it("recusa escrita: o arquivo é aberto readonly", async () => {
+  it("escrita com somenteLeitura=true cai no handle readonly e é recusada", async () => {
+    // O caminho de um ator sem concessão: o serviço manda `somenteLeitura: true`,
+    // o driver usa o handle readonly, e o SQLite recusa a escrita. A escrita
+    // autorizada (somenteLeitura: false) tem seu teste em escrita.integration.
     const r = await driver.executar(conexao("loja.db"), {
-      sql: "INSERT INTO produto VALUES (9,'Hack',0)", database: "loja.db", maxRows: 100, somenteLeitura: false,
+      sql: "INSERT INTO produto VALUES (9,'Hack',0)", database: "loja.db", maxRows: 100, somenteLeitura: true,
     });
     expect(r.error).not.toBeNull();
     expect(r.error?.message.toLowerCase()).toContain("readonly");

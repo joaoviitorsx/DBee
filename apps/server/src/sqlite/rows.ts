@@ -64,16 +64,17 @@ export async function lerLinhas(
 /**
  * Executa o SQL do usuário, statement a statement, parando no primeiro erro.
  *
- * Só leitura no v1: o arquivo é aberto `readonly` pelo worker, então um
- * `INSERT`/`UPDATE`/`DDL` estoura no próprio SQLite ("attempt to write a
- * readonly database") — a garantia é o handle, e o erro do servidor é a
- * mensagem certa.
+ * `escrita` escolhe o handle no worker: `false` (o padrão de uma conexão sem
+ * concessão) usa o handle **readonly**, e um `INSERT`/`UPDATE`/`DDL` estoura no
+ * próprio SQLite ("attempt to write a readonly database") — a garantia é o
+ * handle. `true` (só quando o serviço confirmou concessão) usa o handle r/w.
  */
 export async function executar(
   gerente: GerenteSqlite,
   conexao: ResolvedConnection,
   sql: string,
   maxRows: number,
+  escrita: boolean,
 ): Promise<{ results: StatementResult[]; error: (QueryError & { index: number }) | null }> {
   const statements = splitStatements(sql, "sqlite");
   const results: StatementResult[] = [];
@@ -81,7 +82,7 @@ export async function executar(
   for (const [index, statement] of statements.entries()) {
     const inicio = performance.now();
     try {
-      const r = await gerente.consulta(conexao, statement.sql, [], maxRows);
+      const r = await gerente.consulta(conexao, statement.sql, [], maxRows, escrita);
       const truncated = r.rows.length > maxRows;
       const m = /^\s*([A-Za-z]+)/.exec(statement.sql);
       results.push({

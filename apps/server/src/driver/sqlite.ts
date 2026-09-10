@@ -16,7 +16,15 @@ import {
   listarDatabases,
 } from "../sqlite/introspect";
 import { executar as executarSqlite, lerLinhas } from "../sqlite/rows";
-import type { DriverLeitura, OpcoesExecucao, ResultadoExecucao, ResultadoLinhas } from "./tipos";
+import { atualizar, excluir, inserir } from "../sqlite/mutacao";
+import type {
+  DriverLeitura,
+  MutacaoLinha,
+  OpcoesExecucao,
+  ResultadoExecucao,
+  ResultadoLinhas,
+} from "./tipos";
+import type { RowMutationResult } from "@dbee/shared";
 
 /**
  * O driver de SQLite local, em leitura.
@@ -86,10 +94,29 @@ export class DriverSqlite implements DriverLeitura {
   }
 
   async executar(conexao: ResolvedConnection, opcoes: OpcoesExecucao): Promise<ResultadoExecucao> {
-    // Só leitura: o arquivo é aberto readonly, e o SQLite recusa escrita no
-    // próprio servidor. `somenteLeitura: false` não muda isso — não há modo de
-    // escrita no v1.
-    return await executarSqlite(this.#gerente, conexao, opcoes.sql, opcoes.maxRows);
+    /*
+     * `somenteLeitura` escolhe o handle: leitura pelo readonly, escrita pelo
+     * r/w. O serviço só manda `somenteLeitura: false` depois de confirmar
+     * `writeEnabled` + concessão — um member sem concessão cai no handle
+     * readonly, e a escrita dele falha no próprio SQLite.
+     */
+    return await executarSqlite(this.#gerente, conexao, opcoes.sql, opcoes.maxRows, !opcoes.somenteLeitura);
+  }
+
+  /**
+   * Edição de linha pelo handle r/w. Diferente das engines de credencial, a
+   * garantia de escrita do SQLite é o handle (não uma segunda credencial), e o
+   * serviço a gateia por `writeEnabled` + concessão antes de chamar aqui.
+   */
+  async mutarLinha(conexao: ResolvedConnection, mut: MutacaoLinha): Promise<RowMutationResult> {
+    switch (mut.tipo) {
+      case "update":
+        return await atualizar(this.#gerente, conexao, mut.req);
+      case "delete":
+        return await excluir(this.#gerente, conexao, mut.req);
+      case "insert":
+        return await inserir(this.#gerente, conexao, mut.req);
+    }
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await -- o contrato é assíncrono.

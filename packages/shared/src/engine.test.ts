@@ -93,13 +93,21 @@ describe("capacidades", () => {
    * `writeEnabled` numa engine de credencial seria a tela dizendo que ligou
    * algo que não existe.
    */
-  it("engine de credencial não oferece o interruptor de escrita", () => {
+  it("só as engines cuja escrita é da conexão têm o interruptor writeEnabled", () => {
+    /*
+     * O `writeEnabled` liga a escrita **da conexão** — faz sentido onde a
+     * escrita é um modo da conexão: `transacao` (Postgres, `BEGIN READ WRITE`)
+     * e `handle` (SQLite, abrir o arquivo r/w). Nas engines `credencial`
+     * (MySQL/libSQL/Mongo/Redis) a escrita vem de uma **segunda credencial**, e
+     * um interruptor por execução não ligaria nada — não pode existir.
+     */
     for (const [nome, cap] of Object.entries(CAPACIDADES)) {
-      if (cap.escopoReadOnly === "transacao") continue;
-      expect(cap.campos, `${nome} não pode oferecer escrita por execução`).not.toContain("writeEnabled");
+      const podeTer = cap.escopoReadOnly === "transacao" || cap.escopoReadOnly === "handle";
+      if (podeTer) continue;
+      expect(cap.campos, `${nome} (credencial) não pode oferecer writeEnabled`).not.toContain("writeEnabled");
     }
-    // E o Postgres continua oferecendo.
     expect(CAPACIDADES.postgres.campos).toContain("writeEnabled");
+    expect(CAPACIDADES.sqlite.campos).toContain("writeEnabled");
   });
 
   /* A porta convencional de cada uma, para o formulário preencher sozinho. */

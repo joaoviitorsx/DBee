@@ -325,19 +325,29 @@ export class MutationService {
     }
     if (connection === null) return mutFail("not_found");
 
-    // Não é engine de credencial, ou não há driver com mutação: caminho SQL.
-    if (!gravaPorCredencialSeparada(connection.engine)) return null;
+    // Só as engines com `mutarLinha` roteiam por aqui (Mongo, Redis, SQLite); o
+    // Postgres não a tem e segue pelo caminho SQL parametrizado.
     const driver = this.#drivers?.para(connection.engine);
     if (driver?.mutarLinha === undefined) return null;
 
     const inicio = performance.now();
 
-    // Portão: credencial de escrita presente E ator concedido.
-    const podeGravar =
-      connection.hasWriteCredential && this.#repository.podeEscrever(connectionId, ator);
+    /*
+     * O portão difere por família de garantia:
+     * - credencial (Mongo/Redis): precisa da credencial de escrita presente **e**
+     *   da concessão do ator;
+     * - handle (SQLite): não há credencial — a escrita é abrir o arquivo r/w —,
+     *   então o portão é `writeEnabled` da conexão **e** a concessão.
+     * `podeEscrever` já dobra a concessão nos dois casos.
+     */
+    const porCredencial = gravaPorCredencialSeparada(connection.engine);
+    const temAutorizacaoBase = porCredencial ? connection.hasWriteCredential : connection.writeEnabled;
+    const podeGravar = temAutorizacaoBase && this.#repository.podeEscrever(connectionId, ator);
     if (!podeGravar) {
-      const motivo = !connection.hasWriteCredential
-        ? "esta conexão não tem credencial de escrita configurada"
+      const motivo = !temAutorizacaoBase
+        ? porCredencial
+          ? "esta conexão não tem credencial de escrita configurada"
+          : "escrita não habilitada nesta conexão"
         : "você não tem concessão de escrita nesta conexão";
       this.#registrar(
         connectionId,

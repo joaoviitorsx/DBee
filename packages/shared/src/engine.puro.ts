@@ -314,7 +314,9 @@ export const CAPACIDADES: Readonly<
     niveis: "arquivo/tabela",
     escopoReadOnly: "handle",
     readOnlyCobreDdl: true,
-    campos: ["filePath"],
+    // `writeEnabled` liga a escrita (abrir o arquivo r/w); o `filePath` é o
+    // arquivo. Sem credencial — o SQLite é local.
+    campos: ["filePath", "writeEnabled"],
     portaPadrao: null,
     dialeto: "sqlite",
     sqlLivre: true,
