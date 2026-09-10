@@ -190,30 +190,28 @@ export function RedisValueModal({
               </ul>
             )}
 
-            {/* Adicionar membro */}
-            <div className="flex items-end gap-2 rounded-[4px] border border-dashed border-line px-3 py-2.5">
+            {/* Adicionar membro — placeholders no lugar de rótulos, para a
+                linha ficar enxuta e alinhada com a lista acima. */}
+            <div className="flex items-center gap-2 rounded-[4px] border border-dashed border-line px-3 py-2.5">
               {alvo.type !== "list" ? (
-                <label className="min-w-0 flex-1 text-2xs text-subtle">
-                  {rotuloA(alvo.type, t)}
-                  <Input
-                    value={novoA}
-                    onChange={(e) => { setNovoA(e.target.value); }}
-                    placeholder={rotuloA(alvo.type, t)}
-                    className="mt-0.5"
-                  />
-                </label>
+                <Input
+                  value={novoA}
+                  onChange={(e) => { setNovoA(e.target.value); }}
+                  placeholder={rotuloA(alvo.type, t)}
+                  aria-label={rotuloA(alvo.type, t)}
+                  className="min-w-0 flex-1"
+                  onKeyDown={(e) => { if (e.key === "Enter" && !temValor) adicionar(); }}
+                />
               ) : null}
               {temValor ? (
-                <label className="min-w-0 flex-1 text-2xs text-subtle">
-                  {rotuloB(alvo.type, t)}
-                  <Input
-                    value={novoB}
-                    onChange={(e) => { setNovoB(e.target.value); }}
-                    placeholder={rotuloB(alvo.type, t)}
-                    className="mt-0.5"
-                    onKeyDown={(e) => { if (e.key === "Enter") adicionar(); }}
-                  />
-                </label>
+                <Input
+                  value={novoB}
+                  onChange={(e) => { setNovoB(e.target.value); }}
+                  placeholder={rotuloB(alvo.type, t)}
+                  aria-label={rotuloB(alvo.type, t)}
+                  className="min-w-0 flex-1"
+                  onKeyDown={(e) => { if (e.key === "Enter") adicionar(); }}
+                />
               ) : null}
               <Button size="sm" variant="secondary" onClick={adicionar} loading={aplicar.isPending}>
                 <Plus aria-hidden className="h-3.5 w-3.5" />

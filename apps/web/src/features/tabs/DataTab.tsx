@@ -206,29 +206,39 @@ export function DataTab({
 
   const COLECOES = new Set<string>(["hash", "list", "set", "zset"]);
 
+  /**
+   * Redis: o duplo clique na coluna `value` de uma coleção abre o editor
+   * estruturado direto (sem passar pelo input inline, que não serve a JSON).
+   * Devolve `true` quando assumiu a célula — o grid usa isso para não abrir o
+   * editor inline por cima.
+   */
+  const abrirEditorRedis = (li: number, col: number): boolean => {
+    if (!redisEstruturado || colunas[col]?.name !== "value") return false;
+    const linha = linhas[li];
+    if (linha === undefined) return false;
+    const iTipo = colunas.findIndex((c) => c.name === "type");
+    const iKey = colunas.findIndex((c) => c.name === "key");
+    const tipo = iTipo >= 0 ? (linha[iTipo] ?? "") : "";
+    const key = iKey >= 0 ? (linha[iKey] ?? "") : "";
+    if (!COLECOES.has(tipo) || key === "") return false;
+    setRedisAlvo({
+      database: target.database,
+      key,
+      type: tipo as TipoColecao,
+      valueJson: linha[col] ?? null,
+    });
+    return true;
+  };
+
   const abrirEdicao = (li: number, col: number, valor: string): void => {
     const p = pkDaLinha(li);
     const coluna = colunas[col]?.name;
     const linha = linhas[li];
     if (p === null || coluna === undefined || linha === undefined) return;
 
-    // Redis: editar a coluna `value` de uma coleção (hash/list/set/zset) abre o
-    // editor estruturado, não o update de célula (que só serve à `string`).
-    if (redisEstruturado && coluna === "value") {
-      const iTipo = colunas.findIndex((c) => c.name === "type");
-      const iKey = colunas.findIndex((c) => c.name === "key");
-      const tipo = iTipo >= 0 ? (linha[iTipo] ?? "") : "";
-      const key = iKey >= 0 ? (linha[iKey] ?? "") : "";
-      if (COLECOES.has(tipo) && key !== "") {
-        setRedisAlvo({
-          database: target.database,
-          key,
-          type: tipo as TipoColecao,
-          valueJson: linha[col] ?? null,
-        });
-        return;
-      }
-    }
+    // Coleção do Redis tem editor próprio (o grid já o abre no duplo clique);
+    // se cair aqui via Enter do inline, roteia para ele também.
+    if (abrirEditorRedis(li, col)) return;
 
     setPendente({
       kind: "update",
@@ -427,6 +437,7 @@ export function DataTab({
             onSort={ordenarPor}
             editavel={editavel}
             onEditCell={abrirEdicao}
+            {...(redisEstruturado ? { abrirEditorCustom: abrirEditorRedis } : {})}
             fkColunas={fkColunas}
             {...(onOpenTableFiltered !== undefined ? { onSaltoFk: saltarFk } : {})}
             onCellClick={(li) => { setLinhaSel(li); }}
