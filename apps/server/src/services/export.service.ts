@@ -110,17 +110,28 @@ function montarCreateTable(schema: string, table: string, relation: Relation): s
  * `CREATE TABLE` de referência para as engines não-Postgres.
  *
  * Genérico e honesto sobre o que é: colunas com o tipo **nativo** que a
- * introspecção daquela engine devolveu (tipo do MySQL, do SQLite), nulidade,
- * default literal e a PRIMARY KEY. Fica de fora o que a fronteira não modela
- * por tabela — FKs, índices, checks. O identificador é citado pelo dialeto
- * (crase no MySQL, aspas duplas no SQLite/libSQL). Não há o caso `serial` do
- * Postgres: as outras engines carregam o auto-incremento no próprio tipo.
+ * introspecção daquela engine devolveu (tipo do MySQL, do SQLite), nulidade e a
+ * PRIMARY KEY. Fica de fora o que a fronteira não modela por tabela — FKs,
+ * índices, checks. O identificador é citado pelo dialeto (crase no MySQL, aspas
+ * duplas no SQLite/libSQL). Não há o caso `serial` do Postgres: as outras
+ * engines carregam o auto-incremento no próprio tipo.
+ *
+ * ## O DEFAULT só entra no SQLite
+ *
+ * No SQLite o `PRAGMA table_info` devolve o default **como literal SQL já
+ * citado** (`'BR'`, `0`, `CURRENT_TIMESTAMP`): dá para reemitir cru e recarrega.
+ * No MySQL o `information_schema` devolve o default de string **sem aspas**
+ * (`BR`, não `'BR'` — medido em `mysql/introspect-completo`), e `DEFAULT BR`
+ * lê `BR` como identificador: o arquivo **não recarrega**. Como não há um único
+ * formato que sirva para os dois, e este CREATE TABLE é referência e não
+ * fidelidade total, o default é omitido no MySQL em vez de sair inválido.
  */
 function montarCreateTableGenerico(alvo: string, relation: Relation, dialeto: DialetoSql): string {
   const linhas = relation.columns.map((c) => {
     const partes = [`  ${citarIdent(c.name, dialeto)} ${c.dataType}`];
     if (!c.nullable) partes.push("NOT NULL");
-    if (c.defaultValue !== null) partes.push(`DEFAULT ${c.defaultValue}`);
+    // Só o SQLite devolve o default como literal já citado (ver doc acima).
+    if (c.defaultValue !== null && dialeto === "sqlite") partes.push(`DEFAULT ${c.defaultValue}`);
     return partes.join(" ");
   });
 
@@ -330,7 +341,12 @@ export class ExportService {
     const dialeto = dialetoDe(connection.engine);
 
     let base: string;
-    let sqlDoLog: string;
+    // Mutável: o produtor tabela o reescreve com o SELECT real (com
+    // placeholders) assim que a primeira página volta — sem isso o log grava só
+    // um comentário e "exportou a tabela inteira" fica indistinguível de
+    // "exportou só as linhas de um CNPJ". O Postgres já registra o SELECT real;
+    // este é o mesmo registro para as outras engines.
+    let sqlAuditado: string;
     let sqlTabela: string | undefined;
     let sqlPrelude: string | undefined;
     let proximaPagina: () => Promise<PaginaExport | null>;
@@ -344,7 +360,7 @@ export class ExportService {
       if (statements.length > 1) return fail("bad_request", "exporte um statement por vez");
       const sql = statements[0]?.sql ?? "";
       base = "consulta";
-      sqlDoLog = sql;
+      sqlAuditado = sql;
       proximaPagina = this.#produtorConsulta(driver, connection, database, sql, request.maxRows);
     } else {
       const arvore = await this.#schema.get(connectionId, database, false, ator);
@@ -359,7 +375,8 @@ export class ExportService {
       }
 
       base = `${schemaName}.${table}`;
-      sqlDoLog = `-- export ${request.format} de ${base}`;
+      // Comentário só como fallback; o produtor o substitui pelo SELECT real.
+      sqlAuditado = `-- export ${request.format} de ${base}`;
       if (request.format === "sql") {
         // Nestas engines a tabela é qualificada pela conexão (banco/arquivo), não
         // por schema: o destino do INSERT é só o nome citado pelo dialeto.
@@ -374,6 +391,7 @@ export class ExportService {
         relation,
         request.source,
         request.maxRows,
+        (sql) => { sqlAuditado = sql; },
       );
     }
 
@@ -391,7 +409,7 @@ export class ExportService {
         this.#log.record({
           connectionId,
           database,
-          sql: sqlDoLog,
+          sql: sqlAuditado,
           status: erro === null ? "ok" : "error",
           error: erro,
           rowCount: resultado.rows,
@@ -413,6 +431,19 @@ export class ExportService {
    * a aba Dados já usa e avisa; aqui o laço acompanha o `keyset: false` da
    * resposta e passa a contar por offset. O teto `maxRows` é aplicado contando
    * as linhas entregues, nunca com `LIMIT` injetado no SQL do usuário.
+   *
+   * ## Ordem estável no caminho sem PK
+   *
+   * `OFFSET` sobre um resultado sem `ORDER BY` pode pular ou repetir linha entre
+   * páginas — inofensivo na grade (uma página por vez), mas um export costura
+   * milhares de linhas num arquivo só que a pessoa vai confiar. Por isso, numa
+   * tabela sem PK e sem ordenação pedida, o export ordena pela **primeira
+   * coluna** para dar uma ordem determinística. Não é total (valores repetidos
+   * na primeira coluna ainda podem reordenar), mas é muito melhor que nenhuma, e
+   * a aba Dados continua avisando que sem PK a ordem não é garantida.
+   *
+   * `aoLerSql` recebe o SELECT real (com placeholders) da primeira página, para
+   * a auditoria registrar o que de fato rodou — filtros e tudo.
    */
   #produtorTabela(
     driver: DriverLeitura,
@@ -422,12 +453,21 @@ export class ExportService {
     relation: Relation,
     source: Extract<ExportRequest["source"], { kind: "table" }>,
     maxRows: number | undefined,
+    aoLerSql: (sql: string) => void,
   ): () => Promise<PaginaExport | null> {
     let cursor: RowCursor | undefined;
     let offset = 0;
     let semKeyset = false;
     let entregues = 0;
     let acabou = false;
+    let primeira = true;
+
+    // Sem PK e sem ordenação pedida: ordena pela primeira coluna (ver doc).
+    const ordemPadrao =
+      relation.primaryKey.length === 0 && source.orderBy === undefined
+        ? relation.columns[0]?.name
+        : undefined;
+    const orderBy = source.orderBy ?? ordemPadrao;
 
     return async () => {
       if (acabou) return null;
@@ -439,7 +479,7 @@ export class ExportService {
       }
 
       const pedido: RowsRequest = {
-        ...(source.orderBy === undefined ? {} : { orderBy: source.orderBy }),
+        ...(orderBy === undefined ? {} : { orderBy }),
         ...(source.orderDirection === undefined ? {} : { orderDirection: source.orderDirection }),
         ...(source.filters === undefined ? {} : { filters: source.filters }),
         ...(semKeyset ? { offset } : cursor === undefined ? {} : { after: cursor }),
@@ -447,14 +487,23 @@ export class ExportService {
       };
 
       const r = await driver.linhas(connection, database, schema, relation, pedido);
-      const rows = r.resposta.rows;
+      if (primeira) {
+        primeira = false;
+        aoLerSql(r.sql);
+      }
+      // Apara um eventual excesso do driver sobre o `limit` pedido (defesa em
+      // profundidade: os drivers respeitam o limite, mas o teto `maxRows` não
+      // pode depender disso).
+      const rows = r.resposta.rows.length > restante
+        ? r.resposta.rows.slice(0, restante)
+        : r.resposta.rows;
       entregues += rows.length;
       offset += rows.length;
 
       if (!r.resposta.keyset) {
-        // Sem PK: página parcial é o fim.
+        // Sem PK: página parcial (ou vazia) é o fim.
         semKeyset = true;
-        if (rows.length < restante) acabou = true;
+        if (r.resposta.rows.length < restante) acabou = true;
       } else if (r.resposta.nextCursor === null || !r.resposta.hasMore) {
         acabou = true;
       } else {

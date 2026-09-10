@@ -151,9 +151,13 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
           onSelect: () => { actions.onOpenDiagram(target.connection.id, target.database); },
         });
       }
-      // Export vale em toda engine SQL; só Mongo e Redis o recusam (capacidade
-      // `exportar: false`), e é a mesma verdade que o servidor impõe.
-      if (capDb?.exportar === true) {
+      // Este item abre o **dump de várias tabelas** (`/export/bundle`), que é
+      // Postgres-only (monta CREATE TABLE + INSERTs num snapshot REPEATABLE
+      // READ, sem equivalente nas outras engines). O export de UMA tabela —
+      // esse sim multi-engine — vive no botão da aba Dados, gateado por
+      // `exportar`. Gatear este menu por `exportar` ofereceria um dump que o
+      // servidor recusa nas quatro engines SQL não-Postgres.
+      if (target.connection.engine === "postgres") {
         itensNavegacao.push({
           id: "export",
           label: t("menu.exportar"),

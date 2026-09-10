@@ -27,6 +27,8 @@ import type { Ator } from "../lib/ator";
 let raiz: string;
 let drivers: Drivers;
 let service: ExportService;
+/** O que o `query_log` recebeu — para provar que o SELECT real é auditado. */
+let registros: { sql: string; status: string; rowCount: number | null }[] = [];
 
 const ATOR: Ator = { id: "u1", role: "admin" };
 
@@ -57,13 +59,25 @@ beforeAll(() => {
   // 2.500 linhas: força o laço de keyset a cruzar mais de uma página (lote 1000).
   const ins = db.prepare("INSERT INTO produto VALUES (?, ?, ?)");
   for (let i = 1; i <= 2500; i++) ins.run(i, i === 7 ? "com'aspa" : `item ${String(i)}`, i + 0.5);
+  // Tabela SEM chave primária: exercita o caminho de OFFSET do produtor.
+  db.run("CREATE TABLE evento (rotulo TEXT NOT NULL, valor INTEGER)");
+  const insE = db.prepare("INSERT INTO evento VALUES (?, ?)");
+  for (let i = 1; i <= 1200; i++) insE.run(`ev-${String(i).padStart(4, "0")}`, i);
+  // Tabela vazia: a página de 0 linhas tem de encerrar o stream.
+  db.run("CREATE TABLE vazia (id INTEGER PRIMARY KEY, x TEXT)");
   db.close();
 
   drivers = new Drivers(undefined as unknown as PoolManager, undefined);
   const repository = {
     resolve: (): ResolvedConnection => conexao,
   } as unknown as ConnectionsRepository;
-  const log = { record: () => "log-id" } as unknown as QueryLogRepository;
+  registros = [];
+  const log = {
+    record: (e: { sql: string; status: string; rowCount: number | null }) => {
+      registros.push({ sql: e.sql, status: e.status, rowCount: e.rowCount });
+      return "log-id";
+    },
+  } as unknown as QueryLogRepository;
   const schema = new SchemaService({
     repository,
     pools: undefined as unknown as PoolManager,
@@ -150,5 +164,73 @@ describe("ExportService — SQLite (caminho do driver)", () => {
     const dados = JSON.parse(await drenar(r.value.stream)) as { id: string; nome: string }[];
     expect(dados).toHaveLength(3);
     expect(dados[0]).toEqual({ id: "1", nome: "item 1" });
+  });
+
+  it("a auditoria registra o SELECT real com o filtro, não um comentário", async () => {
+    registros.length = 0;
+    const r = await service.export(
+      "sq1",
+      pedido({ format: "csv", source: {
+        kind: "table", schema: "loja.db", table: "produto",
+        filters: [{ column: "id", operator: "eq", value: "7" }],
+      } }),
+      ATOR,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    await drenar(r.value.stream);
+    // O log tem de nomear a tabela E a coluna filtrada — senão "exportou tudo" e
+    // "exportou só o id 7" ficam indistinguíveis.
+    const entrada = registros.at(-1);
+    expect(entrada?.status).toBe("ok");
+    expect(entrada?.sql).toContain("produto");
+    expect(entrada?.sql.toLowerCase()).toContain("where");
+    expect(entrada?.sql).toContain("id");
+    expect(entrada?.sql.startsWith("--")).toBe(false);
+  });
+
+  it("tabela sem PK exporta por OFFSET, todas as linhas e sem duplicar", async () => {
+    const r = await service.export(
+      "sq1",
+      { source: { kind: "table", schema: "loja.db", table: "evento" }, format: "csv" },
+      ATOR,
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const linhas = (await drenar(r.value.stream)).replace(/^\uFEFF/, "").trimEnd().split("\r\n");
+    const dados = linhas.slice(1); // tira o cabeçalho
+    expect(dados).toHaveLength(1200);
+    // Sem duplicatas nem buracos: os 1200 rótulos distintos aparecem uma vez.
+    expect(new Set(dados).size).toBe(1200);
+  });
+
+  it("tabela vazia: CSV só com cabeçalho, JSON com []", async () => {
+    const csv = await service.export(
+      "sq1",
+      { source: { kind: "table", schema: "loja.db", table: "vazia" }, format: "csv" },
+      ATOR,
+    );
+    expect(csv.ok).toBe(true);
+    if (!csv.ok) return;
+    const linhasCsv = (await drenar(csv.value.stream)).replace(/^\uFEFF/, "").trimEnd().split("\r\n");
+    expect(linhasCsv).toEqual(["id;x"]);
+
+    const json = await service.export(
+      "sq1",
+      { source: { kind: "table", schema: "loja.db", table: "vazia" }, format: "json" },
+      ATOR,
+    );
+    expect(json.ok).toBe(true);
+    if (!json.ok) return;
+    expect(JSON.parse(await drenar(json.value.stream))).toEqual([]);
+  });
+
+  it("maxRows no limite exato de um lote (1000) não sangra para a página seguinte", async () => {
+    const r = await service.export("sq1", pedido({ format: "csv", maxRows: 1000 }), ATOR);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const linhas = (await drenar(r.value.stream)).replace(/^\uFEFF/, "").trimEnd().split("\r\n");
+    expect(linhas).toHaveLength(1001); // cabeçalho + 1000
+    expect(registros.at(-1)?.rowCount).toBe(1000);
   });
 });
