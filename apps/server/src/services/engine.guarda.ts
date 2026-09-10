@@ -102,6 +102,11 @@ const TODOS_OS_CAMPOS: readonly string[] = [
   "timezone",
   "statementTimeoutMs",
   "writeEnabled",
+  // A credencial de escrita: só as engines de credencial a têm. Sem estar
+  // aqui, uma conexão Postgres poderia contrabandear `writePassword` (Postgres
+  // grava por transação, não por credencial separada) — atribuição em massa.
+  "writeUsername",
+  "writePassword",
 ];
 
 /**

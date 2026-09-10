@@ -40,6 +40,13 @@ export const Connection = t.Object({
   writeEnabled: t.Boolean(),
   statementTimeoutMs: t.Integer(),
   timezone: t.String(),
+  /*
+   * Existe uma credencial de escrita nesta conexão? **A credencial em si nunca
+   * sai** — como a senha, ela fica fora da lista de colunas públicas. Só o fato
+   * de existir viaja, e é o que a tela usa para saber se pode oferecer escrita
+   * numa engine de credencial.
+   */
+  hasWriteCredential: t.Boolean(),
   createdAt: t.String(),
   updatedAt: t.String(),
 });
@@ -70,6 +77,17 @@ const FIELDS = {
   database: t.String({ minLength: 1, maxLength: 100 }),
   username: t.String({ minLength: 1, maxLength: 100 }),
   password: t.String({ maxLength: 1000 }),
+  /**
+   * A credencial de escrita — opcional, só nas engines cuja garantia é a
+   * credencial. `writeUsername` é vazio no libSQL (a credencial é o token, que
+   * vai em `writePassword`); no MySQL/MariaDB os dois são usados.
+   *
+   * `writePassword` vazio numa engine que aceita o campo significa "sem
+   * credencial de escrita" — a conexão segue somente-leitura. Não é `null`
+   * porque o schema de entrada não tem `null`; a ausência é o vazio.
+   */
+  writeUsername: t.String({ maxLength: 100 }),
+  writePassword: t.String({ maxLength: 1000 }),
   color: t.Union([t.String({ maxLength: 32 }), t.Null()]),
   sslMode: SslMode,
   writeEnabled: t.Boolean(),
@@ -123,6 +141,8 @@ export const CreateConnection = t.Object({
   writeEnabled: t.Optional(FIELDS.writeEnabled),
   statementTimeoutMs: t.Optional(FIELDS.statementTimeoutMs),
   timezone: t.Optional(FIELDS.timezone),
+  writeUsername: t.Optional(FIELDS.writeUsername),
+  writePassword: t.Optional(FIELDS.writePassword),
 });
 export type CreateConnection = Static<typeof CreateConnection>;
 

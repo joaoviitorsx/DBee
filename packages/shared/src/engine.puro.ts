@@ -123,7 +123,9 @@ export type CampoConexao =
   | "sslMode"
   | "timezone"
   | "statementTimeoutMs"
-  | "writeEnabled";
+  | "writeEnabled"
+  | "writeUsername"
+  | "writePassword";
 
 /**
  * As capacidades de cada engine.
@@ -173,6 +175,8 @@ export const CAPACIDADES: Readonly<
     campos: [
       "host", "port", "database", "username", "password",
       "sslMode", "timezone", "statementTimeoutMs",
+      // A credencial de escrita destrava a escrita sem tocar a de leitura.
+      "writeUsername", "writePassword",
     ],
     portaPadrao: 3306,
     dialeto: "mysql",
@@ -194,6 +198,7 @@ export const CAPACIDADES: Readonly<
     campos: [
       "host", "port", "database", "username", "password",
       "sslMode", "timezone", "statementTimeoutMs",
+      "writeUsername", "writePassword",
     ],
     portaPadrao: 3306,
     dialeto: "mysql",
@@ -230,7 +235,9 @@ export const CAPACIDADES: Readonly<
     niveis: "conexao/database/tabela",
     escopoReadOnly: "credencial",
     readOnlyCobreDdl: true,
-    campos: ["host", "port", "password", "sslMode"],
+    // `writePassword` é o token JWT gravável; não há `writeUsername` (a
+    // credencial do libSQL é só o token).
+    campos: ["host", "port", "password", "sslMode", "writePassword"],
     // O `sqld` escuta na 8080 por padrão.
     portaPadrao: 8080,
     dialeto: "sqlite",
@@ -266,3 +273,17 @@ export const engineImplementada = (engine: Engine): boolean =>
  * significa escolher o que fazer com texto que ninguém vai executar.
  */
 export const dialetoDe = (engine: Engine): DialetoSql => capacidadesDe(engine)?.dialeto ?? "postgres";
+
+/**
+ * A engine grava por uma **credencial separada** (não pela transação)?
+ *
+ * `true` para MySQL, MariaDB e libSQL — onde a garantia é a credencial e a
+ * escrita exige uma segunda, gravável. `false` para o Postgres (grava na mesma
+ * conexão, via `BEGIN READ WRITE`) e para o que ainda não é implementado.
+ *
+ * Derivado de `campos`, não uma tabela paralela: se a engine mostra o campo
+ * `writePassword`, ela tem a credencial; um segundo lugar seria um segundo
+ * lugar para esquecer de atualizar.
+ */
+export const gravaPorCredencialSeparada = (engine: Engine): boolean =>
+  capacidadesDe(engine)?.campos.includes("writePassword") ?? false;

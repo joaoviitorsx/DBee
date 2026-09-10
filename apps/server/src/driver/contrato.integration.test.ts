@@ -146,7 +146,7 @@ function conexao(alvo: Alvo): ResolvedConnection {
     host: "127.0.0.1", port: alvo.porta, database: "loja",
     username: alvo.usuario, password: SENHA,
     sslMode: "disable", timezone: "UTC", statementTimeoutMs: 30_000,
-    writeEnabled: false, createdAt: "", updatedAt: "",
+    writeEnabled: false, hasWriteCredential: false, createdAt: "", updatedAt: "",
   };
 }
 

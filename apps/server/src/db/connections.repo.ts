@@ -16,6 +16,7 @@ const PUBLIC_COLUMNS = `
   id, name, color, engine, host, port, database, username,
   ssl_mode AS sslMode, write_enabled AS writeEnabled,
   statement_timeout_ms AS statementTimeoutMs, timezone,
+  (write_password_enc IS NOT NULL) AS hasWriteCredential,
   created_at AS createdAt, updated_at AS updatedAt
 `;
 
@@ -30,6 +31,7 @@ const PUBLIC_COLUMNS_C = `
   c.id, c.name, c.color, c.engine, c.host, c.port, c.database, c.username,
   c.ssl_mode AS sslMode, c.write_enabled AS writeEnabled,
   c.statement_timeout_ms AS statementTimeoutMs, c.timezone,
+  (c.write_password_enc IS NOT NULL) AS hasWriteCredential,
   c.created_at AS createdAt, c.updated_at AS updatedAt
 `;
 
@@ -47,18 +49,39 @@ interface ConnectionRow {
   writeEnabled: number;
   statementTimeoutMs: number;
   timezone: string;
+  hasWriteCredential: number;
   createdAt: string;
   updatedAt: string;
 }
 
 function toConnection(row: ConnectionRow): Connection {
-  return { ...row, writeEnabled: row.writeEnabled === 1 };
+  return { ...row, writeEnabled: row.writeEnabled === 1, hasWriteCredential: row.hasWriteCredential === 1 };
 }
 
 /** Conexão com a senha já decifrada — só circula dentro do servidor. */
 export interface ResolvedConnection extends Connection {
   readonly password: string;
+  /**
+   * A credencial de escrita, decifrada — presente só quando a conexão tem uma
+   * (`hasWriteCredential`) e a engine grava por credencial separada. `username`
+   * é `""` no libSQL (a credencial é o token, que vai em `password`).
+   *
+   * Ausente é o caso comum: sem credencial de escrita, a conexão é
+   * somente-leitura, e nada aqui abre esse caminho.
+   */
+  readonly writeCredential?: { readonly username: string; readonly password: string };
 }
+
+/**
+ * O id de AAD da credencial de **escrita** — distinto do da leitura.
+ *
+ * A senha de leitura cifra com AAD `v2:<id>`; a de escrita, com `v2:<id>#write`.
+ * Sem essa distinção, quem tivesse escrita no volume trocaria uma pela outra
+ * DENTRO da mesma linha (as duas autenticariam sob o mesmo AAD), e a leitura
+ * passaria a rodar com a credencial gravável — o oposto do que a separação
+ * garante. É a mesma defesa do ADR 005, um nível mais fino.
+ */
+const aadEscrita = (id: string): string => `${id}#write`;
 
 export class ConnectionsRepository {
   readonly #db: Database;
@@ -70,6 +93,10 @@ export class ConnectionsRepository {
   readonly #byId: Statement<ConnectionRow, [string]>;
   readonly #byIdParaUsuario: Statement<ConnectionRow & { canWrite: number }, [string, string]>;
   readonly #secretById: Statement<{ password_enc: string }, [string]>;
+  readonly #writeSecretById: Statement<
+    { write_username: string | null; write_password_enc: string | null },
+    [string]
+  >;
   readonly #delete: Statement<unknown, [string]>;
 
   constructor(db: Database, key: EncryptionKey) {
@@ -96,6 +123,10 @@ export class ConnectionsRepository {
     this.#secretById = db.query<{ password_enc: string }, [string]>(
       "SELECT password_enc FROM connections WHERE id = ?",
     );
+    this.#writeSecretById = db.query<
+      { write_username: string | null; write_password_enc: string | null },
+      [string]
+    >("SELECT write_username, write_password_enc FROM connections WHERE id = ?");
     this.#delete = db.query<unknown, [string]>("DELETE FROM connections WHERE id = ?");
   }
 
@@ -191,7 +222,25 @@ export class ConnectionsRepository {
 
     // O id entra como AAD: um password_enc movido para outra conexão não
     // decifra (ADR 005).
-    return { ...connection, password: decrypt(this.#key, id, row.password_enc) };
+    const base: ResolvedConnection = {
+      ...connection,
+      password: decrypt(this.#key, id, row.password_enc),
+    };
+
+    /*
+     * A credencial de escrita, quando existe. Decifrada com o AAD distinto
+     * (`aadEscrita`): a mesma proteção do ADR 005 impede que ela seja a senha
+     * de leitura movida de coluna.
+     */
+    const w = this.#writeSecretById.get(id);
+    if (w?.write_password_enc == null) return base;
+    return {
+      ...base,
+      writeCredential: {
+        username: w.write_username ?? "",
+        password: decrypt(this.#key, aadEscrita(id), w.write_password_enc),
+      },
+    };
   }
 
   // --- concessões -----------------------------------------------------------
@@ -237,8 +286,9 @@ export class ConnectionsRepository {
         `INSERT INTO connections (
            id, name, color, engine, host, port, database, username, password_enc,
            ssl_mode, write_enabled, statement_timeout_ms, timezone,
+           write_username, write_password_enc,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -268,6 +318,20 @@ export class ConnectionsRepository {
         input.writeEnabled === true ? 1 : 0,
         input.statementTimeoutMs ?? 30000,
         input.timezone ?? "UTC",
+        /*
+         * A credencial de escrita, cifrada com o AAD distinto. Vazia ou ausente
+         * significa "sem credencial de escrita": guarda `null` nas duas colunas,
+         * e a conexão segue somente-leitura. `write_username` é `null` quando
+         * vem vazio (libSQL não o usa).
+         */
+        input.writePassword === undefined || input.writePassword === ""
+          ? null
+          : input.writeUsername === undefined || input.writeUsername === ""
+            ? null
+            : input.writeUsername,
+        input.writePassword === undefined || input.writePassword === ""
+          ? null
+          : encrypt(this.#key, aadEscrita(id), input.writePassword),
         now,
         now,
       );
@@ -302,6 +366,27 @@ export class ConnectionsRepository {
       put("statement_timeout_ms", patch.statementTimeoutMs);
     }
     if (patch.timezone !== undefined) put("timezone", patch.timezone);
+
+    /*
+     * A credencial de escrita. Espelha a semântica da senha de leitura, com um
+     * caso a mais: string **vazia** apaga a credencial (a conexão volta a ser
+     * somente-leitura), enquanto ausência do campo não mexe. É a única forma de
+     * a tela oferecer "remover a credencial de escrita" — a senha de leitura
+     * não tem esse caso porque não pode ser removida.
+     */
+    if (patch.writeUsername !== undefined) {
+      put("write_username", patch.writeUsername === "" ? null : patch.writeUsername);
+    }
+    if (patch.writePassword !== undefined) {
+      if (patch.writePassword === "") {
+        // Apaga a credencial inteira: sem senha não há o que autenticar, e um
+        // username órfão só confundiria.
+        put("write_password_enc", null);
+        put("write_username", null);
+      } else {
+        put("write_password_enc", encrypt(this.#key, aadEscrita(id), patch.writePassword));
+      }
+    }
 
     if (sets.length > 0) {
       put("updated_at", new Date().toISOString());
