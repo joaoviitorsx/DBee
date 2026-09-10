@@ -114,6 +114,20 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
 
 ### Adicionado
 
+- **Cancelamento de consulta no SQLite local.** A consulta do `bun:sqlite` é
+  síncrona e não para por sinal; o gerente de workers agora a interrompe
+  **terminando o worker e rejeitando a promessa em voo** — antes, matar o worker
+  deixaria o chamador pendurado até o timeout de 30 s. O mesmo mecanismo serve ao
+  timeout e ao botão "Cancelar". A capacidade `cancelarQuery` do SQLite virou
+  `true`; o cancelamento volta com código `query_cancelled`, gravado como
+  `cancelled` no `query_log` (não `error`). Provado por teste: uma consulta que
+  giraria "para sempre" volta em milissegundos, não em 30 s.
+
+  No editor, o botão "Cancelar" agora só aparece nas engines que **de fato**
+  cancelam (Postgres, MySQL, MariaDB, SQLite). No libSQL — cujo protocolo HTTP
+  não oferece cancelamento — ele some, em vez de ser um botão morto
+  (design-system §5).
+
 - **Exportação nas engines SQL não-Postgres (MySQL, MariaDB, libSQL, SQLite).**
   Antes a exportação era só do Postgres (gate `exigirPostgres`); o resto recusava
   no servidor e o botão sumia da tela. Agora toda engine SQL exporta

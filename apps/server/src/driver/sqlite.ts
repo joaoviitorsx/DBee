@@ -35,9 +35,10 @@ import type { RowMutationResult } from "@dbee/shared";
  * `bun:sqlite` é síncrono e travaria o processo — medido, e a razão de esta fase
  * ter sido adiada até agora.
  *
- * Sem cancelamento por sinal (a consulta síncrona não é interrompível por
- * mensagem); o que existe é o **timeout por terminação do worker**, dentro do
- * gerente. `cancelarQuery` é `false`.
+ * O cancelamento é por **terminação do worker** (a consulta síncrona não para
+ * por mensagem): o gerente rejeita a promessa em voo e mata a thread. Serve
+ * tanto ao timeout quanto ao cancelamento pedido pelo usuário — por isso
+ * `cancelarQuery` é `true`.
  */
 export class DriverSqlite implements DriverLeitura {
   readonly engine: Engine = "sqlite";
@@ -100,6 +101,13 @@ export class DriverSqlite implements DriverLeitura {
      * `writeEnabled` + concessão — um member sem concessão cai no handle
      * readonly, e a escrita dele falha no próprio SQLite.
      */
+    /*
+     * O alvo cancelável do SQLite é a **conexão** (o gerente cancela por id,
+     * matando o worker). Não há PID de backend — o token é simbólico; quem
+     * cancela devolve `conexao.id` implicitamente. Avisar `aoIniciar` agora faz
+     * o serviço registrar a janela cancelável pela duração da execução.
+     */
+    opcoes.aoIniciar?.(0);
     return await executarSqlite(this.#gerente, conexao, opcoes.sql, opcoes.maxRows, !opcoes.somenteLeitura);
   }
 
@@ -119,10 +127,14 @@ export class DriverSqlite implements DriverLeitura {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/require-await -- o contrato é assíncrono.
-  async cancelar(): Promise<boolean> {
-    // Sem cancelamento por sinal; o timeout do gerente mata o worker.
-    return false;
+  // eslint-disable-next-line @typescript-eslint/require-await -- cancelar é síncrono.
+  async cancelar(conexao: ResolvedConnection): Promise<boolean> {
+    // O alvo é a conexão, não um `token` (não há PID de backend): o gerente
+    // rejeita as consultas em voo desta conexão e mata o worker — a única forma
+    // de interromper o `bun:sqlite` síncrono. Coarse por conexão. Os parâmetros
+    // `database`/`token` do contrato não se aplicam e são omitidos (como nos
+    // drivers libSQL/Mongo/Redis, que também não cancelam por token).
+    return this.#gerente.cancelar(conexao.id);
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await -- terminar o worker é síncrono.

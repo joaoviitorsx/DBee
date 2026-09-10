@@ -64,8 +64,30 @@ export interface LinhasCruas {
   readonly rows: (string | null)[][];
 }
 
+/**
+ * O erro de uma consulta **cancelada pelo usuário** (não por timeout nem por
+ * erro do SQLite). O serviço a reconhece para registrar `cancelled` no log, em
+ * vez de `error` — é o pedido da pessoa, não uma falha.
+ */
+export class ConsultaCancelada extends Error {
+  constructor() {
+    super("consulta cancelada pelo usuário");
+    this.name = "ConsultaCancelada";
+  }
+}
+
 export class GerenteSqlite {
   readonly #porId = new Map<string, Vivo>();
+  /**
+   * Abortadores das consultas **em voo** por conexão.
+   *
+   * O `worker.terminate()` mata a thread, mas **não** rejeita a promessa da
+   * `consulta` — sem isto, cancelar deixaria o chamador pendurado até o timeout
+   * de 30 s. Cada consulta registra aqui um abortador (limpa os listeners e
+   * rejeita com `ConsultaCancelada`); `cancelar` os dispara antes de matar o
+   * worker.
+   */
+  readonly #pendentes = new Map<string, Set<() => void>>();
   #seq = 0;
 
   /**
@@ -134,16 +156,47 @@ export class GerenteSqlite {
         this.esquecer(conexao.id);
         rejeitar(new Error(e.message));
       };
+      // O abortador do cancelamento: limpa e rejeita com `ConsultaCancelada`.
+      // Quem mata o worker é o `cancelar`, depois de disparar os abortadores.
+      const abortar = (): void => {
+        limpar();
+        rejeitar(new ConsultaCancelada());
+      };
       const limpar = (): void => {
         clearTimeout(prazo);
         vivo.worker.removeEventListener("message", aoResponder);
         vivo.worker.removeEventListener("error", aoErro);
+        this.#pendentes.get(conexao.id)?.delete(abortar);
       };
+
+      const doId = this.#pendentes.get(conexao.id) ?? new Set<() => void>();
+      doId.add(abortar);
+      this.#pendentes.set(conexao.id, doId);
 
       vivo.worker.addEventListener("message", aoResponder);
       vivo.worker.addEventListener("error", aoErro);
       vivo.worker.postMessage({ tipo: "consulta", id, sql, params, maxRows, escrita } satisfies Pedido);
     });
+  }
+
+  /**
+   * Cancela as consultas em voo de uma conexão: rejeita cada promessa pendente
+   * com `ConsultaCancelada` e mata os workers (a consulta síncrona não para de
+   * outro jeito). Devolve `true` se havia algo a cancelar.
+   *
+   * É coarse por conexão — cancela tudo que roda nela, não uma consulta
+   * específica. No SQLite local isso é aceitável: cada conexão tem no máximo um
+   * worker de leitura e um de escrita, e o uso concorrente na mesma conexão é
+   * raro. O próximo pedido recria o worker.
+   */
+  cancelar(id: string): boolean {
+    const abortadores = this.#pendentes.get(id);
+    if (abortadores === undefined || abortadores.size === 0) return false;
+    // Cópia: `abortar` chama `limpar`, que muta o set durante a iteração.
+    for (const abortar of [...abortadores]) abortar();
+    this.#pendentes.delete(id);
+    this.esquecer(id);
+    return true;
   }
 
   esquecer(id: string): void {

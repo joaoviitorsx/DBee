@@ -1,5 +1,5 @@
 import { type QueryResponse, type SavedQuery, type StatementResult } from "@dbee/shared";
-import { dialetoDe, splitStatements, type DialetoSql } from "@dbee/shared/puro";
+import { capacidadesDe, dialetoDe, splitStatements, type DialetoSql } from "@dbee/shared/puro";
 import { useMutation } from "@tanstack/react-query";
 import { BookmarkPlus, FolderOpen, Play, Square, Table2, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
@@ -62,9 +62,17 @@ export function QueryTabContent({
    * de MySQL, `'O\'Brien; ...'` viraria dois trechos aqui e um lá.
    */
   const conexoes = useConnections();
-  const dialeto: DialetoSql = dialetoDe(
-    conexoes.data?.find((c) => c.id === tab.connectionId)?.engine ?? "postgres",
-  );
+  const engineDaAba = conexoes.data?.find((c) => c.id === tab.connectionId)?.engine ?? "postgres";
+  const dialeto: DialetoSql = dialetoDe(engineDaAba);
+  /**
+   * A engine consegue cancelar uma consulta em voo?
+   *
+   * O Postgres (`pg_cancel_backend`), o MySQL (`KILL QUERY`) e o SQLite
+   * (terminação do worker) conseguem; o libSQL **não** — o protocolo HTTP não
+   * oferece cancelamento. Sem isto o botão "Cancelar" apareceria no libSQL sem
+   * fazer nada, que é o tipo de ação morta que o design-system §5 proíbe.
+   */
+  const podeCancelar = capacidadesDe(engineDaAba)?.cancelarQuery === true;
 
   /**
    * O painel de baixo: o resultado da consulta, ou os dados da tabela de origem.
@@ -162,7 +170,7 @@ export function QueryTabContent({
             {t("query.executarTudo")}
           </Button>
 
-          {executar.isPending ? (
+          {executar.isPending && podeCancelar ? (
             <Button
               variant="danger"
               size="sm"

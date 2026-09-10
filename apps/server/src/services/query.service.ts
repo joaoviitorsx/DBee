@@ -225,9 +225,13 @@ export class QueryService {
 
       const totalDurationMs = Math.round(performance.now() - inicio);
       const linhas = outcome.results.reduce((soma, r) => soma + r.rowCount, 0);
-      // `57014` = "canceling statement due to user request": o cancelamento
-      // pedido, não um erro de SQL. Vira status próprio no log.
-      const cancelada = outcome.error !== null && outcome.error.code === "57014";
+      // O cancelamento pedido, não um erro de SQL — vira status próprio no log.
+      // `57014` é o "canceling statement due to user request" do Postgres;
+      // `query_cancelled` é o do SQLite (terminação do worker). O MySQL devolve
+      // o erro de conexão morta do `KILL`, tratado no caminho de exceção.
+      const cancelada =
+        outcome.error !== null &&
+        (outcome.error.code === "57014" || outcome.error.code === "query_cancelled");
 
       this.#log.record({
         connectionId,

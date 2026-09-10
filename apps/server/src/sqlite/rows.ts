@@ -2,7 +2,7 @@ import type { Relation, RowsRequest, RowsResponse, StatementResult, QueryError }
 import { splitStatements } from "@dbee/shared/puro";
 
 import { planejarLinhas as planejarLibsql } from "../libsql/rows";
-import type { GerenteSqlite } from "./gerente";
+import { ConsultaCancelada, type GerenteSqlite } from "./gerente";
 import type { ResolvedConnection } from "../db/connections.repo";
 
 /**
@@ -97,10 +97,13 @@ export async function executar(
         viaCursor: false,
       });
     } catch (err: unknown) {
+      // Cancelamento pelo usuário tem código próprio, que o serviço grava como
+      // `cancelled` em vez de `error` — é o pedido da pessoa, não uma falha.
+      const cancelada = err instanceof ConsultaCancelada;
       return {
         results,
         error: {
-          code: "sqlite_error",
+          code: cancelada ? "query_cancelled" : "sqlite_error",
           message: err instanceof Error ? err.message : String(err),
           position: null,
           detail: null,

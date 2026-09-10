@@ -133,4 +133,34 @@ describe("driver do SQLite local", () => {
     // temporizador disparou várias vezes durante a consulta.
     expect(tiques, "o event loop travou durante a consulta").toBeGreaterThan(1);
   });
+
+  /*
+   * O cancelamento pelo usuário: uma consulta que giraria "para sempre" (um
+   * trilhão de iterações) é interrompida pela terminação do worker. O que se
+   * prova é que ela volta **rápido** (não espera o timeout de 30 s) e com o
+   * código `query_cancelled`.
+   */
+  it("cancela uma consulta em voo pela terminação do worker", async () => {
+    const conn = conexao("loja.db");
+    const inicio = performance.now();
+    const consulta = driver.executar(conn, {
+      sql: "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<1000000000000) SELECT max(x) FROM n",
+      database: "loja.db", maxRows: 1, somenteLeitura: true,
+    });
+
+    // Deixa a consulta de fato começar a girar, então cancela.
+    await new Promise((r) => setTimeout(r, 150));
+    const cancelou = await driver.cancelar(conn);
+    expect(cancelou).toBe(true);
+
+    const r = await consulta;
+    const duracao = performance.now() - inicio;
+    expect(r.error?.code, JSON.stringify(r.error)).toBe("query_cancelled");
+    // Voltou pelo cancelamento, não pelo timeout de 30 s.
+    expect(duracao).toBeLessThan(10_000);
+  });
+
+  it("cancelar sem consulta em voo devolve false", async () => {
+    expect(await driver.cancelar(conexao("loja.db"))).toBe(false);
+  });
 });

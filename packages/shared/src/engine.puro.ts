@@ -294,10 +294,14 @@ export const CAPACIDADES: Readonly<
    * Roda **fora do event loop** (num Worker): o `bun:sqlite` é síncrono e uma
    * consulta longa travaria o processo inteiro num app multiusuário — medido.
    *
-   * `campos` é só `filePath` (o caminho no servidor) e `writePassword`? Não: a
-   * escrita do SQLite é abrir o arquivo em modo r/w, não uma credencial. Fica
-   * só `filePath`; a escrita entra por `writeEnabled`, como no Postgres — mas
-   * isso é fatia futura. No v1, somente leitura.
+   * `campos` é `filePath` (o caminho no servidor) e `writeEnabled`: a escrita do
+   * SQLite é abrir o arquivo em modo r/w (um segundo worker), não uma
+   * credencial — por isso `writeEnabled`, como no Postgres, e não
+   * `writePassword`.
+   *
+   * `cancelarQuery: true`: a consulta síncrona não para por sinal, mas o gerente
+   * a interrompe **terminando o worker** (e rejeitando a promessa em voo) — o
+   * mesmo mecanismo do timeout, acionável também pelo usuário.
    */
   sqlite: {
     niveis: "arquivo/tabela",
@@ -309,7 +313,7 @@ export const CAPACIDADES: Readonly<
     portaPadrao: null,
     dialeto: "sqlite",
     sqlLivre: true,
-    cancelarQuery: false,
+    cancelarQuery: true,
     diagramaErd: true,
     exportar: true,
   },
