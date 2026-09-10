@@ -69,6 +69,32 @@ async function conexaoMysql(nome: string, usuario: string, senha: string): Promi
   return (await res.json()) as Connection;
 }
 
+/** Conexão com credencial de leitura E de escrita separadas. */
+async function conexaoComEscrita(
+  nome: string,
+  usuarioRo: string,
+  usuarioRw: string,
+): Promise<Connection> {
+  const res = await chamar("POST", "/connections", adminCookie, {
+    name: nome, engine: "mysql",
+    host: "127.0.0.1", port: PORTA, database: "loja",
+    username: usuarioRo, password: SENHA, sslMode: "disable",
+    writeUsername: usuarioRw, writePassword: SENHA,
+  });
+  expect(res.status, await res.clone().text()).toBe(201);
+  return (await res.json()) as Connection;
+}
+
+/** Conta linhas de `clientes` por fora do app, com root. */
+async function contarClientes(): Promise<number> {
+  const c = await mysql.createConnection({
+    host: "127.0.0.1", port: PORTA, user: "root", password: SENHA, database: "loja",
+  });
+  const [linhas] = await c.query<mysql.RowDataPacket[]>("SELECT COUNT(*) AS n FROM clientes");
+  await c.end();
+  return Number((linhas as unknown as { n: unknown }[])[0]?.n);
+}
+
 beforeAll(async () => {
   if (!temDocker) return;
   sh("docker", "rm", "-f", CONTAINER);
@@ -227,5 +253,99 @@ describe("portão de escrita numa engine de credencial", () => {
     for (const l of lista) {
       expect(l.readOnly, "MySQL não tem transação somente-leitura; o log não pode dizer que tinha").toBe(false);
     }
+  }, 180_000);
+});
+
+describe("credencial de escrita numa engine de credencial", () => {
+  /*
+   * O caminho que a fase destrava. A conexão lê com `so_le` (só SELECT) e tem
+   * uma credencial de escrita `grava`. O admin pede escrita explícita
+   * (`readOnly: false`), e ela executa **pela credencial de escrita** — a de
+   * leitura sozinha não conseguiria.
+   */
+  it("com credencial de escrita, o admin grava e a linha aparece", async () => {
+    if (!temDocker) return;
+    const antes = await contarClientes();
+    const conexao = await conexaoComEscrita("rw-admin", "so_le", "grava");
+    expect(conexao.hasWriteCredential).toBe(true);
+
+    const res = await chamar("POST", `/connections/${conexao.id}/query`, adminCookie, {
+      sql: "INSERT INTO clientes VALUES (50,'Gravada')",
+      database: "loja", readOnly: false,
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(await contarClientes()).toBe(antes + 1);
+
+    // Limpa para não interferir na contagem de outros testes.
+    const c = await mysql.createConnection({
+      host: "127.0.0.1", port: PORTA, user: "root", password: SENHA, database: "loja",
+    });
+    await c.query("DELETE FROM clientes WHERE id = 50");
+    await c.end();
+  }, 180_000);
+
+  /*
+   * A leitura continua pela credencial de leitura, mesmo havendo a de escrita:
+   * sem `readOnly: false`, nada é gravado. É a promessa "nada muda por
+   * acidente" — a credencial de escrita só entra quando pedida.
+   */
+  it("sem pedir escrita, a credencial de escrita não é usada", async () => {
+    if (!temDocker) return;
+    const antes = await contarClientes();
+    const conexao = await conexaoComEscrita("rw-leitura", "so_le", "grava");
+    // Uma consulta de leitura comum, sem readOnly: false.
+    const res = await chamar("POST", `/connections/${conexao.id}/query`, adminCookie, {
+      sql: "SELECT COUNT(*) FROM clientes", database: "loja",
+    });
+    expect(res.status).toBe(200);
+    expect(await contarClientes()).toBe(antes);
+  }, 180_000);
+
+  /*
+   * O portão ainda vale: um member sem concessão não grava, mesmo existindo a
+   * credencial de escrita. A concessão do ator é a segunda tranca.
+   */
+  it("member sem concessão não grava, mesmo com credencial de escrita presente", async () => {
+    if (!temDocker) return;
+    const antes = await contarClientes();
+    const conexao = await conexaoComEscrita("rw-member", "so_le", "grava");
+    const m = await membro("rw-sem-concessao");
+    await chamar("PUT", `/connections/${conexao.id}/access`, adminCookie, {
+      userId: m.id, canWrite: false,
+    });
+    const res = await chamar("POST", `/connections/${conexao.id}/query`, m.cookie, {
+      sql: "INSERT INTO clientes VALUES (51,'Intruso')",
+      database: "loja", readOnly: false,
+    });
+    // Sem concessão, o pedido de escrita é rebaixado a leitura, e o portão da
+    // credencial gravável barra o SQL livre.
+    expect(res.status).toBe(400);
+    expect(await contarClientes()).toBe(antes);
+  }, 180_000);
+
+  /*
+   * Member COM concessão grava — a concessão mais a credencial de escrita, as
+   * duas presentes.
+   */
+  it("member com concessão grava pela credencial de escrita", async () => {
+    if (!temDocker) return;
+    const antes = await contarClientes();
+    const conexao = await conexaoComEscrita("rw-member-ok", "so_le", "grava");
+    const m = await membro("rw-com-concessao");
+    await chamar("PUT", `/connections/${conexao.id}/access`, adminCookie, {
+      userId: m.id, canWrite: true,
+    });
+    const res = await chamar("POST", `/connections/${conexao.id}/query`, m.cookie, {
+      sql: "INSERT INTO clientes VALUES (52,'Autorizado')",
+      database: "loja", readOnly: false,
+    });
+    expect(res.status, await res.clone().text()).toBe(200);
+    expect(await contarClientes()).toBe(antes + 1);
+
+    const c = await mysql.createConnection({
+      host: "127.0.0.1", port: PORTA, user: "root", password: SENHA, database: "loja",
+    });
+    await c.query("DELETE FROM clientes WHERE id = 52");
+    await c.end();
   }, 180_000);
 });

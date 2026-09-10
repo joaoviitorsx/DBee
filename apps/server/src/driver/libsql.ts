@@ -86,6 +86,22 @@ export class DriverLibsql implements DriverLeitura {
     return alvoLibsqlDe(conexao, this.#caCert);
   }
 
+  /**
+   * O alvo com o **token de escrita** no lugar do de leitura.
+   *
+   * O token gravável mora em `writeCredential.password` (o libSQL não usa
+   * `username`). Trocar só o token basta: a URL e o TLS são os mesmos, o que
+   * muda é a credencial que o servidor recebe. Estoura sem credencial de
+   * escrita — o serviço barra antes.
+   */
+  #alvoEscrita(conexao: ResolvedConnection): AlvoLibsql {
+    const wc = conexao.writeCredential;
+    if (wc === undefined) {
+      throw new Error("escrita pedida sem credencial de escrita nesta conexão");
+    }
+    return { ...alvoLibsqlDe(conexao, this.#caCert), token: wc.password };
+  }
+
   async testarConexao(conexao: ResolvedConnection): Promise<TestConnectionResult> {
     return await testConnectionLibsql(conexao, this.#alvo(conexao));
   }
@@ -129,21 +145,14 @@ export class DriverLibsql implements DriverLeitura {
   }
 
   async executar(conexao: ResolvedConnection, opcoes: OpcoesExecucao): Promise<ResultadoExecucao> {
-    if (!opcoes.somenteLeitura) {
-      /*
-       * Não há modo de escrita por execução aqui, pela mesma razão do MySQL e
-       * com uma garantia melhor: quem decide é o **servidor**, pelo claim
-       * `"a":"ro"` do token. Um interruptor por execução ligaria algo que não
-       * existe — e, diferente do MySQL, aqui a garantia do servidor cobre
-       * também DDL (medido).
-       */
-      throw new Error(
-        "o libSQL não tem modo de escrita por execução: quem decide é o token " +
-          "(claim \"a\":\"ro\", aplicado pelo servidor). Gere um token com " +
-          "escrita se precisa gravar.",
-      );
-    }
-    return await executar(this.#alvo(conexao), opcoes.sql, opcoes.maxRows);
+    /*
+     * Leitura vai com o token de leitura; escrita, com o de escrita. Quem
+     * separa é a credencial — o claim `"a":"ro"` do JWT, aplicado pelo
+     * servidor, cobrindo até DDL (medido). O serviço só pede `somenteLeitura:
+     * false` depois de confirmar credencial de escrita e concessão do ator.
+     */
+    const alvo = opcoes.somenteLeitura ? this.#alvo(conexao) : this.#alvoEscrita(conexao);
+    return await executar(alvo, opcoes.sql, opcoes.maxRows);
   }
 
   /**

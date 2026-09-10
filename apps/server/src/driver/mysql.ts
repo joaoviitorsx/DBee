@@ -41,6 +41,24 @@ export class DriverMysql implements DriverLeitura {
     return database === conexao.database ? conexao : { ...conexao, database };
   }
 
+  /**
+   * A conexão com a credencial de **escrita** — usuário e senha graváveis no
+   * lugar dos de leitura.
+   *
+   * Trocar `username`/`password` é o suficiente: o pool chaveia por `username`
+   * (`PoolMysql.chaveDe`), então a conexão de escrita nasce num grupo próprio e
+   * nunca é entregue a uma tarefa de leitura. Estoura se não há credencial de
+   * escrita — o serviço já barra antes, e chegar aqui sem ela é defeito, não
+   * caminho de usuário.
+   */
+  #comEscrita(conexao: ResolvedConnection, database: string): ResolvedConnection {
+    const wc = conexao.writeCredential;
+    if (wc === undefined) {
+      throw new Error("escrita pedida sem credencial de escrita nesta conexão");
+    }
+    return { ...conexao, database, username: wc.username, password: wc.password };
+  }
+
   async testarConexao(conexao: ResolvedConnection): Promise<TestConnectionResult> {
     return await testConnectionMysql(conexao, this.#caCert);
   }
@@ -93,21 +111,18 @@ export class DriverMysql implements DriverLeitura {
   }
 
   async executar(conexao: ResolvedConnection, opcoes: OpcoesExecucao): Promise<ResultadoExecucao> {
-    if (!opcoes.somenteLeitura) {
-      /*
-       * Não há modo de escrita por execução aqui. Medido: dentro de
-       * `START TRANSACTION READ ONLY` o `TRUNCATE` esvazia a tabela e o
-       * `CREATE USER` cria usuário — a garantia mora na credencial
-       * (`docs/papeis-mysql.md`). Aceitar `false` seria a API dizendo que
-       * ligou uma chave que não existe.
-       */
-      throw new Error(
-        "o MySQL/MariaDB não tem modo de escrita por execução: a garantia é a credencial " +
-          "(ver docs/papeis-mysql.md). Esta conexão executa apenas leitura.",
-      );
-    }
-
-    const alvo = this.#em(conexao, opcoes.database);
+    /*
+     * O modo de escrita **não** é uma transação — medido: dentro de
+     * `START TRANSACTION READ ONLY` o `TRUNCATE` esvazia a tabela e o
+     * `CREATE USER` cria usuário (`docs/papeis-mysql.md`). A garantia é a
+     * credencial: leitura roda com a de leitura, escrita com a de escrita, e é
+     * a diferença de credencial — não um modo de transação — que separa as
+     * duas. O serviço só chega aqui com `somenteLeitura: false` depois de
+     * confirmar que há credencial de escrita e que o ator pode gravar.
+     */
+    const alvo = opcoes.somenteLeitura
+      ? this.#em(conexao, opcoes.database)
+      : this.#comEscrita(conexao, opcoes.database);
     /*
      * `"mysql"` não é decoração: a leitura do Postgres não conhece `\'`, `#`
      * nem crase, e no SQL do MySQL isso põe o `;` no lugar errado — achado #9

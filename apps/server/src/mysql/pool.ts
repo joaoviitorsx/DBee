@@ -221,9 +221,17 @@ export class PoolMysql {
   }
 
   static chaveDe(conexao: ResolvedConnection): string {
-    // `\u0000` como separador: não aparece em id nem em nome de database, então
-    // não há como duas conexões diferentes colidirem numa chave só.
-    return `${conexao.id}\u0000${conexao.database}`;
+    /*
+     * `\u0000` como separador: não aparece em id, database nem username, então
+     * não há como duas conexões diferentes colidirem numa chave só.
+     *
+     * O `username` entra na chave por causa da credencial de escrita: a mesma
+     * conexão configurada abre pools distintos para o usuário de leitura e o de
+     * escrita. Sem isso, uma tarefa de leitura poderia receber uma conexão
+     * autenticada com a credencial gravável — exatamente o que a separação
+     * existe para impedir.
+     */
+    return `${conexao.id}\u0000${conexao.database}\u0000${conexao.username}`;
   }
 
   #grupo(conexao: ResolvedConnection): Grupo {

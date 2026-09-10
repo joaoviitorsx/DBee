@@ -1,5 +1,5 @@
 import type { CancelResponse, QueryLogEntry, QueryRequest, QueryResponse } from "@dbee/shared";
-import { capacidadesDe } from "@dbee/shared/puro";
+import { capacidadesDe, gravaPorCredencialSeparada } from "@dbee/shared/puro";
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
@@ -86,8 +86,50 @@ export class QueryService {
     const database = request.database ?? connection.database;
     const maxRows = request.maxRows ?? MAX_ROWS_PADRAO;
 
-    // Gravável só quando a conexão permite E a requisição pede escrita.
-    const readOnly = !(connection.writeEnabled && request.readOnly === false);
+    /*
+     * Gravável só quando a conexão permite **e** a requisição pede escrita — e
+     * "a conexão permite" muda por engine:
+     *
+     * - Postgres: `writeEnabled` (que já dobra a concessão do ator no `resolve`).
+     *   A escrita é o modo da transação, na mesma credencial.
+     * - Credencial (MySQL/MariaDB/libSQL): existe uma **credencial de escrita**
+     *   nesta conexão E o ator tem concessão. A escrita roda por ela, não por
+     *   um modo de transação — é o que a fase da credencial de escrita destrava.
+     */
+    const separada = gravaPorCredencialSeparada(connection.engine);
+    const podeGravar = separada
+      ? connection.hasWriteCredential && this.#repository.podeEscrever(connectionId, ator)
+      : connection.writeEnabled;
+    const readOnly = !(podeGravar && request.readOnly === false);
+
+    /*
+     * Pedido de escrita explícito numa engine de credencial que **não** pode
+     * ser atendido: recusa clara, em vez de rebaixar para leitura e deixar o
+     * servidor negar com uma mensagem críptica ("INSERT command denied").
+     *
+     * Dois motivos, duas mensagens: falta a credencial de escrita na conexão,
+     * ou falta a concessão do ator. Cada uma diz o que fazer.
+     */
+    if (separada && request.readOnly === false && !podeGravar) {
+      const motivo = !connection.hasWriteCredential
+        ? "esta conexão não tem credencial de escrita configurada. Para gravar numa " +
+          "engine de credencial, adicione uma credencial de escrita à conexão (ver " +
+          "docs/papeis-mysql.md)."
+        : "você não tem concessão de escrita nesta conexão. A credencial de escrita " +
+          "existe, mas escrever por ela exige a concessão — peça a um administrador.";
+      this.#log.record({
+        connectionId,
+        database,
+        sql: request.sql,
+        status: "error",
+        error: "write_forbidden: escrita pedida sem credencial ou sem concessão",
+        rowCount: null,
+        durationMs: 0,
+        readOnly: false,
+        actor: ator.id,
+      });
+      return fail("bad_request", motivo);
+    }
 
     /*
      * O que vai para a auditoria **não** é o que a requisição pediu: é se a
@@ -124,7 +166,7 @@ export class QueryService {
      * Recusar sempre mataria o uso legítimo — quem conectou com `GRANT SELECT`
      * está seguro e deve poder consultar.
      */
-    if (capacidades?.escopoReadOnly === "credencial") {
+    if (capacidades?.escopoReadOnly === "credencial" && readOnly) {
       const recusa = await this.#recusarSqlLivreSemPortao(connectionId, connection, ator);
       if (recusa !== null) {
         this.#log.record({
