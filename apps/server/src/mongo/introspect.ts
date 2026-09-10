@@ -187,6 +187,91 @@ function inferirColunas(amostra: readonly Document[]): Column[] {
   });
 }
 
+/**
+ * O catálogo de campos de uma coleção, para o caminho de **escrita**.
+ *
+ * `topo` é o mesmo catálogo que as colunas da grade usam — campo de primeiro
+ * nível → tipo inferido. `aninhados` são os nomes de campo vistos em
+ * profundidade (dentro de sub-documento ou de elemento de array), que o
+ * validador de path da edição aninhada consulta. São mapas separados de
+ * propósito: o primeiro segmento de um path tem que ser um campo de topo, e um
+ * nome que só existe no topo não pode, por acidente, valer como segmento
+ * aninhado (ver `exigirPath` em `mutacao.ts`).
+ */
+export interface CatalogoCampos {
+  readonly topo: ReadonlyMap<string, string>;
+  readonly aninhados: ReadonlyMap<string, string>;
+}
+
+/**
+ * Amostra uma coleção **uma vez** e infere os campos de topo e os aninhados.
+ *
+ * É o que a edição de documento chama pela credencial de leitura para tipar os
+ * valores e validar os nomes de campo. Amostra só a coleção alvo — mais barato
+ * que introspectar o database inteiro só para pegar uma coleção.
+ */
+export async function inferirCatalogoCampos(
+  cliente: MongoClient,
+  database: string,
+  colecao: string,
+): Promise<CatalogoCampos> {
+  const amostra = await cliente.db(database).collection(colecao).find({}, { limit: AMOSTRA }).toArray();
+  const topo = new Map(inferirColunas(amostra).map((c) => [c.name, c.dataType]));
+  return { topo, aninhados: inferirCamposAninhados(amostra) };
+}
+
+/**
+ * Os nomes de campo vistos em qualquer nível **aninhado** (profundidade >= 1)
+ * da amostra, cada um com o tipo inferido (`mixed` se aparece com tipos
+ * diferentes).
+ *
+ * Serve ao validador de path da escrita: um segmento não-primeiro de
+ * `endereco.cidade` só passa se `cidade` for um campo que a amostra de fato
+ * revelou dentro de algum documento. Campo de **topo** não entra aqui — o
+ * primeiro segmento é validado contra o catálogo de topo, e um nome que só
+ * existe no topo não pode virar, por acidente, um segmento aninhado válido.
+ */
+function inferirCamposAninhados(amostra: readonly Document[]): Map<string, string> {
+  const vistos = new Map<string, Set<string>>();
+
+  const descer = (valor: unknown): void => {
+    if (Array.isArray(valor)) {
+      // Um elemento de array pode ser um sub-documento com campos próprios; o
+      // índice em si não é nome de campo (o validador o aceita como dígito).
+      for (const item of valor) descer(item);
+      return;
+    }
+    if (!ehSubDocumento(valor)) return;
+    for (const [chave, v] of Object.entries(valor as Record<string, unknown>)) {
+      if (!vistos.has(chave)) vistos.set(chave, new Set());
+      vistos.get(chave)?.add(tipoBson(v));
+      descer(v);
+    }
+  };
+
+  // Só os VALORES de topo entram no `descer` — as chaves de topo são o catálogo
+  // de topo, não campos aninhados.
+  for (const doc of amostra) {
+    const registro = doc as Record<string, unknown>;
+    for (const chave of Object.keys(registro)) descer(registro[chave]);
+  }
+
+  return new Map(
+    [...vistos].map(([nome, conjunto]) => [nome, conjunto.size === 1 ? [...conjunto][0] ?? "mixed" : "mixed"]),
+  );
+}
+
+/**
+ * É um sub-documento navegável (objeto simples), e não um valor BSON que só
+ * *parece* objeto? Data, `ObjectId`, `Decimal128` etc. são folhas — descer
+ * neles inventaria "campos" como `_bsontype`, que não existem no documento.
+ */
+function ehSubDocumento(valor: unknown): boolean {
+  if (valor === null || typeof valor !== "object") return false;
+  if (Array.isArray(valor) || valor instanceof Date) return false;
+  return (valor as { _bsontype?: string })._bsontype === undefined;
+}
+
 /** O tipo BSON de um valor, num nome curto para a coluna. */
 function tipoBson(valor: unknown): string {
   if (valor === null || valor === undefined) return "null";

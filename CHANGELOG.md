@@ -124,6 +124,19 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
 
 ### Adicionado
 
+- **Edição de campo aninhado no MongoDB.** A edição de documento passou a
+  aceitar um path pontuado (`endereco.cidade`) na coluna do update/delete, e não
+  só campo de topo: vira `$set: {"endereco.cidade": …}` por dot-notation, que
+  grava só o campo aninhado e **preserva o resto do documento e os tipos BSON**
+  (nunca reescreve o documento inteiro). A guarda otimista casa pelo mesmo path.
+  O coração da fatia é o validador de path: recusa, por segmento e sem parser
+  (§8), path/segmento vazio e todo `$` ou espaço — o que barra `$where`,
+  `endereco.$gt` e qualquer operador —, exige que o primeiro segmento seja campo
+  de topo conhecido (a tranca de sempre) e que cada segmento seguinte seja um
+  campo que a amostra revelou em profundidade ou um índice de array; `__proto__`
+  e campo nunca amostrado são recusados. O catálogo aninhado é amostrado pela
+  credencial de leitura (a de escrita pode não poder), como os tipos já eram.
+
 - **DDL por formulário nas engines SQL não-Postgres (MySQL, MariaDB, libSQL,
   SQLite).** Criar tabela deixou de ser só do Postgres: o montador de `CREATE
   TABLE` agora gera no **dialeto da engine** — crase no MySQL, aspas duplas no

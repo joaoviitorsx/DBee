@@ -55,7 +55,8 @@ function filtroId(pk: readonly { column: string; value: string }[]): Filter<Docu
 }
 
 /**
- * Recusa um nome de campo que não seja do catálogo, ou que comece com `$`/`.`.
+ * Recusa um nome de campo de **topo** que não seja do catálogo, ou que comece
+ * com `$`/`.`.
  *
  * O caminho de leitura já valida nome de campo contra o catálogo (`rows.ts`
  * `exigirColuna`). A escrita precisa da mesma tranca: sem ela, um
@@ -63,6 +64,9 @@ function filtroId(pk: readonly { column: string; value: string }[]): Filter<Docu
  * (achado ALTO do red-team). O `_id` sempre passa; o resto tem que estar nos
  * tipos inferidos e nunca começar com `$` (operador) nem conter `.`
  * (dot-notation, que navega para outro campo).
+ *
+ * Continua sendo a tranca do **primeiro segmento** de um path — `exigirPath` o
+ * chama para o topo e estende a validação para os segmentos aninhados.
  */
 function exigirCampo(nome: string, tipos: ReadonlyMap<string, string>): void {
   if (nome === "_id") return;
@@ -74,19 +78,106 @@ function exigirCampo(nome: string, tipos: ReadonlyMap<string, string>): void {
   }
 }
 
+/**
+ * Valida um path de campo — de topo (`preco`) ou aninhado (`endereco.cidade`) —
+ * antes de ele virar chave de filtro ou de `$set`.
+ *
+ * ## A decisão de segurança
+ *
+ * No Mongo, a chave de um filtro/atualização é dot-notation: `"a.b"` navega até
+ * o campo aninhado, e um nome começado por `$` é **operador**. Um
+ * `$set: {"$where": …}`, ou um filtro `{"endereco.$gt": …}`, executaria lógica
+ * do servidor a partir de entrada do usuário — o mesmo achado ALTO que travou a
+ * edição de topo, agora pela porta do path. A regra §8 proíbe parser de
+ * SQL/NoSQL do usuário, então a defesa é dupla e puramente estrutural:
+ *
+ *  1. **Sintática, por segmento, sem catálogo:** recusa path/segmento vazio e
+ *     todo `$` e espaço em qualquer segmento. É o que barra `$where`, `a.$gt`,
+ *     `endereco.$op` — nenhum operador do Mongo chega à chave, venha ele no
+ *     começo ou no meio de um path.
+ *  2. **Por catálogo:** o primeiro segmento tem que ser um campo de topo
+ *     conhecido (`exigirCampo`, a tranca de sempre); cada segmento seguinte tem
+ *     que ser um campo que a amostra revelou em profundidade, ou um índice de
+ *     array (só dígitos). Um `__proto__`, ou um campo que ninguém amostrou, é
+ *     desconhecido → recusado.
+ *
+ * O catálogo **não** amarra a estrutura pai→filho: o Mongo é sem schema e os
+ * documentos são heterogêneos, então exigir que `cidade` só valha sob
+ * `endereco` recusaria edição legítima de um documento com forma diferente da
+ * amostrada. Ele amarra o **vocabulário** — o segmento é um nome de campo que a
+ * coleção de fato usa, não uma string arbitrária vinda do cliente. É contenção
+ * do acidente e da injeção, não promessa de schema.
+ */
+function exigirPath(
+  path: string,
+  topo: ReadonlyMap<string, string>,
+  aninhados: ReadonlyMap<string, string>,
+): void {
+  if (!path.includes(".")) {
+    exigirCampo(path, topo);
+    return;
+  }
+  // `forEach` dá o segmento já como `string` (não `string | undefined` do índice
+  // cru) e o `i` para tratar o primeiro segmento contra o catálogo de topo.
+  path.split(".").forEach((seg, i) => {
+    // Segmento vazio pega `""`, `"a."`, `".a"` e `"a..b"` — path malformado.
+    if (seg === "") throw new MutacaoError(`path de campo inválido: "${path}"`);
+    // `$` em qualquer posição é operador; espaço não é nome de campo aqui.
+    if (seg.includes("$") || seg.includes(" ")) {
+      throw new MutacaoError(`nome de campo inválido: "${seg}"`);
+    }
+    if (i === 0) {
+      // Primeiro segmento: a tranca de topo de sempre.
+      exigirCampo(seg, topo);
+      return;
+    }
+    // Demais: campo aninhado conhecido, ou índice de array (dígitos).
+    if (/^\d+$/.test(seg)) return;
+    if (!aninhados.has(seg)) {
+      throw new MutacaoError(`o campo "${seg}" (em "${path}") não aparece nesta coleção`);
+    }
+  });
+}
+
+/**
+ * O tipo inferido para coagir o valor de um path (regra 10: valor é texto).
+ *
+ * Path de topo → tipo do catálogo de topo. Path aninhado → tipo da folha no
+ * catálogo aninhado. Folha que é índice de array (ou campo não catalogado) fica
+ * sem tipo → o texto passa como está, que é o padrão seguro de `coagir`.
+ */
+function tipoDePath(
+  path: string,
+  topo: ReadonlyMap<string, string>,
+  aninhados: ReadonlyMap<string, string>,
+): string | undefined {
+  if (!path.includes(".")) return topo.get(path);
+  const folha = path.split(".").at(-1);
+  // Folha ausente (impossível: há `.`) ou índice de array → sem tipo → texto.
+  if (folha === undefined || /^\d+$/.test(folha)) return undefined;
+  return aninhados.get(folha);
+}
+
 export async function atualizar(
   cliente: MongoClient,
   database: string,
   colecao: string,
   req: RowUpdateRequest,
   tipos: ReadonlyMap<string, string>,
+  aninhados: ReadonlyMap<string, string>,
 ): Promise<RowMutationResult> {
-  for (const c of req.changes) exigirCampo(c.column, tipos);
+  for (const c of req.changes) exigirPath(c.column, tipos, aninhados);
   const filtro: Document = { ...filtroId(req.pk) };
   // Guarda otimista: o valor ORIGINAL de cada campo alterado entra no filtro.
-  for (const c of req.changes) filtro[c.column] = valorCelula(c.from, tipos.get(c.column));
+  // Num path aninhado a chave é dot-notation (`{"endereco.cidade": "X"}`), que
+  // casa o campo aninhado — se mudou desde a leitura, casa 0 → conflito.
+  for (const c of req.changes) filtro[c.column] = valorCelula(c.from, tipoDePath(c.column, tipos, aninhados));
+  // `$set` por path preserva o resto do documento (e os tipos BSON dos outros
+  // campos): NUNCA reescrevemos o documento inteiro. Valor nulo vira
+  // `$set: {path: null}` — "a célula é nula", como na edição de topo —, e não
+  // `$unset`, para o contrato (e a guarda otimista) serem os mesmos dos dois.
   const set: Document = {};
-  for (const c of req.changes) set[c.column] = valorCelula(c.to, tipos.get(c.column));
+  for (const c of req.changes) set[c.column] = valorCelula(c.to, tipoDePath(c.column, tipos, aninhados));
 
   const r = await cliente.db(database).collection(colecao).updateOne(filtro, { $set: set });
   const sql = `db.${colecao}.updateOne(${JSON.stringify(filtro)}, { $set: ${JSON.stringify(set)} })`;
@@ -99,11 +190,13 @@ export async function excluir(
   colecao: string,
   req: RowDeleteRequest,
   tipos: ReadonlyMap<string, string>,
+  aninhados: ReadonlyMap<string, string>,
 ): Promise<RowMutationResult> {
-  for (const g of req.guard) exigirCampo(g.column, tipos);
+  for (const g of req.guard) exigirPath(g.column, tipos, aninhados);
   const filtro: Document = { ...filtroId(req.pk) };
-  // Guarda: os valores originais das colunas não-PK lidas.
-  for (const g of req.guard) filtro[g.column] = valorCelula(g.value, tipos.get(g.column));
+  // Guarda: os valores originais das colunas não-PK lidas (path aninhado casa
+  // por dot-notation, como no update).
+  for (const g of req.guard) filtro[g.column] = valorCelula(g.value, tipoDePath(g.column, tipos, aninhados));
 
   const r = await cliente.db(database).collection(colecao).deleteOne(filtro);
   const sql = `db.${colecao}.deleteOne(${JSON.stringify(filtro)})`;

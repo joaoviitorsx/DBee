@@ -11,10 +11,12 @@ import type {
 import type { ResolvedConnection } from "../db/connections.repo";
 import { ClienteMongo } from "../mongo/cliente";
 import {
+  inferirCatalogoCampos,
   introspectarArvore,
   introspectarCompleto,
   listarDatabases,
   NOME_PADRAO,
+  type CatalogoCampos,
 } from "../mongo/introspect";
 import { lerLinhas, planejarLinhas } from "../mongo/rows";
 import { atualizar, excluir, inserir } from "../mongo/mutacao";
@@ -126,32 +128,32 @@ export class DriverMongo implements DriverLeitura {
     const colecao = mut.req.table;
 
     /*
-     * Os tipos inferidos dos campos, pela credencial de **leitura** — a de
-     * escrita pode não ter permissão de amostrar, e o tipo é o mesmo. É o que
-     * faz a guarda casar (`{preco: 18.9}`, não `{preco: "18.9"}`): o valor da
-     * grade é texto, e sem o tipo o filtro não bate no documento.
+     * O catálogo dos campos (topo e aninhados), pela credencial de **leitura** —
+     * a de escrita pode não ter permissão de amostrar, e o catálogo é o mesmo.
+     * Os tipos fazem a guarda casar (`{preco: 18.9}`, não `{preco: "18.9"}`): o
+     * valor da grade é texto, e sem o tipo o filtro não bate no documento. Os
+     * campos aninhados são o que o validador de path consulta para deixar passar
+     * `endereco.cidade` e recusar `endereco.$gt`/campo desconhecido.
      */
-    const tipos = await this.#tiposDe(conexao, db, colecao);
+    const cat = await this.#catalogoDe(conexao, db, colecao);
 
     switch (mut.tipo) {
       case "update":
-        return await atualizar(cliente, db, colecao, mut.req, tipos);
+        return await atualizar(cliente, db, colecao, mut.req, cat.topo, cat.aninhados);
       case "delete":
-        return await excluir(cliente, db, colecao, mut.req, tipos);
+        return await excluir(cliente, db, colecao, mut.req, cat.topo, cat.aninhados);
       case "insert":
-        return await inserir(cliente, db, colecao, mut.req, tipos);
+        return await inserir(cliente, db, colecao, mut.req, cat.topo);
     }
   }
 
-  /** Mapa campo → tipo inferido de uma coleção, pela credencial de leitura. */
-  async #tiposDe(
+  /** Catálogo de campos (topo + aninhados) de uma coleção, pela credencial de leitura. */
+  async #catalogoDe(
     conexao: ResolvedConnection,
     db: string,
     colecao: string,
-  ): Promise<ReadonlyMap<string, string>> {
-    const esquema = await introspectarCompleto(await this.#clientes.leitura(conexao), db);
-    const rel = esquema.schemas[0]?.relations.find((r) => r.name === colecao);
-    return new Map((rel?.columns ?? []).map((c) => [c.name, c.dataType]));
+  ): Promise<CatalogoCampos> {
+    return await inferirCatalogoCampos(await this.#clientes.leitura(conexao), db, colecao);
   }
 
   // eslint-disable-next-line @typescript-eslint/require-await -- o contrato é assíncrono.
