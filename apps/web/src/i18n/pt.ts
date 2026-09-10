@@ -377,6 +377,13 @@ export const pt = {
   "form.usuario": "Usuário",
   "form.senha": "Senha",
   "form.senhaAjuda": "Em branco mantém a senha atual.",
+  "form.credEscrita": "Credencial de escrita (opcional)",
+  "form.credEscritaAjuda": "Sem ela, a conexão é somente leitura. Preencha para gravar por uma credencial separada da de leitura.",
+  "form.credEscritaAjudaTem": "Esta conexão já tem uma credencial de escrita. Preencha para trocá-la; deixe em branco para manter.",
+  "form.credEscritaMantem": "Em branco mantém a credencial atual",
+  "form.usuarioEscrita": "Usuário de escrita",
+  "form.senhaEscrita": "Senha de escrita",
+  "form.tokenEscrita": "Token de escrita",
   "form.token": "Token",
   "form.tokenAjuda":
     "JWT do sqld. Um token com o claim \"a\":\"ro\" é somente leitura — e o servidor aplica, inclusive para DDL. Em branco vale para servidor sem SQLD_AUTH_JWT_KEY.",

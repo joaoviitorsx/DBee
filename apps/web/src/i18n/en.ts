@@ -377,6 +377,13 @@ export const en: Record<ChaveI18n, string> = {
   "form.usuario": "Username",
   "form.senha": "Password",
   "form.senhaAjuda": "Blank keeps the current password.",
+  "form.credEscrita": "Write credential (optional)",
+  "form.credEscritaAjuda": "Without it, the connection is read-only. Fill it in to write through a credential separate from the read one.",
+  "form.credEscritaAjudaTem": "This connection already has a write credential. Fill in to replace it; leave blank to keep it.",
+  "form.credEscritaMantem": "Blank keeps the current credential",
+  "form.usuarioEscrita": "Write username",
+  "form.senhaEscrita": "Write password",
+  "form.tokenEscrita": "Write token",
   "form.token": "Token",
   "form.tokenAjuda":
     "sqld JWT. A token carrying the \"a\":\"ro\" claim is read-only — enforced by the server, DDL included. Leave blank for a server without SQLD_AUTH_JWT_KEY.",

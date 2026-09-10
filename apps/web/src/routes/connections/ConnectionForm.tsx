@@ -69,6 +69,13 @@ function initialDraft(editing: Connection | null): ConnectionDraft {
     sslMode: editing?.sslMode ?? "disable",
     writeEnabled: editing?.writeEnabled ?? false,
     timezone: editing?.timezone ?? "UTC",
+    /*
+     * A credencial de escrita nunca volta do servidor (como a senha), então na
+     * edição ela nasce vazia — e vazio, num patch, significa "não mexe". Só é
+     * enviada se a pessoa digitar algo.
+     */
+    writeUsername: "",
+    writePassword: "",
   };
 }
 
@@ -133,7 +140,7 @@ export function ConnectionForm({
       color: d.color,
       password: d.password,
     };
-    for (const campo of ["host", "port", "database", "username", "sslMode", "timezone", "statementTimeoutMs", "writeEnabled"] as const) {
+    for (const campo of ["host", "port", "database", "username", "sslMode", "timezone", "statementTimeoutMs", "writeEnabled", "writeUsername", "writePassword"] as const) {
       if (permitidos.has(campo)) saida[campo] = d[campo];
     }
     return saida as unknown as ConnectionDraft;
@@ -360,6 +367,47 @@ export function ConnectionForm({
                   onChange={(e) => { set("password", e.target.value); }}
                 />
               </Field>
+              ) : null}
+
+              {mostra("writePassword") ? (
+              <div className="rounded-[6px] border border-line bg-sunken/40 p-3">
+                <p className="text-xs font-medium text-muted">{t("form.credEscrita")}</p>
+                <p className="mt-0.5 text-2xs text-subtle">
+                  {isEdit && editing.hasWriteCredential
+                    ? t("form.credEscritaAjudaTem")
+                    : t("form.credEscritaAjuda")}
+                </p>
+                <div className="mt-2.5 space-y-2.5">
+                  {mostra("writeUsername") ? (
+                    <Field label={t("form.usuarioEscrita")} htmlFor="write-username">
+                      <Input
+                        id="write-username"
+                        mono
+                        autoComplete="off"
+                        value={draft.writeUsername ?? ""}
+                        onChange={(e) => { set("writeUsername", e.target.value); }}
+                      />
+                    </Field>
+                  ) : null}
+                  <Field
+                    label={ehLibsql ? t("form.tokenEscrita") : t("form.senhaEscrita")}
+                    htmlFor="write-password"
+                  >
+                    <Input
+                      id="write-password"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={
+                        isEdit && editing.hasWriteCredential
+                          ? t("form.credEscritaMantem")
+                          : undefined
+                      }
+                      value={draft.writePassword ?? ""}
+                      onChange={(e) => { set("writePassword", e.target.value); }}
+                    />
+                  </Field>
+                </div>
+              </div>
               ) : null}
 
               {mostra("sslMode") ? (

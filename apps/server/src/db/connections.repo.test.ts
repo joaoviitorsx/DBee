@@ -112,3 +112,40 @@ describe("credencial de escrita no repositório", () => {
     expect(resolvida?.writeCredential?.password).toBe("senha-rw-2");
   });
 });
+
+describe("writeEnabled efetivo nas engines de credencial", () => {
+  const admin: Ator = { id: "u-admin", role: "admin" };
+
+  it("MySQL com credencial de escrita: admin vê writeEnabled true", () => {
+    const r = repo();
+    const c = r.create({
+      name: "my", engine: "mysql", host: "127.0.0.1", database: "loja",
+      username: "leitor", password: "ro", writeUsername: "gravador", writePassword: "rw",
+    });
+    // A resposta do create já é efetiva (operação de admin).
+    expect(c.writeEnabled).toBe(true);
+    // E a listagem/find também.
+    expect(r.find(c.id, admin)?.writeEnabled).toBe(true);
+    expect(r.list(admin).find((x) => x.id === c.id)?.writeEnabled).toBe(true);
+  });
+
+  it("MySQL sem credencial de escrita: writeEnabled false", () => {
+    const r = repo();
+    const c = r.create({
+      name: "my", engine: "mysql", host: "127.0.0.1", database: "loja",
+      username: "leitor", password: "ro",
+    });
+    expect(c.writeEnabled).toBe(false);
+    expect(r.find(c.id, admin)?.writeEnabled).toBe(false);
+  });
+
+  it("remover a credencial de escrita zera o writeEnabled efetivo", () => {
+    const r = repo();
+    const c = r.create({
+      name: "my", engine: "mysql", host: "127.0.0.1", database: "loja",
+      username: "leitor", password: "ro", writeUsername: "g", writePassword: "rw",
+    });
+    const atualizada = r.update(c.id, { writePassword: "" });
+    expect(atualizada?.writeEnabled).toBe(false);
+  });
+});

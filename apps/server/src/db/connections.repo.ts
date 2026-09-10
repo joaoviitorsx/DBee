@@ -1,6 +1,6 @@
 import type { Database, Statement } from "bun:sqlite";
 
-import { capacidadesDe } from "@dbee/shared/puro";
+import { capacidadesDe, gravaPorCredencialSeparada } from "@dbee/shared/puro";
 import type { Connection, CreateConnection, Engine, SslMode, UpdateConnection } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
@@ -56,6 +56,25 @@ interface ConnectionRow {
 
 function toConnection(row: ConnectionRow): Connection {
   return { ...row, writeEnabled: row.writeEnabled === 1, hasWriteCredential: row.hasWriteCredential === 1 };
+}
+
+/**
+ * O `writeEnabled` **efetivo**: "esta requisição/este usuário pode gravar aqui?"
+ *
+ * Uma coisa nas duas famílias de engine, para o resto do sistema (e a tela) ler
+ * um campo só:
+ *
+ * - Postgres: `write_enabled` da conexão. A escrita é o modo da transação.
+ * - Credencial (MySQL/MariaDB/libSQL): existe uma **credencial de escrita**
+ *   (`hasWriteCredential`). O `write_enabled` ali é sempre 0 — o interruptor
+ *   não existe —, e usá-lo esconderia a escrita que a credencial destrava.
+ *
+ * Em ambos, dobrado pela concessão do ator (`canWrite`). Admin tem `canWrite`
+ * verdadeiro por definição (migração 005).
+ */
+function writeEnabledEfetivo(c: Connection, canWrite: boolean): boolean {
+  const base = gravaPorCredencialSeparada(c.engine) ? c.hasWriteCredential : c.writeEnabled;
+  return base && canWrite;
 }
 
 /** Conexão com a senha já decifrada — só circula dentro do servidor. */
@@ -139,13 +158,18 @@ export class ConnectionsRepository {
    * por id deixaria qualquer um usar um id que conhecesse.
    */
   list(ator: Ator): Connection[] {
-    if (ator.role === "admin") return this.#list.all().map(toConnection);
+    if (ator.role === "admin") {
+      return this.#list.all().map((row) => {
+        const c = toConnection(row);
+        return { ...c, writeEnabled: writeEnabledEfetivo(c, true) };
+      });
+    }
     // O `writeEnabled` da lista é o **efetivo**, igual ao do `find`. Devolver o
     // da conexão faria a UI desenhar a tarja de escrita para quem o servidor
     // recusaria — a tela afirmando o contrário do que o sistema faz.
     return this.#listParaUsuario.all(ator.id).map((row) => {
       const conexao = toConnection(row);
-      return { ...conexao, writeEnabled: conexao.writeEnabled && row.canWrite === 1 };
+      return { ...conexao, writeEnabled: writeEnabledEfetivo(conexao, row.canWrite === 1) };
     });
   }
 
@@ -179,12 +203,14 @@ export class ConnectionsRepository {
   find(id: string, ator: Ator): Connection | null {
     if (ator.role === "admin") {
       const row = this.#byId.get(id);
-      return row === null ? null : toConnection(row);
+      if (row === null) return null;
+      const c = toConnection(row);
+      return { ...c, writeEnabled: writeEnabledEfetivo(c, true) };
     }
     const row = this.#byIdParaUsuario.get(ator.id, id);
     if (row === null) return null;
     const conexao = toConnection(row);
-    return { ...conexao, writeEnabled: conexao.writeEnabled && row.canWrite === 1 };
+    return { ...conexao, writeEnabled: writeEnabledEfetivo(conexao, row.canWrite === 1) };
   }
 
   /**
@@ -338,7 +364,11 @@ export class ConnectionsRepository {
 
     const created = this.#linhaCrua(id);
     if (created === null) throw new Error("conexão sumiu logo após ser criada");
-    return created;
+    // Devolve o `writeEnabled` efetivo, igual ao que a listagem mostra: create
+    // e update são operações de admin, e admin grava por definição. Sem isto, a
+    // resposta do POST diria `writeEnabled: false` numa conexão de credencial
+    // com credencial de escrita, divergindo do que o GET seguinte mostra.
+    return { ...created, writeEnabled: writeEnabledEfetivo(created, true) };
   }
 
   /** `password` ausente no patch significa "não mexe na senha". */
@@ -397,7 +427,10 @@ export class ConnectionsRepository {
         .run(...values, id);
     }
 
-    return this.#linhaCrua(id);
+    const atualizada = this.#linhaCrua(id);
+    return atualizada === null
+      ? null
+      : { ...atualizada, writeEnabled: writeEnabledEfetivo(atualizada, true) };
   }
 
   delete(id: string): boolean {
