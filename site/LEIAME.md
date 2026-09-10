@@ -23,6 +23,39 @@ navegador não resolve `docs/` para `docs/index.html` (o link do cabeçalho
 quebra) e trata cada arquivo como origem opaca. Servir por HTTP é o único jeito
 de o que se vê localmente ser o que o Pages entrega.
 
+## Medir a copy
+
+```bash
+bun scripts/site-copy.ts          # relatório, sai 1 se algo estourar
+bun scripts/site-copy.ts --tudo   # lista todos os rótulos, não só os que estouram
+```
+
+"Não verboso demais, não complexo demais" não sobrevive à terceira edição do
+texto se ficar na cabeça de quem escreveu: cada frase cresce um pouco, ninguém
+percebe, e num ano a página é um documento. O script mede **todo rótulo da
+landing** contra um teto por papel, e o teto não é gosto — é o ponto em que
+aquele papel quebra na tela (título de seção acima de ~42 vira três linhas em
+375px; item de motor acima de ~95 vira três linhas no cartão de 348px do
+trilho). Estado de hoje:
+
+| papel | teto | qtd | média | maior |
+|---|---|---|---|---|
+| kicker | 22 | 6 | 11 | 15 |
+| título de seção | 42 | 7 | 30 | 36 |
+| lede | 190 | 6 | 131 | 179 |
+| nome de motor | 18 | 7 | 7 | 10 |
+| estado de motor | 24 | 7 | 11 | 21 |
+| item de motor | 95 | 36 | 29 | 85 |
+| garantia de motor | 130 | 7 | 77 | 91 |
+| título de cartão | 30 | 10 | 20 | 25 |
+| corpo de cartão | 230 | 6 | 120 | 135 |
+| botão | 26 | 5 | 10 | 12 |
+| chip de motor | 32 | 7 | 16 | 20 |
+| legenda de captura | 150 | 5 | 120 | 131 |
+| rótulo de número | 62 | 4 | 31 | 53 |
+
+**113 rótulos medidos, 0 fora do teto.**
+
 ## Capturar as telas
 
 ```bash
@@ -72,7 +105,34 @@ apontaria para um lugar diferente a cada erro.
 | **Estático de verdade** | sem servidor, sem API, sem build. O que está em `site/` é o que o Pages serve. |
 | **Só afirma o que é verdade** | cada número e cada capacidade tem a origem citada na própria página (a classe `.src`) e um comentário no HTML apontando o arquivo. |
 | **Movimento não atrapalha leitura** | `prefers-reduced-motion` desliga tudo sem esconder nada; o trilho horizontal vira pilha vertical abaixo de 1000×800. |
-| **Peso** | **171 KB** transferidos na primeira dobra — fontes 56 KB, `grid.webp` 73 KB, HTML+CSS+JS 27 KB em gzip, ícones 15 KB. Orçamento do agente da landing: 300 KB. Medido com `gzip -9` no texto e tamanho bruto no resto. O resto da página é `loading="lazy"`. |
+| **Peso** | **177 KB** transferidos na primeira dobra — fontes 56 KB, `grid.webp` 73 KB, HTML+CSS+JS 33 KB em gzip, ícones 15 KB. Orçamento do agente da landing: 300 KB. Medido com `gzip -9` no texto e tamanho bruto no resto. O resto da página é `loading="lazy"`. |
+
+### O que a página faz de movimento
+
+Referência de movimento: sites de piloto. O esqueleto é o do Dokploy; a
+imersão é a de lá.
+
+| efeito | onde | como |
+|---|---|---|
+| Cortina de entrada | topo | mascote "carregando", sai por translação, teto de 2 s |
+| Título por caractere | H1 do herói | cada letra sobe de dentro de uma máscara, 26 ms de atraso com teto |
+| Título por palavra | títulos de seção | cascata de 55 ms, revelada por `IntersectionObserver` |
+| Saída do herói | primeira dobra | o bloco sobe mais devagar que a página e desbota |
+| Barra de progresso | topo, fixa | `scaleX` do quanto já rolou |
+| Índice de capítulo | canto inferior, ≥1100px | `01 / 09` + nome, troca com fade |
+| Marquise de velocidade | entre o herói e "o que é" | anda sozinha e **acelera com a rolagem**; rolar para cima inverte |
+| Inclinação por velocidade | marquise | `skewY` proporcional à velocidade, teto de 3,5° |
+| Trilho horizontal preso | motores | a rolagem vertical vira deslocamento horizontal, com barra de progresso |
+| Parallax com inércia | halo, mascotes | LERP de 0,085 sobre a distância ao centro da tela |
+| Revelação por máscara | capturas | a imagem é descoberta de baixo para cima com `clip-path` |
+| Contadores | números | sobem com `easeOutExpo` ao entrar na tela |
+| Botão magnético | todos os CTAs | o botão é puxado pelo cursor; o conteúdo anda em contra-fase |
+| Cursor com rótulo | trilho de capturas | vira pastilha âmbar escrita "arraste" |
+| Arraste com o ponteiro | trilho de capturas | além da rolagem nativa, que continua funcionando |
+| Sobreposição de seções | todas | a seção seguinte sobe por cima com o canto arredondado |
+
+Tudo em `transform`, `opacity` e `clip-path` — nada que force recálculo de
+layout. Um único `requestAnimationFrame`, que **dorme** quando nada se move.
 
 ### O que NÃO tem aqui, e por quê
 
@@ -113,6 +173,14 @@ site/
     └── img/                mascote, marca e capturas reais do produto
 ```
 
+Ferramentas, fora de `site/` (não vão para o Pages):
+
+```
+scripts/site-dev.ts     servidor estático local, 127.0.0.1:4321
+scripts/site-shot.ts    captura nos 4 breakpoints + trava de rolagem horizontal
+scripts/site-copy.ts    mede toda label contra o teto do papel dela
+```
+
 `readme-banner.png` (1,2 MB) **não** foi copiado: dele saiu só `og.webp`
 (22 KB, 1200×630), que é o único uso que ele teria aqui. O original continua em
 `assets/` na raiz do repositório.
@@ -143,3 +211,13 @@ HTML válido, CSS válido e a página abrindo sem erro no console.
    item de flex, cada `<code>` inline vira um item de flex próprio: a frase
    virou colunas ("Driver / SEQUENCE / no / BLOB / próprio / catálogo,"). A
    frase inteira estava no DOM, na ordem certa.
+
+4. **As quatro capturas do produto ficavam invisíveis para sempre.** A
+   revelação por máscara punha `clip-path: inset(0 0 100% 0)` no próprio
+   elemento observado — e um elemento totalmente cortado tem retângulo visível
+   VAZIO, então o `IntersectionObserver` o reporta como fora da tela
+   (`intersectionRatio: 0`) enquanto o `getBoundingClientRect` diz que ele está
+   a 48px da borda. Impasse: sem `is-in` o corte nunca abre, e sem o corte
+   aberto o observador nunca dispara. Conserto: o `data-fx="mask"` mora no
+   `<figure>`, que a legenda impede de ficar vazio, e o corte cai só na `<img>`
+   dentro dele. Zero erro no console, nos dois estados.

@@ -533,13 +533,23 @@ body::after {
   flex: none;
 }
 
-/* Peso tátil só onde há cursor de verdade. */
+/* O conteúdo do botão vive num <span> para o magnetismo poder movê-lo em
+   contra-fase. Sem ponteiro fino ele é só um flex row comum. */
+.btn__int {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/*
+ * Peso tátil sem JS: quando o script não roda, `--mx`/`--my` nunca são
+ * escritos e o botão ainda levanta no hover. A regra com magnetismo mora na
+ * seção 19f, e as duas usam a MESMA propriedade `--lift` — duas regras de
+ * `transform` competindo é como o efeito magnético morre calado.
+ */
 @media (hover: hover) and (pointer: fine) {
-  .btn:hover {
+  html:not(.js) .btn:hover {
     transform: translate3d(0, -2px, 0);
-  }
-  .btn:active {
-    transform: translate3d(0, 0, 0);
   }
 }
 
@@ -1263,6 +1273,86 @@ table.matrix .esc {
 }
 
 /* --------------------------------------------------------------------------
+   13b. Números
+   Quatro, grandes, com a origem embaixo de cada um. A origem em 11px não é
+   letra miúda de contrato: é a regra do repositório (número afirmado precisa
+   de onde foi medido) aplicada à copy.
+   -------------------------------------------------------------------------- */
+.numeros {
+  background: var(--raised);
+  border-block: 1px solid var(--line);
+}
+
+.numeros__grid {
+  display: grid;
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 620px) {
+  .numeros__grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1060px) {
+  .numeros__grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.numero {
+  background: var(--surface);
+  padding: clamp(24px, 3vw, 34px);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.numero b {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--font-brand);
+  font-size: clamp(2.6rem, 5vw, 3.9rem);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  color: var(--accent);
+  /* Tabular: sem isto o número tremia de largura enquanto o contador subia,
+     e o rótulo abaixo dançava junto. */
+  font-variant-numeric: tabular-nums;
+}
+
+.numero b i {
+  font-style: normal;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: var(--muted);
+  letter-spacing: 0;
+}
+
+.numero p {
+  color: var(--ink);
+  font-size: 0.98rem;
+  line-height: 1.45;
+}
+
+.numero small {
+  margin-top: auto;
+  padding-top: var(--sp-3);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  line-height: 1.5;
+  color: var(--subtle);
+}
+
+/* --------------------------------------------------------------------------
    14. Capturas — trilho horizontal por rolagem nativa (funciona em toque)
    -------------------------------------------------------------------------- */
 .shots {
@@ -1718,21 +1808,42 @@ table.matrix .esc {
 
 /*
  * Revelação por máscara: a imagem não aparece, ela é DESCOBERTA de baixo para
- * cima. `clip-path` é composto na GPU, então continua valendo a regra do
- * transform/opacity — não force layout.
+ * cima. `clip-path` é composto na GPU — continua valendo a regra de só animar
+ * o que não força layout.
+ *
+ * O QUE É CORTADO NÃO É O QUE É OBSERVADO, e isso não é estilo, é o conserto
+ * de um impasse: um elemento totalmente cortado por `clip-path` tem retângulo
+ * visível VAZIO, e o IntersectionObserver o reporta como fora da tela
+ * (`intersectionRatio: 0`) mesmo com o `getBoundingClientRect` dizendo que ele
+ * está a 48px da borda. Resultado medido: as quatro capturas do produto —
+ * `is-in` nunca chegava, o corte nunca abria, e a seção de telas ficava vazia
+ * para sempre. Ninguém veria erro no console.
+ *
+ * Então o `data-fx="mask"` mora no <figure>, que nunca é cortado (a legenda
+ * segura o retângulo), e o corte cai só na imagem dentro dele.
  */
 .js [data-fx="mask"] {
   opacity: 1;
+  transform: none;
+}
+
+.js [data-fx="mask"] img {
   clip-path: inset(0 0 100% 0);
-  transform: scale(1.04);
+  transform: scale(1.06);
+  transition: clip-path 1.1s var(--ease-out), transform 1.3s var(--ease-out);
+  transition-delay: var(--fx-delay, 0ms);
+}
+
+.js [data-fx="mask"].is-in img {
+  clip-path: inset(0 0 0 0);
+  transform: none;
 }
 
 .js [data-fx].is-in {
   opacity: 1;
   transform: none;
-  clip-path: inset(0 0 0 0);
   transition: opacity var(--dur) var(--ease-out),
-    transform var(--dur) var(--ease-out), clip-path 1s var(--ease-out);
+    transform var(--dur) var(--ease-out);
   transition-delay: var(--fx-delay, 0ms);
 }
 
@@ -1811,21 +1922,36 @@ html:not(.js) .progresso {
     display: flex;
     position: fixed;
     left: max(20px, calc((100vw - 1400px) / 2 + 20px));
-    bottom: 28px;
+    bottom: 24px;
     z-index: 80;
     align-items: baseline;
     gap: 10px;
     pointer-events: none;
+    padding: 8px 16px 8px 14px;
+    border: 1px solid var(--line);
+    border-radius: 100px;
     font-family: var(--font-mono);
-    font-size: 0.72rem;
+    font-size: 0.7rem;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: var(--subtle);
-    mix-blend-mode: difference;
+    color: var(--muted);
+    /*
+     * Pastilha com desfoque, NÃO `mix-blend-mode: difference`.
+     *
+     * A primeira versão usava difference para o índice se virar sozinho sobre
+     * qualquer fundo. Na captura em 1440 ficou provado que não: sobre a
+     * superfície escura das seções o resultado é um cinza quase igual ao fundo,
+     * e sobre a captura do produto (que é uma tela escura cheia de detalhe) o
+     * texto some dentro do ruído. Difference resolve fundo claro OU escuro, não
+     * fundo com textura.
+     */
+    background: rgb(20 18 16 / 0.72);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
   }
 
   .indice b {
-    font-size: 1.6rem;
+    font-size: 1.15rem;
     font-weight: 500;
     letter-spacing: -0.02em;
     color: var(--accent);
@@ -2013,7 +2139,8 @@ html:not(.js) .marquise {
   }
 
   .js [data-fx],
-  .js [data-fx].is-in {
+  .js [data-fx].is-in,
+  .js [data-fx="mask"] img {
     opacity: 1 !important;
     transform: none !important;
     clip-path: none !important;

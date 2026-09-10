@@ -391,8 +391,7 @@
          * por botão por quadro seria leitura de layout a 60 Hz para elementos
          * que não se movem sozinhos. Aqui só roda quando o ponteiro anda.
          */
-        for (var i = 0; i < imas.length; i++) {
-          var im = imas[i];
+        imas.forEach(function (im) {
           var r = im.el.getBoundingClientRect();
           var dx = e.clientX - (r.left + r.width / 2);
           var dy = e.clientY - (r.top + r.height / 2);
@@ -408,7 +407,7 @@
             im.ax = 0;
             im.ay = 0;
           }
-        }
+        });
         acordar();
       },
       { passive: true }
@@ -625,7 +624,7 @@
          colar U+00A0 num terminal quebra o comando de um jeito que não se vê.
          Escrito como escape, e não como o caractere literal: no fonte os dois
          são pixels idênticos, e o `no-irregular-whitespace` reprova o literal. */
-      var texto = alvo.innerText.replace(/ /g, " ");
+      var texto = alvo.innerText.replace(/\u00A0/g, " ");
       navigator.clipboard.writeText(texto).then(
         function () {
           botao.dataset.copied = "1";
