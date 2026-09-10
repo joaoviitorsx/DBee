@@ -6,6 +6,17 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ### Segurança
 
+Um **red-team** posterior, contra o código já corrigido, encontrou um bypass do
+conserto de SSRF (o achado #11): `[::ffff:169.254.169.254]` — o serviço de
+metadado da nuvem escrito como IPv6 IPv4-mapeado. O `URL` normaliza para
+`[::ffff:a9fe:a9fe]`, que não começava com `169.254.`, e o `fetch` do Bun
+roteia o mapeado para o IPv4 real. As formas octal, hex e decimal o `URL` já
+desfazia; esta ele não desfaz. **Corrigido**: `ehLinkLocal` desembrulha o IPv4
+mapeado antes de decidir, e `rede.test.ts` trava as duas escritas e o caminho
+ponta a ponta (provado revertendo: 2 testes falham sem o conserto). Todo o
+resto que o red-team varreu — IDOR/BOLA, injeção, args da auditoria, mass
+assignment, portão de escrita, vazamento de credencial, CORS/CSP — resistiu.
+
 Uma auditoria adversarial (`auditor-seguranca`) varreu a fatia multi-engine e
 devolveu onze achados. Todos foram reproduzidos antes de consertar, e cada
 conserto foi provado desligando-o de novo — teste que não falha quando o

@@ -21,6 +21,38 @@ describe("endereços barrados", () => {
     expect(ehLinkLocal("[FD00:EC2::254]")).toBe(true);
   });
 
+  /*
+   * O bypass que o red-team achou. `[::ffff:169.254.169.254]` é o metadado por
+   * outra escrita: o `URL` normaliza para `[::ffff:a9fe:a9fe]`, que não começa
+   * com `169.254.`, e o `fetch` do Bun roteia o mapeado para o IPv4 real. Aqui
+   * as duas escritas — a que sai do `URL` (`hostname`, sem colchete) e a crua
+   * com colchete — têm que ser barradas.
+   */
+  it("o IPv4-mapeado é o mesmo endereço e é barrado (achado do red-team)", () => {
+    for (const h of [
+      "::ffff:a9fe:a9fe",
+      "[::ffff:a9fe:a9fe]",
+      "::ffff:169.254.169.254",
+      "[::ffff:169.254.169.254]",
+    ]) {
+      expect(`${h}: ${String(ehLinkLocal(h))}`).toBe(`${h}: true`);
+    }
+    // E pela porta de entrada real: o que o `URL` produz do texto que o
+    // atacante digita.
+    expect(ehMetadadoDeNuvem(new URL("http://[::ffff:169.254.169.254]/").hostname)).toBe(true);
+  });
+
+  /*
+   * O mapeado de um endereço NÃO-metadado continua liberado — o desembrulho não
+   * pode virar um bloqueio cego de todo `::ffff:`. `127.0.0.1` mapeado é
+   * localhost, e faixa privada mapeada é faixa privada.
+   */
+  it("o mapeado de um endereço comum não é barrado por engano", () => {
+    expect(ehLinkLocal("::ffff:7f00:1")).toBe(false);
+    expect(ehLinkLocal("::ffff:127.0.0.1")).toBe(false);
+    expect(ehLinkLocal("::ffff:0a00:0005")).toBe(false);
+  });
+
   it("o metadado do Google também tem nome", () => {
     expect(ehMetadadoDeNuvem("metadata.google.internal")).toBe(true);
     expect(ehMetadadoDeNuvem("METADATA.GOOG")).toBe(true);
@@ -59,6 +91,22 @@ describe("alvoValidado (libSQL)", () => {
       "serviço de metadado",
     );
     expect(() => alvoValidado("http://metadata.google.internal/")).toThrow("serviço de metadado");
+  });
+
+  /*
+   * Ponta a ponta pelo caminho que a conexão libSQL usa: as escritas
+   * alternativas do metadado têm que estourar antes de chegar ao `fetch`.
+   */
+  it("recusa o metadado em IPv6 mapeado, octal, hex e decimal", () => {
+    for (const u of [
+      "http://[::ffff:169.254.169.254]:8080/",
+      "http://[0:0:0:0:0:ffff:169.254.169.254]/",
+      "http://0xa9fea9fe/",
+      "http://2852039166/",
+      "http://0251.0376.0251.0376/",
+    ]) {
+      expect(() => alvoValidado(u), u).toThrow("serviço de metadado");
+    }
   });
 
   /*
