@@ -114,6 +114,17 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
 
 ### Adicionado
 
+- **Edição estruturada de coleção no Redis (hash/list/set/zset).** Até aqui a
+  grade só editava a chave `string`; um `hash`/`list`/`set`/`zset` era recusado.
+  Agora, clicar na coluna `value` de uma chave de coleção abre um **editor
+  estruturado** (modal no padrão do editor de linha): lista os membros, cada um
+  com edição e exclusão inline, e uma linha para adicionar. Cada ação vira o
+  comando nativo do tipo (`HSET`/`HDEL`, `SADD`/`SREM`, `ZADD`/`ZREM`,
+  `LSET`/`LPUSH`/`LREM`), com a guarda otimista do valor anterior onde ela cabe,
+  pela credencial de escrita e com auditoria — o mesmo portão das outras
+  edições. Coleção grande que a grade mostrou só em amostra avisa que a lista
+  pode estar incompleta; adicionar e excluir por nome seguem valendo.
+
 - **Cancelamento de consulta no SQLite local.** A consulta do `bun:sqlite` é
   síncrona e não para por sinal; o gerente de workers agora a interrompe
   **terminando o worker e rejeitando a promessa em voo** — antes, matar o worker

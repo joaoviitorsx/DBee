@@ -10,6 +10,7 @@ import { ExportButton } from "../export/ExportButton";
 import { Trabalhando, TrabalhandoInline } from "../motion/Trabalhando";
 import { ResultGrid } from "../grid/ResultGrid";
 import { RowEditModal, type Pendente, type PkValor } from "../grid/RowEditModal";
+import { RedisValueModal, type RedisAlvo, type TipoColecao } from "../grid/RedisValueModal";
 import { InsertModal } from "../grid/InsertModal";
 import { useT } from "../../i18n";
 
@@ -40,6 +41,7 @@ export function DataTab({
   estimatedRows = null,
   writeEnabled = false,
   exportavel = true,
+  redisEstruturado = false,
   colunasSchema,
   foreignKeys,
   initialFilters,
@@ -57,6 +59,8 @@ export function DataTab({
   readonly writeEnabled?: boolean;
   /** A engine exporta? Falso no Mongo e no Redis — esconde o botão de export. */
   readonly exportavel?: boolean;
+  /** É Redis? Liga o editor estruturado da coluna `value` das coleções. */
+  readonly redisEstruturado?: boolean;
   /** Colunas do schema (com nullable/default), para o formulário de "Nova linha". */
   readonly colunasSchema?: readonly Column[];
   /** FKs da tabela — habilitam o salto de navegação nas células. */
@@ -79,6 +83,8 @@ export function DataTab({
   const [rascunho, setRascunho] = useState({ column: "", value: "" });
   // Edição de linha (v0.2): o modal do diff, e a linha selecionada para excluir.
   const [pendente, setPendente] = useState<Pendente | null>(null);
+  // Redis: a coluna `value` de uma coleção abre o editor estruturado.
+  const [redisAlvo, setRedisAlvo] = useState<RedisAlvo | null>(null);
   const [linhaSel, setLinhaSel] = useState<number | null>(null);
   const [inserindo, setInserindo] = useState(false);
 
@@ -198,11 +204,32 @@ export function DataTab({
     return out;
   };
 
+  const COLECOES = new Set<string>(["hash", "list", "set", "zset"]);
+
   const abrirEdicao = (li: number, col: number, valor: string): void => {
     const p = pkDaLinha(li);
     const coluna = colunas[col]?.name;
     const linha = linhas[li];
     if (p === null || coluna === undefined || linha === undefined) return;
+
+    // Redis: editar a coluna `value` de uma coleção (hash/list/set/zset) abre o
+    // editor estruturado, não o update de célula (que só serve à `string`).
+    if (redisEstruturado && coluna === "value") {
+      const iTipo = colunas.findIndex((c) => c.name === "type");
+      const iKey = colunas.findIndex((c) => c.name === "key");
+      const tipo = iTipo >= 0 ? (linha[iTipo] ?? "") : "";
+      const key = iKey >= 0 ? (linha[iKey] ?? "") : "";
+      if (COLECOES.has(tipo) && key !== "") {
+        setRedisAlvo({
+          database: target.database,
+          key,
+          type: tipo as TipoColecao,
+          valueJson: linha[col] ?? null,
+        });
+        return;
+      }
+    }
+
     setPendente({
       kind: "update",
       database: target.database,
@@ -417,6 +444,14 @@ export function DataTab({
           pendente={pendente}
           tipos={tiposDeColuna}
           onClose={() => { setPendente(null); }}
+        />
+      ) : null}
+
+      {redisAlvo !== null ? (
+        <RedisValueModal
+          connectionId={target.connectionId}
+          alvo={redisAlvo}
+          onClose={() => { setRedisAlvo(null); }}
         />
       ) : null}
 

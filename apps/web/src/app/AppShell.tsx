@@ -808,6 +808,7 @@ function TableTabContent({
   const semDiagrama = capacidadesDe(engineDaAba)?.diagramaErd === false;
   const permiteConsulta = capacidadesDe(engineDaAba)?.sqlLivre !== false;
   const exportavel = capacidadesDe(engineDaAba)?.exportar === true;
+  const redisEstruturado = engineDaAba === "redis";
 
   const rel =
     arvore.data?.schemas.find((s) => s.name === schema)?.relations.find((r) => r.name === relation) ??
@@ -900,6 +901,7 @@ function TableTabContent({
           onConsultar={onConsultar}
           permiteConsulta={permiteConsulta}
           exportavel={exportavel}
+          redisEstruturado={redisEstruturado}
           estimatedRows={rel.estimatedRows}
           writeEnabled={danger}
           colunasSchema={rel.columns}
