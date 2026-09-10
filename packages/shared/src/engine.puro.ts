@@ -231,31 +231,6 @@ export const CAPACIDADES: Readonly<
     diagramaErd: true,
     exportar: true,
   },
-  /*
-   * libSQL — a garantia mais forte depois do Postgres, e o formulário mais
-   * curto de todos.
-   *
-   * `escopoReadOnly: "credencial"` porque quem aplica é o **servidor**, pelo
-   * claim `"a":"ro"` do JWT — e `readOnlyCobreDdl: true` porque, medido, ele
-   * cobre: com token `ro`, `DROP TABLE` e `CREATE TABLE` são bloqueados junto
-   * com o DML, e `PRAGMA query_only = OFF` responde `unsupported statement`.
-   * É melhor que o MySQL em dois aspectos: não depende de montar `GRANT` certo
-   * e alcança DDL.
-   *
-   * `campos` **não tem `username`, `database` nem `timezone`**:
-   *
-   * - a credencial é só o token (que vai no campo de senha, cifrado como
-   *   qualquer outra credencial — ADR 005);
-   * - a URL aponta para **um** banco, não há o que escolher;
-   * - não há sessão onde configurar fuso. O SQLite guarda data como texto ou
-   *   número e não converte nada; um campo de fuso aqui seria a tela afirmando
-   *   uma conversão que não acontece.
-   *
-   * `cancelarQuery: false` e sem `statementTimeoutMs`: o protocolo não oferece
-   * nem um nem outro. O que existe é o limite de tempo da **requisição HTTP**,
-   * que é do cliente e não do servidor — e por isso não vira campo que promete
-   * "o banco vai parar em N ms".
-   */
   mongodb: {
     niveis: "conexao/database/colecao",
     escopoReadOnly: "credencial",
@@ -339,6 +314,31 @@ export const CAPACIDADES: Readonly<
     exportar: true,
   },
 
+  /*
+   * libSQL — a garantia mais forte depois do Postgres, e o formulário mais
+   * curto de todos.
+   *
+   * `escopoReadOnly: "credencial"` porque quem aplica é o **servidor**, pelo
+   * claim `"a":"ro"` do JWT — e `readOnlyCobreDdl: true` porque, medido, ele
+   * cobre: com token `ro`, `DROP TABLE` e `CREATE TABLE` são bloqueados junto
+   * com o DML, e `PRAGMA query_only = OFF` responde `unsupported statement`.
+   * É melhor que o MySQL em dois aspectos: não depende de montar `GRANT` certo
+   * e alcança DDL.
+   *
+   * `campos` **não tem `username`, `database` nem `timezone`**:
+   *
+   * - a credencial é só o token (que vai no campo de senha, cifrado como
+   *   qualquer outra credencial — ADR 005);
+   * - a URL aponta para **um** banco, não há o que escolher;
+   * - não há sessão onde configurar fuso. O SQLite guarda data como texto ou
+   *   número e não converte nada; um campo de fuso aqui seria a tela afirmando
+   *   uma conversão que não acontece.
+   *
+   * `cancelarQuery: false` e sem `statementTimeoutMs`: o protocolo não oferece
+   * nem um nem outro. O que existe é o limite de tempo da **requisição HTTP**,
+   * que é do cliente e não do servidor — e por isso não vira campo que promete
+   * "o banco vai parar em N ms".
+   */
   libsql: {
     niveis: "conexao/database/tabela",
     escopoReadOnly: "credencial",
