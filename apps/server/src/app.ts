@@ -84,7 +84,7 @@ export function createApp({
   const mutation = new MutationService({ repository, pools, log, drivers });
   const rows = new RowsService({ repository, schema, log, drivers });
   const exportar = new ExportService({ repository, pools, schema, log, drivers });
-  const ddl = new DdlService({ repository, pools, log });
+  const ddl = new DdlService({ repository, pools, log, drivers });
   const usuarios = new UsersService(users);
   const update = new UpdateService({
     settings: new SettingsRepository(store.db, store.key),

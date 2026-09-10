@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { type CreateDatabaseRequest, type DatabaseEncoding } from "@dbee/shared";
-import { DdlInvalido, montarCreateDatabase } from "@dbee/shared/puro";
+import { DdlInvalido, montarCreateDatabase, type DialetoSql } from "@dbee/shared/puro";
 import { Info, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -28,9 +28,12 @@ const selectClasse =
 
 export function CreateDatabaseDialog({
   connectionId,
+  dialeto = "postgres",
   onClose,
 }: {
   readonly connectionId: string;
+  /** Dialeto da engine — no MySQL o comando é só `CREATE DATABASE`. */
+  readonly dialeto?: DialetoSql;
   readonly onClose: () => void;
 }) {
   const t = useT();
@@ -58,11 +61,11 @@ export function CreateDatabaseDialog({
   const previa = useMemo<{ sql: string | null; problema: string | null }>(() => {
     if (nome.trim() === "") return { sql: null, problema: null };
     try {
-      return { sql: montarCreateDatabase(pedido), problema: null };
+      return { sql: montarCreateDatabase(pedido, dialeto), problema: null };
     } catch (e: unknown) {
       return { sql: null, problema: e instanceof DdlInvalido ? e.message : t("ddl.erroNome") };
     }
-  }, [pedido, nome, t]);
+  }, [pedido, nome, dialeto, t]);
 
   const enviar = (): void => {
     if (previa.sql === null) return;

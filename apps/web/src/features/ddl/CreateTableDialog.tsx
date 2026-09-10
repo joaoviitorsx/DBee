@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { type ColumnType, type CreateTableRequest, type NewColumn } from "@dbee/shared";
-import { DdlInvalido, montarCreateTable, TIPOS_COM_PRECISAO, TIPOS_COM_TAMANHO, TIPOS_SERIAIS } from "@dbee/shared/puro";
+import { DdlInvalido, montarCreateTable, TIPOS_COM_PRECISAO, TIPOS_COM_TAMANHO, TIPOS_SERIAIS, type DialetoSql } from "@dbee/shared/puro";
 import { Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -73,11 +73,14 @@ export function CreateTableDialog({
   connectionId,
   database,
   schema,
+  dialeto = "postgres",
   onClose,
 }: {
   readonly connectionId: string;
   readonly database: string;
   readonly schema: string;
+  /** Dialeto da engine — decide a sintaxe do preview (e do que roda). */
+  readonly dialeto?: DialetoSql;
   readonly onClose: () => void;
 }) {
   const t = useT();
@@ -113,11 +116,11 @@ export function CreateTableDialog({
     if (pedido.name.trim() === "") return { sql: null, problema: null };
     if (pedido.columns.length === 0) return { sql: null, problema: t("ddl.semColunas") };
     try {
-      return { sql: montarCreateTable(pedido), problema: null };
+      return { sql: montarCreateTable(pedido, dialeto), problema: null };
     } catch (e: unknown) {
       return { sql: null, problema: e instanceof DdlInvalido ? e.message : t("ddl.erroNome") };
     }
-  }, [pedido, t]);
+  }, [pedido, dialeto, t]);
 
   const alterar = (key: number, aplicar: (linha: Linha) => Linha): void => {
     setLinhas((atuais) => atuais.map((l) => (l.key === key ? aplicar(l) : l)));

@@ -124,6 +124,24 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
 
 ### Adicionado
 
+- **DDL por formulário nas engines SQL não-Postgres (MySQL, MariaDB, libSQL,
+  SQLite).** Criar tabela deixou de ser só do Postgres: o montador de `CREATE
+  TABLE` agora gera no **dialeto da engine** — crase no MySQL, aspas duplas no
+  SQLite/libSQL; `serial` vira `AUTO_INCREMENT` no MySQL (quando é PK) e
+  `INTEGER PRIMARY KEY AUTOINCREMENT` no SQLite; `jsonb`/`uuid`/`bytea`/`inet` e
+  companhia viram o tipo mais próximo que existe lá. O comando roda pelo caminho
+  de escrita do driver (a mesma credencial/handle da edição de linha), com o
+  portão de escrita e a auditoria de sempre. `CREATE DATABASE` vale onde existe
+  (Postgres, MySQL/MariaDB); no SQLite (arquivo) e no libSQL (banco único) é
+  recusado com mensagem clara. Os defaults de expressão sem equivalente portável
+  (`gen_random_uuid()`, `current_date` no MySQL) são recusados em vez de gerar
+  DDL que não recarrega; `now()`/`current_timestamp` viram `CURRENT_TIMESTAMP`.
+
+  Provado recarregando o DDL gerado num MySQL e num SQLite reais (a tabela é
+  criada, o auto-incremento de fato incrementa, os tipos batem no
+  `information_schema`/`PRAGMA`). O preview do formulário usa o mesmo montador, no
+  dialeto da conexão — o que se lê é o que roda.
+
 - **Edição estruturada de coleção no Redis (hash/list/set/zset).** Até aqui a
   grade só editava a chave `string`; um `hash`/`list`/`set`/`zset` era recusado.
   Agora, clicar na coluna `value` de uma chave de coleção abre um **editor

@@ -35,7 +35,7 @@ import { SubTabButtons, SubTabs, TabStrip } from "../features/tabs/TabStrip";
 import { FronteiraDeErro } from "../components/FronteiraDeErro";
 import { ConnectionTree, type ConnectionHealth, type TreeTarget } from "../features/tree/ConnectionTree";
 import { treeMenuSections, treeMenuTitle, type TreeMenuActions } from "../features/tree/treeMenu";
-import { capacidadesDe } from "@dbee/shared/puro";
+import { capacidadesDe, dialetoDe } from "@dbee/shared/puro";
 import { conexaoGrava } from "../lib/escrita";
 import { useConnections, useSchema, useTreeExpansion } from "../features/tree/useTree";
 import {
@@ -467,6 +467,7 @@ export function AppShell({
           connectionId={criandoTabela.connectionId}
           database={criandoTabela.database}
           schema={criandoTabela.schema}
+          dialeto={dialetoDe(connections.find((c) => c.id === criandoTabela.connectionId)?.engine ?? "postgres")}
           onClose={() => { setCriandoTabela(null); }}
         />
       ) : null}
@@ -474,6 +475,7 @@ export function AppShell({
       {criandoDatabase !== null ? (
         <CreateDatabaseDialog
           connectionId={criandoDatabase}
+          dialeto={dialetoDe(connections.find((c) => c.id === criandoDatabase)?.engine ?? "postgres")}
           onClose={() => { setCriandoDatabase(null); }}
         />
       ) : null}

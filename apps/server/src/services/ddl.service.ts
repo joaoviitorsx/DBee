@@ -5,11 +5,12 @@ import {
   type CreateDatabaseRequest,
   type CreateTableRequest,
 } from "@dbee/shared";
+import { capacidadesDe, dialetoDe, gravaPorCredencialSeparada, type DialetoSql } from "@dbee/shared/puro";
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
-import { exigirPostgres } from "./engine.guarda";
+import type { Drivers } from "../driver/registro";
 import type { PoolManager } from "../pg/pool";
 
 /**
@@ -46,17 +47,20 @@ export interface DdlDeps {
   readonly repository: ConnectionsRepository;
   readonly pools: PoolManager;
   readonly log: QueryLogRepository;
+  readonly drivers: Drivers;
 }
 
 export class DdlService {
   readonly #repository: ConnectionsRepository;
   readonly #pools: PoolManager;
   readonly #log: QueryLogRepository;
+  readonly #drivers: Drivers;
 
   constructor(deps: DdlDeps) {
     this.#repository = deps.repository;
     this.#pools = deps.pools;
     this.#log = deps.log;
+    this.#drivers = deps.drivers;
   }
 
   /**
@@ -71,56 +75,44 @@ export class DdlService {
     pedido: CreateTableRequest,
     ator: Ator,
   ): Promise<ResultadoDdl> {
-    return await this.#executar(connectionId, pedido.database, ator, {
-      montar: () => montarCreateTable(pedido),
-      rodar: async (connection, sql) => {
-        await this.#pools.withTransaction(
-          connection,
-          pedido.database,
-          false,
-          async (client) => client.query(sql),
-        );
-      },
-    });
+    return await this.#executar(connectionId, "table", pedido.database, ator, (dialeto) =>
+      montarCreateTable(pedido, dialeto),
+    );
   }
 
   /**
-   * `CREATE DATABASE` — o único comando do app fora de transação.
+   * `CREATE DATABASE`.
    *
-   * Emitido contra `postgres`, não contra o database da aba: o comando age no
-   * cluster, e apontá-lo para a database corrente daria o mesmo resultado com
-   * uma conexão a mais ocupada à toa.
+   * No Postgres é o único comando do app fora de transação, emitido contra
+   * `postgres` (age no cluster, não na database da aba). No MySQL/MariaDB roda
+   * pela própria conexão. SQLite e libSQL não têm `CREATE DATABASE` — um é
+   * arquivo, o outro é banco único — e são recusados.
    */
   async criarDatabase(
     connectionId: string,
     pedido: CreateDatabaseRequest,
     ator: Ator,
   ): Promise<ResultadoDdl> {
-    return await this.#executar(connectionId, DATABASE_DE_CONTROLE, ator, {
-      montar: () => montarCreateDatabase(pedido),
-      rodar: async (connection, sql) => {
-        await this.#pools.withAutocommit(connection, DATABASE_DE_CONTROLE, async (client) =>
-          client.query(sql),
-        );
-      },
-    });
+    return await this.#executar(connectionId, "database", DATABASE_DE_CONTROLE, ator, (dialeto) =>
+      montarCreateDatabase(pedido, dialeto),
+    );
   }
 
   /**
-   * O caminho comum: resolve a conexão, exige escrita, monta, roda, registra.
+   * O caminho comum: resolve, exige a engine e a escrita, monta no dialeto,
+   * roda e registra. A ordem dos controles é o que importa; duplicá-la seria o
+   * jeito de um comando ficar sem um.
    *
-   * Um só para os dois comandos porque a ordem dos controles é o que importa e
-   * duplicá-la seria o jeito de um deles ficar sem um. O que muda entre eles é
-   * só `montar` e `rodar`.
+   * O Postgres roda pelo `PoolManager` (transação de tabela, autocommit do
+   * database). As outras engines SQL rodam pelo **driver**, no caminho de
+   * escrita (`somenteLeitura: false`) — o mesmo que a edição de linha usa.
    */
   async #executar(
     connectionId: string,
-    database: string,
+    tipo: "table" | "database",
+    databasePg: string,
     ator: Ator,
-    passos: {
-      readonly montar: () => string;
-      readonly rodar: (connection: ResolvedConnection, sql: string) => Promise<void>;
-    },
+    montar: (dialeto: DialetoSql) => string,
   ): Promise<ResultadoDdl> {
     const inicio = performance.now();
 
@@ -131,25 +123,28 @@ export class DdlService {
       return { ok: false, sql: "", failure: "decryption_failed" };
     }
     if (connection === null) return { ok: false, sql: "", failure: "not_found" };
-    /*
-     * Só o Postgres faz isto. Sem esta guarda, uma conexão MySQL faria o
-     * `PoolManager` do Postgres falar protocolo de Postgres com a porta 3306,
-     * e o erro seria de handshake — sem relação com a verdade, que é
-     * "isto não existe aqui".
-     */
-    const semSuporte = exigirPostgres<never>(connection.engine, "criação de tabela e database (DDL)");
-    if (semSuporte !== null && !semSuporte.ok) {
-      // `write_forbidden` e não uma falha nova: escrita **é** proibida nesta
-      // conexão, e pelo motivo mais forte — a engine não a oferece de jeito
-      // nenhum. O `detail` diz qual é o motivo.
-      return { ok: false, sql: "", failure: "write_forbidden", message: semSuporte.detail ?? "" };
+
+    const engine = connection.engine;
+    // Mongo/Redis não têm DDL de tabela (sem SQL livre). E `CREATE DATABASE` não
+    // existe no SQLite (arquivo) nem no libSQL (banco único).
+    if (capacidadesDe(engine)?.sqlLivre !== true) {
+      return { ok: false, sql: "", failure: "write_forbidden", message: `DDL não existe em ${engine} no DBee.` };
     }
+    if (tipo === "database" && (engine === "sqlite" || engine === "libsql")) {
+      return {
+        ok: false, sql: "", failure: "invalid",
+        message: `criar database não existe em ${engine} — ${engine === "sqlite" ? "o banco é um arquivo" : "a conexão aponta para um banco único"}.`,
+      };
+    }
+
+    const dialeto = dialetoDe(engine);
+    const database = engine === "postgres" ? databasePg : connection.database;
 
     // Monta ANTES de checar escrita, para a recusa registrar o comando que teria
     // rodado — o `query_log` sem o SQL da tentativa é auditoria pela metade.
     let sql: string;
     try {
-      sql = passos.montar();
+      sql = montar(dialeto);
     } catch (erro: unknown) {
       if (erro instanceof DdlInvalido) {
         return { ok: false, sql: "", failure: "invalid", message: erro.message };
@@ -157,22 +152,66 @@ export class DdlService {
       throw erro;
     }
 
-    if (!connection.writeEnabled) {
-      this.#registrar(connectionId, database, sql, "error", "escrita negada: write_enabled desligado na conexão", inicio, ator);
-      return { ok: false, sql, failure: "write_forbidden" };
+    /*
+     * O portão de escrita, igual ao da edição de linha (`mutation.service`):
+     * a base difere por família — credencial (MySQL/MariaDB/libSQL) exige a
+     * credencial de escrita; transação/handle (Postgres/SQLite) exige o
+     * `writeEnabled` — e, além da base, a **concessão do ator**.
+     */
+    const porCredencial = gravaPorCredencialSeparada(engine);
+    const base = porCredencial ? connection.hasWriteCredential : connection.writeEnabled;
+    const podeGravar = base && this.#repository.podeEscrever(connectionId, ator);
+    if (!podeGravar) {
+      const motivo = !base
+        ? porCredencial
+          ? "esta conexão não tem credencial de escrita configurada"
+          : "escrita não habilitada nesta conexão"
+        : "você não tem concessão de escrita nesta conexão";
+      this.#registrar(connectionId, database, sql, "error", `write_forbidden: ${motivo}`, inicio, ator);
+      return { ok: false, sql, failure: "write_forbidden", message: motivo };
     }
 
     try {
-      await passos.rodar(connection, sql);
+      const message = await this.#rodar(connection, tipo, database, sql);
+      if (message !== null) {
+        this.#registrar(connectionId, database, sql, "error", message, inicio, ator);
+        return { ok: false, sql, failure: "upstream_error", message };
+      }
       this.#registrar(connectionId, database, sql, "ok", null, inicio, ator);
       return { ok: true, sql };
     } catch (err: unknown) {
-      // O erro do Postgres vai inteiro para a UI: "already exists", "permission
+      // O erro do banco vai inteiro para a UI: "already exists", "permission
       // denied", "invalid locale" são informação útil, não ruído (CLAUDE.md).
       const message = err instanceof Error ? err.message : "erro desconhecido";
       this.#registrar(connectionId, database, sql, "error", message, inicio, ator);
       return { ok: false, sql, failure: "upstream_error", message };
     }
+  }
+
+  /**
+   * Roda o DDL na engine. Devolve `null` no sucesso, ou a mensagem de erro do
+   * banco (o driver reporta erro no resultado, não por exceção).
+   */
+  async #rodar(
+    connection: ResolvedConnection,
+    tipo: "table" | "database",
+    database: string,
+    sql: string,
+  ): Promise<string | null> {
+    if (connection.engine === "postgres") {
+      // Tabela é transacional (reverte se falhar); database roda em autocommit.
+      if (tipo === "table") {
+        await this.#pools.withTransaction(connection, database, false, async (c) => c.query(sql));
+      } else {
+        await this.#pools.withAutocommit(connection, DATABASE_DE_CONTROLE, async (c) => c.query(sql));
+      }
+      return null;
+    }
+
+    const r = await this.#drivers.para(connection.engine).executar(connection, {
+      sql, database, maxRows: 0, somenteLeitura: false,
+    });
+    return r.error === null ? null : `${r.error.code ?? "?"}: ${r.error.message}`;
   }
 
   #registrar(
