@@ -90,18 +90,26 @@ describe.if(temDocker)("edição estruturada do Redis", () => {
   });
 
   it("zset: ZADD com score e ZREM; score inválido é recusado", async () => {
-    await editar({ kind: "zset-add", member: "bruno", score: "25.5" }, "ranking:1");
+    await editar({ kind: "zset-add", member: "bruno", score: "25.5", from: null }, "ranking:1");
     expect(cli("ZSCORE", "ranking:1", "bruno")).toBe("25.5");
     await editar({ kind: "zset-del", member: "ana" }, "ranking:1");
     expect(cli("ZSCORE", "ranking:1", "ana")).toBe("");
 
     let pego: unknown;
     try {
-      await editar({ kind: "zset-add", member: "x", score: "abc" }, "ranking:1");
+      await editar({ kind: "zset-add", member: "x", score: "abc", from: null }, "ranking:1");
     } catch (e: unknown) {
       pego = e;
     }
     expect(pego).toBeInstanceOf(Error);
+  });
+
+  it("zset: editar score com guarda errada não sobrescreve", async () => {
+    // `ana` foi removida antes; recria com score 10 e edita com from errado.
+    await editar({ kind: "zset-add", member: "carla", score: "5", from: null }, "ranking:1");
+    const r = await editar({ kind: "zset-add", member: "carla", score: "99", from: "8" }, "ranking:1");
+    expect(r.rowCount).toBe(0);
+    expect(cli("ZSCORE", "ranking:1", "carla")).toBe("5");
   });
 
   it("list: LSET com guarda, LPUSH/RPUSH e LREM", async () => {
@@ -120,7 +128,13 @@ describe.if(temDocker)("edição estruturada do Redis", () => {
     await editar({ kind: "list-push", side: "left", value: "z" }, "fila:1");
     expect(cli("LINDEX", "fila:1", "0")).toBe("z");
 
-    await editar({ kind: "list-del", value: "b" }, "fila:1");
+    // Lista agora é ["z","A","b","c","d"] — "b" está no índice 2.
+    const del = await editar({ kind: "list-del", index: 2, from: "b" }, "fila:1");
+    expect(del.rowCount).toBe(1);
     expect(cli("LPOS", "fila:1", "b")).toBe("");
+
+    // Guarda do índice: `from` errado não remove.
+    const conflitoDel = await editar({ kind: "list-del", index: 0, from: "b" }, "fila:1");
+    expect(conflitoDel.rowCount).toBe(0);
   });
 });

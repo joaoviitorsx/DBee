@@ -52,6 +52,15 @@ interface Vivo {
   readonly worker: Worker;
   /** Promessa que resolve quando o worker respondeu "pronto" (abriu o arquivo). */
   readonly aberto: Promise<void>;
+  /**
+   * Derruba a promessa `aberto` se ela ainda estiver pendente.
+   *
+   * `worker.terminate()` não emite `message` nem `error`, então um `esquecer`
+   * durante a **abertura** de um worker deixaria quem faz `await aberto`
+   * pendurado para sempre (o timeout da consulta só é armado depois do await).
+   * Rejeitar aqui fecha essa janela; se `aberto` já resolveu, é no-op.
+   */
+  readonly abortarAbertura: (erro: Error) => void;
 }
 
 /** A chave de um worker: a conexão e o modo (leitura/escrita são workers distintos). */
@@ -104,7 +113,9 @@ export class GerenteSqlite {
 
     const caminho = validarCaminho(conexao.filePath ?? "");
     const worker = new Worker(new URL("./worker.ts", import.meta.url).href);
+    let abortarAbertura: (erro: Error) => void = () => undefined;
     const aberto = new Promise<void>((resolver, rejeitar) => {
+      abortarAbertura = rejeitar;
       const aoPronto = (): void => {
         worker.removeEventListener("message", aoPronto);
         resolver();
@@ -112,9 +123,13 @@ export class GerenteSqlite {
       worker.addEventListener("message", aoPronto);
       worker.addEventListener("error", (e) => { rejeitar(new Error(e.message)); }, { once: true });
     });
+    // A rejeição de uma promessa já resolvida é no-op; e se ninguém aguarda
+    // `aberto` quando ela rejeita, marca como tratada para não virar
+    // unhandledRejection.
+    aberto.catch(() => undefined);
     worker.postMessage({ tipo: "abrir", caminho, readonly: !escrita } satisfies Pedido);
 
-    const vivo: Vivo = { worker, aberto };
+    const vivo: Vivo = { worker, aberto, abortarAbertura };
     this.#porId.set(k, vivo);
     return vivo;
   }
@@ -166,7 +181,10 @@ export class GerenteSqlite {
         clearTimeout(prazo);
         vivo.worker.removeEventListener("message", aoResponder);
         vivo.worker.removeEventListener("error", aoErro);
-        this.#pendentes.get(conexao.id)?.delete(abortar);
+        const set = this.#pendentes.get(conexao.id);
+        set?.delete(abortar);
+        // Não deixa o `Set` vazio acumular no mapa (uma entrada por conexão).
+        if (set?.size === 0) this.#pendentes.delete(conexao.id);
       };
 
       const doId = this.#pendentes.get(conexao.id) ?? new Set<() => void>();
@@ -205,6 +223,10 @@ export class GerenteSqlite {
       const vivo = this.#porId.get(k);
       if (vivo === undefined) continue;
       this.#porId.delete(k);
+      // Derruba uma abertura em voo ANTES de matar o worker: terminar não emite
+      // evento, e quem faz `await aberto` (antes de o timeout ser armado) ficaria
+      // pendurado para sempre. Se já abriu, é no-op.
+      vivo.abortarAbertura(new Error("worker encerrado"));
       vivo.worker.terminate();
     }
   }

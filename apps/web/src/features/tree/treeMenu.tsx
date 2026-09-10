@@ -6,7 +6,6 @@ import { api } from "../../lib/api";
 import type { TreeTarget } from "./ConnectionTree";
 import type { Tradutor } from "../../i18n";
 import { capacidadesDe } from "@dbee/shared/puro";
-import { conexaoGrava } from "../../lib/escrita";
 import { copiarTexto } from "../../lib/navegador";
 
 /** Copia para a área de transferência, em silêncio se o navegador recusar. */
@@ -105,7 +104,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
         // O database é criado no cluster, então o lugar dele é a conexão.
         // Só onde a engine tem CREATE DATABASE (Postgres/MySQL/MariaDB) e a
         // conexão pode escrever (transação ou credencial de escrita).
-        ...(conexaoGrava(target.connection) &&
+        ...(target.connection.writeEnabled &&
         ["postgres", "mysql", "mariadb"].includes(target.connection.engine)
           ? [
               {
@@ -183,7 +182,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
          * nasce no cluster, não dentro de outro database. Oferecê-lo aqui
          * sugeria um aninhamento que não existe.
          */
-        ...(conexaoGrava(target.connection)
+        ...(target.connection.writeEnabled
           ? [
               {
                 items: [
@@ -220,7 +219,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
 
     case "schema":
       return [
-        ...(conexaoGrava(target.connection)
+        ...(target.connection.writeEnabled
           ? [
               {
                 items: [

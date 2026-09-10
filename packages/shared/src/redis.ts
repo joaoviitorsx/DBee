@@ -47,6 +47,8 @@ const Op = t.Union([
     member: t.String({ maxLength: MAX }),
     /** Score como texto (regra 10); o servidor valida que é número. */
     score: t.String({ minLength: 1, maxLength: 64 }),
+    /** Score anterior do membro, ou `null` se é membro novo (guarda otimista). */
+    from: t.Union([t.String(), t.Null()]),
   }),
   t.Object({ kind: t.Literal("zset-del"), member: t.String({ maxLength: MAX }) }),
   // list
@@ -62,7 +64,17 @@ const Op = t.Union([
     side: t.Union([t.Literal("left"), t.Literal("right")]),
     value: t.String({ maxLength: MAX }),
   }),
-  t.Object({ kind: t.Literal("list-del"), value: t.String({ maxLength: MAX }) }),
+  /**
+   * Remove o elemento **daquele índice** (não por valor): `LSET` num sentinel
+   * único seguido de `LREM` do sentinel. `LREM key 1 value` removeria a primeira
+   * ocorrência, que numa lista com valores repetidos é o elemento errado.
+   */
+  t.Object({
+    kind: t.Literal("list-del"),
+    index: t.Integer({ minimum: 0, maximum: 1_000_000_000 }),
+    /** Valor anterior no índice (guarda otimista). */
+    from: t.String({ maxLength: MAX }),
+  }),
 ]);
 export type RedisValueOp = Static<typeof Op>;
 

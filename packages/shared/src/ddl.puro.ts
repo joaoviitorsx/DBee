@@ -151,7 +151,8 @@ export function montarCreateTable(
   const cit = (n: string): string => citarIdentDialeto(n, dialeto);
 
   const vistos = new Set<string>();
-  const pks: string[] = [];
+  /** Colunas da PK, citadas, com marca de serial (para o MySQL ordenar). */
+  const pks: { readonly cit: string; readonly serial: boolean }[] = [];
   const linhas: string[] = [];
   const nomesPk = pedido.columns.filter((c) => c.primaryKey === true);
   const pkUnica = nomesPk.length === 1;
@@ -186,11 +187,23 @@ export function montarCreateTable(
     }
     if (coluna.unique === true && !ehPk) partes.push("UNIQUE");
 
-    if (ehPk) pks.push(cit(nome));
+    if (ehPk) pks.push({ cit: cit(nome), serial });
     linhas.push(`  ${partes.join(" ")}`);
   }
 
-  if (pks.length > 0) linhas.push(`  PRIMARY KEY (${pks.join(", ")})`);
+  if (pks.length > 0) {
+    /*
+     * No MySQL a coluna `AUTO_INCREMENT` tem que ser a **primeira** de alguma
+     * chave (InnoDB, medido: ERROR 1075). Numa PK composta com o serial no meio,
+     * o CREATE falha — então ele vai para a frente da lista. Nos outros dialetos
+     * a ordem da PK é do usuário (composta é semântica), e é preservada.
+     */
+    const ordenadas =
+      dialeto === "mysql"
+        ? [...pks].sort((a, b) => Number(b.serial) - Number(a.serial))
+        : pks;
+    linhas.push(`  PRIMARY KEY (${ordenadas.map((p) => p.cit).join(", ")})`);
+  }
 
   const seNaoExiste = pedido.ifNotExists === true ? "IF NOT EXISTS " : "";
   // No MySQL/SQLite a tabela é qualificada pela conexão (database/arquivo), não

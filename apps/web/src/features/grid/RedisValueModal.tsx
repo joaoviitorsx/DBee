@@ -64,7 +64,9 @@ export function RedisValueModal({
   const [novoB, setNovoB] = useState("");
 
   const temValor = alvo.type !== "set"; // set: só membro; os outros têm valor/score
-  const editavelA = alvo.type === "set"; // no set o próprio membro é o dado
+  // O membro do `set` é o próprio dado e não tem edição inline: renomear seria
+  // adicionar o novo E deixar o antigo (dois membros), que confunde. Para trocar,
+  // exclui e adiciona — duas ações explícitas. Só o valor/score é editável.
   const editavelB = alvo.type === "hash" || alvo.type === "zset" || alvo.type === "list";
 
   const aplicar = useMutation({
@@ -91,24 +93,32 @@ export function RedisValueModal({
     },
   });
 
-  /** Salva a edição de um membro (valor/score, ou o próprio membro no set). */
+  /** Salva a edição do valor/score de um membro (o identificador não muda). */
   const salvar = (m: Membro, novo: string): void => {
     const op = opDeEdicao(alvo.type, m, novo);
     if (op === null) return;
     aplicar.mutate(op, {
       onSuccess: () => {
-        setMembros((lista) =>
-          lista.map((x) =>
-            x.id === m.id ? (alvo.type === "set" ? { ...x, a: novo } : { ...x, b: novo }) : x,
-          ),
-        );
+        setMembros((lista) => lista.map((x) => (x.id === m.id ? { ...x, b: novo } : x)));
       },
     });
   };
 
   const excluir = (m: Membro): void => {
     aplicar.mutate(opDeExclusao(alvo.type, m), {
-      onSuccess: () => { setMembros((lista) => lista.filter((x) => x.id !== m.id)); },
+      onSuccess: () => {
+        setMembros((lista) => {
+          const semEle = lista.filter((x) => x.id !== m.id);
+          // Numa lista, o índice de cada elemento após o removido cai em 1 — o
+          // rótulo `a` (o índice) tem que acompanhar, senão a próxima edição
+          // miraria a posição errada.
+          if (alvo.type !== "list") return semEle;
+          const idxRemovido = Number(m.a);
+          return semEle.map((x) =>
+            Number(x.a) > idxRemovido ? { ...x, a: String(Number(x.a) - 1) } : x,
+          );
+        });
+      },
     });
   };
 
@@ -177,11 +187,9 @@ export function RedisValueModal({
                   <LinhaMembro
                     key={m.id}
                     membro={m}
-                    editavelA={editavelA}
                     editavelB={editavelB}
                     temValor={temValor}
                     ocupado={aplicar.isPending}
-                    rotuloA={rotuloA(alvo.type, t)}
                     rotuloB={rotuloB(alvo.type, t)}
                     onSalvar={salvar}
                     onExcluir={excluir}
@@ -245,52 +253,35 @@ export function RedisValueModal({
 /** Uma linha de membro, com edição inline do que é editável e o excluir. */
 function LinhaMembro({
   membro,
-  editavelA,
   editavelB,
   temValor,
   ocupado,
-  rotuloA: rA,
   rotuloB: rB,
   onSalvar,
   onExcluir,
 }: {
   readonly membro: Membro;
-  readonly editavelA: boolean;
   readonly editavelB: boolean;
   readonly temValor: boolean;
   readonly ocupado: boolean;
-  readonly rotuloA: string;
   readonly rotuloB: string;
   readonly onSalvar: (m: Membro, novo: string) => void;
   readonly onExcluir: (m: Membro) => void;
 }) {
-  // O campo editável é `a` no set, `b` nos demais.
-  const original = editavelA ? membro.a : (membro.b ?? "");
+  // O identificador (`a`) não é editável; o que muda é o valor/score (`b`).
+  const original = membro.b ?? "";
   const [rascunho, setRascunho] = useState(original);
   const sujo = rascunho !== original;
 
   return (
     <li className="flex items-center gap-2">
-      {/* Identificador (campo/índice/membro) — só editável no set. */}
-      {editavelA ? (
-        <Input
-          value={rascunho}
-          onChange={(e) => { setRascunho(e.target.value); }}
-          aria-label={rA}
-          className="min-w-0 flex-1"
-          onKeyDown={(e) => { if (e.key === "Enter" && sujo) onSalvar(membro, rascunho); }}
-        />
-      ) : (
-        <span
-          className="w-32 shrink-0 truncate font-mono text-2xs text-muted"
-          title={membro.a}
-        >
-          {membro.a}
-        </span>
-      )}
+      {/* Identificador (campo/índice/membro) — sempre rótulo, nunca editável. */}
+      <span className="w-32 shrink-0 truncate font-mono text-2xs text-muted" title={membro.a}>
+        {membro.a}
+      </span>
 
-      {/* Valor/score — editável no hash/zset/list. */}
-      {temValor && !editavelA ? (
+      {/* Valor/score — editável no hash/zset/list; ausente no set. */}
+      {temValor ? (
         editavelB ? (
           <Input
             value={rascunho}
@@ -357,20 +348,19 @@ function rotuloB(tipo: TipoColecao, t: ReturnType<typeof useIdioma>["t"]): strin
   return t("redisEdit.valor");
 }
 
-/** Op de edição de um membro existente (ou `null` se nada a fazer). */
+/** Op de edição do valor/score de um membro (o identificador não muda). */
 function opDeEdicao(tipo: TipoColecao, m: Membro, novo: string): RedisValueOp | null {
   switch (tipo) {
     case "hash":
       return { kind: "hash-set", field: m.a, value: novo, from: m.b };
     case "zset":
-      return { kind: "zset-add", member: m.a, score: novo };
+      // Guarda otimista pelo score anterior (`from`).
+      return { kind: "zset-add", member: m.a, score: novo, from: m.b };
     case "list":
       return { kind: "list-set", index: Number(m.a), value: novo, from: m.b ?? "" };
     case "set":
-      // "Editar" um membro do set é remover o antigo e adicionar o novo. Aqui
-      // fazemos o add; a remoção do antigo fica a cargo do usuário (excluir),
-      // para não apagar em silêncio. Simples e previsível.
-      return { kind: "set-add", member: novo };
+      // O membro do set não tem valor a editar — a linha nem oferece edição.
+      return null;
   }
 }
 
@@ -383,7 +373,8 @@ function opDeExclusao(tipo: TipoColecao, m: Membro): RedisValueOp {
     case "zset":
       return { kind: "zset-del", member: m.a };
     case "list":
-      return { kind: "list-del", value: m.b ?? "" };
+      // Positional (pelo índice), com guarda do valor lido — não por valor.
+      return { kind: "list-del", index: Number(m.a), from: m.b ?? "" };
   }
 }
 
@@ -394,7 +385,7 @@ function opDeAdicao(tipo: TipoColecao, chave: string, valor: string): RedisValue
     case "set":
       return { kind: "set-add", member: chave };
     case "zset":
-      return { kind: "zset-add", member: chave, score: valor };
+      return { kind: "zset-add", member: chave, score: valor, from: null };
     case "list":
       return { kind: "list-push", side: "right", value: valor };
   }

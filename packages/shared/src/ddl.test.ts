@@ -359,6 +359,33 @@ describe("montarCreateTable — dialetos não-Postgres", () => {
     expect(sql).toContain("DEFAULT CURRENT_TIMESTAMP");
   });
 
+  it("MySQL: numa PK composta o serial vai para a frente (InnoDB exige)", () => {
+    const sql = montarCreateTable(
+      pedido({
+        columns: [
+          coluna({ name: "org_id", type: "integer", primaryKey: true }),
+          coluna({ name: "id", type: "bigserial", primaryKey: true }),
+        ],
+      }),
+      "mysql",
+    );
+    // O serial (`id`, AUTO_INCREMENT) precede o `org_id` na constraint.
+    expect(sql).toContain("PRIMARY KEY (`id`, `org_id`)");
+    expect(sql).toContain("`id` BIGINT AUTO_INCREMENT");
+  });
+
+  it("Postgres/SQLite preservam a ordem da PK composta", () => {
+    const sqlPg = montarCreateTable(
+      pedido({
+        columns: [
+          coluna({ name: "org_id", type: "integer", primaryKey: true }),
+          coluna({ name: "periodo", type: "date", primaryKey: true }),
+        ],
+      }),
+    );
+    expect(sqlPg).toContain('PRIMARY KEY ("org_id", "periodo")');
+  });
+
   it("montarCreateDatabase no MySQL é só CREATE DATABASE com crase", () => {
     expect(montarCreateDatabase({ name: "loja", encoding: "UTF8", owner: "x" }, "mysql")).toBe(
       "CREATE DATABASE `loja`;",

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import type { RedisClient } from "bun";
 
 import type { RedisValueEditRequest, RowMutationResult } from "@dbee/shared";
@@ -56,6 +58,13 @@ export async function editarValor(
       if (!Number.isFinite(score)) {
         throw new MutacaoError(`score inválido: '${op.score}' não é um número`);
       }
+      // Guarda otimista ao editar o score de um membro existente (`from` não
+      // nulo): o score atual tem que bater com o que a tela leu. Membro novo
+      // (`from` nulo) não tem o que conferir.
+      if (op.from !== null) {
+        const atual = (await cliente.send("ZSCORE", [key, op.member])) as string | null;
+        if (atual !== op.from) return conflito(`o score de ${op.member} em ${key} mudou desde a leitura`);
+      }
       await cliente.send("ZADD", [key, op.score, op.member]);
       return { rowCount: 1, sql: `ZADD ${key} ${op.score} ${JSON.stringify(op.member)}` };
     }
@@ -80,9 +89,18 @@ export async function editarValor(
       return { rowCount: 1, sql: `${comando} ${key} ${JSON.stringify(op.value)}` };
     }
     case "list-del": {
-      // Remove a primeira ocorrência do valor (`LREM key 1 value`).
-      await cliente.send("LREM", [key, "1", op.value]);
-      return { rowCount: 1, sql: `LREM ${key} 1 ${JSON.stringify(op.value)}` };
+      // Remove o elemento **daquele índice**, não por valor. Guarda otimista:
+      // o índice tem que estar como a tela leu. Depois, marca com um sentinel
+      // único e remove por ele — assim uma lista com valores repetidos perde o
+      // elemento certo (um `LREM 1 value` tiraria a primeira ocorrência).
+      const atual = (await cliente.send("LINDEX", [key, String(op.index)])) as string | null;
+      if (atual !== op.from) {
+        return conflito(`o índice ${String(op.index)} de ${key} mudou desde a leitura`);
+      }
+      const sentinel = `\u0000__dbee_del__${randomUUID()}`;
+      await cliente.send("LSET", [key, String(op.index), sentinel]);
+      await cliente.send("LREM", [key, "1", sentinel]);
+      return { rowCount: 1, sql: `LSET ${key} ${String(op.index)} <del>; LREM ${key} 1 <del>` };
     }
   }
 }

@@ -36,7 +36,6 @@ import { FronteiraDeErro } from "../components/FronteiraDeErro";
 import { ConnectionTree, type ConnectionHealth, type TreeTarget } from "../features/tree/ConnectionTree";
 import { treeMenuSections, treeMenuTitle, type TreeMenuActions } from "../features/tree/treeMenu";
 import { capacidadesDe, dialetoDe } from "@dbee/shared/puro";
-import { conexaoGrava } from "../lib/escrita";
 import { useConnections, useSchema, useTreeExpansion } from "../features/tree/useTree";
 import {
   activeTab,
@@ -232,7 +231,7 @@ export function AppShell({
 
   const idConexaoAtiva = alvoAtivo?.connectionId;
   const conexaoAtiva = connections.find((c) => c.id === idConexaoAtiva) ?? null;
-  const perigo = conexaoAtiva !== null && conexaoGrava(conexaoAtiva);
+  const perigo = conexaoAtiva?.writeEnabled === true;
 
   return (
     /*
@@ -372,7 +371,7 @@ export function AppShell({
             <QueryTabContent
               key={abaQuery.id}
               tab={abaQuery}
-              writeEnabled={conexaoAtiva !== null && conexaoGrava(conexaoAtiva)}
+              writeEnabled={conexaoAtiva?.writeEnabled === true}
               onOpenTableFiltered={abrirFiltrada}
               onAbrirSalva={abrirSalva}
               nomeConexao={nomeConexao}
@@ -560,7 +559,7 @@ function TopBar({
   /** Só existe no layout estreito, onde a árvore é sobreposição. */
   readonly onToggleTree: (() => void) | null;
 }) {
-  const perigo = connection !== null && conexaoGrava(connection);
+  const perigo = connection?.writeEnabled === true;
   const t = useT();
 
   /** Mede o cabeçalho e publica em `--h-topbar` para a gaveta se alinhar. */
