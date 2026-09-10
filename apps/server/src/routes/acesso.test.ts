@@ -131,6 +131,9 @@ const CORPO_POR_ROTA: Readonly<Record<string, unknown>> = {
     columns: [{ name: "a", type: "integer" }],
   },
   "POST /api/connections/:id/ddl/database": { name: "novo_banco" },
+  "POST /api/connections/:id/redis/value": {
+    database: "db0", key: "k", op: { kind: "set-add", member: "m" }, readOnly: false,
+  },
   "POST /api/connections/:id/export": {
     database: "postgres",
     source: { kind: "table", schema: "public", table: "t" },
