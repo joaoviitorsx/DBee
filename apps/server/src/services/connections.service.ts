@@ -6,7 +6,11 @@ import type { ConnectionGrant } from "@dbee/shared";
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { Drivers } from "../driver/registro";
-import { exigirCamposDaEngine, recusarCamposDaOutraEngine } from "./engine.guarda";
+import {
+  exigirCamposDaEngine,
+  recusarCamposDaOutraEngine,
+  recusarCredencialDeEscritaIgual,
+} from "./engine.guarda";
 
 import { type ServiceResult, fail, ok } from "./result";
 
@@ -104,6 +108,9 @@ export class ConnectionsService {
     const faltando = exigirCamposDaEngine<Connection>(engine, input);
     if (faltando !== null) return faltando;
 
+    const colisao = recusarCredencialDeEscritaIgual<Connection>(engine, input);
+    if (colisao !== null) return colisao;
+
     return ok(this.#repository.create(input));
   }
 
@@ -124,6 +131,16 @@ export class ConnectionsService {
     if (atual === null) return fail("not_found");
     const intruso = recusarCamposDaOutraEngine<Connection>(atual.engine, patch);
     if (intruso !== null) return intruso;
+
+    /*
+     * A colisão de usuário é checada com os valores **efetivos**: um PATCH pode
+     * mandar só `writeUsername`, e ele colide com o `username` já guardado.
+     */
+    const colisao = recusarCredencialDeEscritaIgual<Connection>(atual.engine, {
+      username: patch.username ?? atual.username,
+      writeUsername: patch.writeUsername,
+    });
+    if (colisao !== null) return colisao;
 
     const updated = this.#repository.update(id, patch);
     if (updated === null) return fail("not_found");

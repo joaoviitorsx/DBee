@@ -153,3 +153,46 @@ export function exigirCamposDaEngine<T>(
     `${faltando.join(", ")} ${faltando.length === 1 ? "é obrigatório" : "são obrigatórios"} em ${engine}.`,
   );
 }
+
+/**
+ * Recusa a credencial de escrita que usa o **mesmo usuário** da leitura.
+ *
+ * ## Por que
+ *
+ * O pool do MySQL chaveia por `username` (`PoolMysql.chaveDe`), e é essa chave
+ * que garante que uma tarefa de leitura nunca receba a conexão gravável. Se a
+ * credencial de escrita tiver o mesmo `username` da de leitura, as duas caem no
+ * mesmo grupo — e a separação, que é a defesa inteira, deixa de existir.
+ *
+ * A revisão adversarial marcou isto como defesa em profundidade: em config
+ * realista, mesmo usuário significa mesma senha, e aí a credencial de leitura já
+ * grava (o aviso `credential_can_write` aparece e o portão bloqueia). Mas o
+ * invariante não estava imposto em lugar nenhum, e impor é barato.
+ *
+ * Vale só onde há `writeUsername` (MySQL/MariaDB). No libSQL a credencial de
+ * escrita é só o token, sem usuário — não há o que colidir.
+ */
+export function recusarCredencialDeEscritaIgual<T>(
+  engine: Engine,
+  corpo: Readonly<Record<string, unknown>>,
+): ServiceResult<T> | null {
+  const capacidades = capacidadesDe(engine);
+  if (!capacidades?.campos.includes("writeUsername")) return null;
+
+  const usuario = corpo["username"];
+  const usuarioEscrita = corpo["writeUsername"];
+  if (
+    typeof usuario === "string" &&
+    typeof usuarioEscrita === "string" &&
+    usuario !== "" &&
+    usuario === usuarioEscrita
+  ) {
+    return fail<T>(
+      "bad_request",
+      "a credencial de escrita precisa de um usuário diferente do de leitura. É o " +
+        "usuário distinto que mantém a leitura e a escrita em conexões separadas — " +
+        "com o mesmo usuário, a separação que protege a leitura deixa de existir.",
+    );
+  }
+  return null;
+}
