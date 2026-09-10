@@ -112,6 +112,16 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
   mesmo prefixo (`boost`). Digitar `use` mostra a tabela `users` antes do `USER`
   do dialeto; digitar `stat` mostra a coluna `status` primeiro.
 
+### Corrigido
+
+- **A edição de célula das engines de credencial (MySQL, MariaDB, libSQL, Mongo,
+  Redis) agora acende na grade.** A tela decidia "pode escrever aqui" só por
+  `writeEnabled`, campo que essas engines não têm — a escrita delas é a
+  credencial de escrita (`hasWriteCredential`). Resultado: a edição existia na
+  API e nos testes, mas **nunca aparecia** na grade dessas engines. A tela passa
+  a usar a mesma regra do servidor (`writeEnabledEfetivo`): credencial →
+  `hasWriteCredential`, transação/handle → `writeEnabled`.
+
 ### Adicionado
 
 - **Edição estruturada de coleção no Redis (hash/list/set/zset).** Até aqui a
