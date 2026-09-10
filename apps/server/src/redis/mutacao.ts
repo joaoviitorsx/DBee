@@ -19,8 +19,9 @@ import { MutacaoError } from "../driver/erros";
  * - **editar** a coluna `value` de uma chave `string` → `SET key novo`. Só
  *   `string`: um `hash`/`list`/`set`/`zset` não tem "um valor" para sobrescrever
  *   de uma célula — reescrevê-lo a partir do JSON renderado seria adivinhação
- *   perigosa (perde ordem, tipos, campos). Esses tipos recusam com mensagem
- *   clara, e a edição estruturada deles é fatia futura.
+ *   perigosa (perde ordem, tipos, campos). Esses tipos recusam aqui com mensagem
+ *   clara e são editados membro a membro pelo **editor estruturado**
+ *   (`redis/valor.ts`, rota `POST /redis/value`).
  * - **editar `ttl`** → `EXPIRE`/`PERSIST`. `-1` remove a expiração, um número
  *   positivo a define, `-2` não faz sentido (chave inexistente) e é recusado.
  * - **inserir** → `SET key value`, sempre como `string` (o tipo mais comum, e o
@@ -51,7 +52,8 @@ export async function atualizar(
       if (tipo !== "string") {
         throw new MutacaoError(
           `só o valor de uma chave 'string' é editável pela grade; esta é '${tipo}'. ` +
-            "A edição estruturada de hash/list/set/zset é uma fatia futura.",
+            "Um hash/list/set/zset se edita membro a membro no editor estruturado " +
+            "(duplo clique na coluna 'value').",
         );
       }
       // Guarda otimista: o valor atual tem que bater com o que a grade leu.
