@@ -31,7 +31,7 @@ function conexao(porta: number, usuario: string, senha: string, extra: Partial<R
     host: "127.0.0.1", port: porta, database: "loja",
     username: usuario, password: senha,
     sslMode: "disable", timezone: "UTC", statementTimeoutMs: 5000,
-    writeEnabled: false, hasWriteCredential: false, authSource: null, createdAt: "", updatedAt: "",
+    writeEnabled: false, hasWriteCredential: false, authSource: null, filePath: null, createdAt: "", updatedAt: "",
     ...extra,
   };
 }

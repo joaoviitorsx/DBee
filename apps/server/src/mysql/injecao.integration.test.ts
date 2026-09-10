@@ -41,7 +41,7 @@ const conexao: ResolvedConnection = {
   host: "127.0.0.1", port: PORTA, database: "loja",
   username: "root", password: SENHA,
   sslMode: "disable", timezone: "UTC", statementTimeoutMs: 30_000,
-  writeEnabled: false, hasWriteCredential: false, authSource: null, createdAt: "", updatedAt: "",
+  writeEnabled: false, hasWriteCredential: false, authSource: null, filePath: null, createdAt: "", updatedAt: "",
 };
 
 let pool: PoolMysql;

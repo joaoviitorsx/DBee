@@ -17,7 +17,7 @@ const conexao = (sslMode: "disable" | "require" | "verify-full"): ResolvedConnec
     id: "c1", name: "ls", color: null, engine: "libsql",
     host: "db.exemplo.com", port: 8080, database: "", username: "",
     sslMode, timezone: "UTC", statementTimeoutMs: 30_000,
-    writeEnabled: false, hasWriteCredential: false, authSource: null, createdAt: "", updatedAt: "", password: "tok",
+    writeEnabled: false, hasWriteCredential: false, authSource: null, filePath: null, createdAt: "", updatedAt: "", password: "tok",
   });
 
 describe("alvoLibsqlDe — os três modos de SSL", () => {

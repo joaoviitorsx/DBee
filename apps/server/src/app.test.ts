@@ -74,10 +74,14 @@ describe("CRUD de conexões", () => {
      */
     const corpoPara = (engine: Engine): Record<string, unknown> => {
       const campos = capacidadesDe(engine)?.campos ?? ["host", "database", "username"];
-      const base: Record<string, unknown> = { name: `x-${engine}`, engine, password: NOVA.password };
+      const base: Record<string, unknown> = { name: `x-${engine}`, engine };
+      if (campos.includes("password")) base["password"] = NOVA.password;
       if (campos.includes("host")) base["host"] = NOVA.host;
       if (campos.includes("database")) base["database"] = NOVA.database;
       if (campos.includes("username")) base["username"] = NOVA.username;
+      if (campos.includes("authSource")) base["authSource"] = "admin";
+      // SQLite: só `filePath`. Sem host/database/username.
+      if (campos.includes("filePath")) base["filePath"] = "loja.db";
       return base;
     };
 
@@ -176,8 +180,18 @@ describe("CRUD de conexões", () => {
     expect(res.status).toBe(422);
   });
 
-  it("recusa payload sem campo obrigatório", async () => {
+  it("recusa payload sem os campos que a engine exige", async () => {
+    // A obrigatoriedade migrou do schema (que agora deixa host/database/etc
+    // opcionais, porque nem toda engine os tem) para o guard por engine. Um
+    // payload só com o nome nasce Postgres e é recusado por faltar host/
+    // database/username — 400 do guard, não mais 422 do TypeBox.
     const res = await call("/api/connections", json({ name: "só o nome" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("recusa payload com tipo errado — validação de schema (422)", async () => {
+    // O 422 do TypeBox ainda protege contra tipo errado (o que o guard não vê).
+    const res = await call("/api/connections", json({ name: 123, engine: "postgres" }));
     expect(res.status).toBe(422);
   });
 });

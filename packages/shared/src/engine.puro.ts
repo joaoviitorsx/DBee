@@ -57,6 +57,7 @@ export const ENGINES_IMPLEMENTADAS: readonly Engine[] = [
   "libsql",
   "mongodb",
   "redis",
+  "sqlite",
 ];
 
 /**
@@ -133,7 +134,8 @@ export type CampoConexao =
   | "writeEnabled"
   | "writeUsername"
   | "writePassword"
-  | "authSource";
+  | "authSource"
+  | "filePath";
 
 /**
  * As capacidades de cada engine.
@@ -143,7 +145,10 @@ export type CampoConexao =
  * a tabela afirmando o que o app não faz.
  */
 export const CAPACIDADES: Readonly<
-  Record<"postgres" | "mysql" | "mariadb" | "libsql" | "mongodb" | "redis", Capacidades>
+  Record<
+    "postgres" | "mysql" | "mariadb" | "libsql" | "mongodb" | "redis" | "sqlite",
+    Capacidades
+  >
 > = {
   postgres: {
     niveis: "conexao/database/schema/tabela",
@@ -292,6 +297,31 @@ export const CAPACIDADES: Readonly<
     diagramaErd: false,
   },
 
+  /*
+   * SQLite local — um arquivo, não um servidor. A garantia de somente-leitura é
+   * o **handle**: o arquivo é aberto em modo leitura (`readonly: true`), e o
+   * `PRAGMA query_only` (que o usuário poderia desligar) não é a proteção.
+   *
+   * Roda **fora do event loop** (num Worker): o `bun:sqlite` é síncrono e uma
+   * consulta longa travaria o processo inteiro num app multiusuário — medido.
+   *
+   * `campos` é só `filePath` (o caminho no servidor) e `writePassword`? Não: a
+   * escrita do SQLite é abrir o arquivo em modo r/w, não uma credencial. Fica
+   * só `filePath`; a escrita entra por `writeEnabled`, como no Postgres — mas
+   * isso é fatia futura. No v1, somente leitura.
+   */
+  sqlite: {
+    niveis: "arquivo/tabela",
+    escopoReadOnly: "handle",
+    readOnlyCobreDdl: true,
+    campos: ["filePath"],
+    portaPadrao: null,
+    dialeto: "sqlite",
+    sqlLivre: true,
+    cancelarQuery: false,
+    diagramaErd: true,
+  },
+
   libsql: {
     niveis: "conexao/database/tabela",
     escopoReadOnly: "credencial",
@@ -316,16 +346,11 @@ export const CAPACIDADES: Readonly<
  * não tem. Um valor errado aqui vira promessa falsa lá.
  */
 export function capacidadesDe(engine: Engine): Capacidades | null {
-  return (
-    engine === "postgres" ||
-    engine === "mysql" ||
-    engine === "mariadb" ||
-    engine === "libsql" ||
-    engine === "mongodb" ||
-    engine === "redis"
-  )
-    ? CAPACIDADES[engine]
-    : null;
+  // Todas as sete engines declaradas têm capacidade hoje — o `CAPACIDADES` as
+  // cobre. O retorno mantém `| null` no tipo (a assinatura que os chamadores já
+  // tratam) para o dia em que uma engine nova nascer na união `Engine` sem
+  // capacidade ainda; hoje o acesso sempre resolve.
+  return CAPACIDADES[engine];
 }
 
 /** Se o DBee fala esta engine hoje. */

@@ -32,7 +32,7 @@ const conn = (): ResolvedConnection => ({
   host: "127.0.0.1", port: PORTA, database: "loja",
   username: "", password: "", sslMode: "disable", timezone: "UTC",
   statementTimeoutMs: 30_000, writeEnabled: false, hasWriteCredential: false,
-  authSource: null, createdAt: "", updatedAt: "",
+  authSource: null, filePath: null, createdAt: "", updatedAt: "",
 });
 
 beforeAll(async () => {

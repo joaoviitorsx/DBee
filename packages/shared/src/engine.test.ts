@@ -35,20 +35,18 @@ describe("engine é imutável", () => {
 });
 
 describe("capacidades", () => {
-  it("engine sem medição não recebe as capacidades de outra", () => {
+  it("toda engine declarada tem capacidade — as sete estão implementadas", () => {
     /*
-     * Derivado da lista, e não uma cópia escrita à mão: cada engine que acende
-     * saía desta lista à mão, e a que esquecesse deixaria o teste verde
-     * afirmando o contrário do que ele existe para afirmar. Já aconteceu quando
-     * o MySQL acendeu.
+     * Chegou o dia: as sete engines de `ENGINES` estão implementadas, então
+     * `capacidadesDe` responde para todas. O teste guarda o outro lado do
+     * invariante — nenhuma engine da união fica sem capacidade —, e o desenho
+     * ainda protege contra uma engine nova nascer na união sem capacidade: ela
+     * cairia aqui, com `capacidadesDe` devolvendo null.
      */
-    const semMedicao = ENGINES.filter((e) => !ENGINES_IMPLEMENTADAS.includes(e));
-    expect(semMedicao.length, "toda engine implementada — o teste perdeu o sentido").toBeGreaterThan(0);
-    for (const e of semMedicao) {
-      // `null`, e não as do Postgres: devolver as do Postgres faria a tela
-      // oferecer transação somente-leitura para uma engine que não a tem.
-      expect(`${e}: ${capacidadesDe(e) === null ? "null" : "tem capacidade"}`).toBe(`${e}: null`);
+    for (const e of ENGINES) {
+      expect(`${e}: ${capacidadesDe(e) === null ? "null" : "tem"}`).toBe(`${e}: tem`);
     }
+    expect(ENGINES_IMPLEMENTADAS.length).toBe(ENGINES.length);
   });
 
   /*
@@ -68,8 +66,8 @@ describe("capacidades", () => {
       expect(comCapacidade.has(e), `${e} está implementada e não tem capacidade`).toBe(true);
     }
     expect(engineImplementada("postgres")).toBe(true);
-    // `sqlite` segue não implementada (adiado: bun:sqlite bloqueia o event loop).
-    expect(engineImplementada("sqlite")).toBe(false);
+    // Todas implementadas agora, SQLite inclusive (roda fora do event loop).
+    expect(engineImplementada("sqlite")).toBe(true);
   });
 
   /**

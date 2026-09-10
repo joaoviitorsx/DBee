@@ -4,6 +4,7 @@ import type { PoolManager } from "../pg/pool";
 import { DriverLibsql } from "./libsql";
 import { DriverMongo } from "./mongo";
 import { DriverRedis } from "./redis";
+import { DriverSqlite } from "./sqlite";
 import { DriverMysql } from "./mysql";
 import { DriverPostgres } from "./postgres";
 import type { DriverLeitura } from "./tipos";
@@ -53,6 +54,12 @@ export class Drivers {
      * O `caCert` vai para o TLS do `rediss://`.
      */
     this.#porEngine.set("redis", new DriverRedis(caCert));
+    /*
+     * SQLite local. Sem `caCert` — é um arquivo, não uma conexão de rede. Ele é
+     * dono de um gerente de workers próprio (o `bun:sqlite` roda fora do event
+     * loop), criado uma vez como os outros drivers.
+     */
+    this.#porEngine.set("sqlite", new DriverSqlite());
   }
 
   /**

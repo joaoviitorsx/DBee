@@ -66,7 +66,7 @@ afterAll(() => {
 const base = {
   engine: "postgres" as const,
   host: "127.0.0.1", port: PORTA, database: "rc",
-  sslMode: "disable" as const, writeEnabled: false, hasWriteCredential: false, authSource: null,
+  sslMode: "disable" as const, writeEnabled: false, hasWriteCredential: false, authSource: null, filePath: null,
   statementTimeoutMs: 30_000, timezone: "UTC",
   color: null, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
 };

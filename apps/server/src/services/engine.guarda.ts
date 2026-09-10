@@ -120,7 +120,7 @@ const TODOS_OS_CAMPOS: readonly string[] = [
  * `password` fica de fora de propósito: o schema já o exige, e vazio é um valor
  * legítimo (um servidor libSQL sem `SQLD_AUTH_JWT_KEY` não tem token).
  */
-const SEM_PADRAO: readonly string[] = ["host", "database", "username"];
+const SEM_PADRAO: readonly string[] = ["host", "database", "username", "filePath"];
 
 /**
  * Recusa a criação que **falta** um campo que a engine tem.

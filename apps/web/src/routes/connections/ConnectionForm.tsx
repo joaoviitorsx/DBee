@@ -141,8 +141,10 @@ export function ConnectionForm({
       engine: d.engine,
       name: d.name,
       color: d.color,
-      password: d.password,
     };
+    // `password` só quando a engine tem credencial — o SQLite não tem, e mandar
+    // `password: ""` para ele seria campo de outra engine (recusado no servidor).
+    if (permitidos.has("password")) saida["password"] = d.password;
     for (const campo of ["host", "port", "database", "username", "sslMode", "timezone", "statementTimeoutMs", "writeEnabled", "writeUsername", "writePassword", "authSource"] as const) {
       if (permitidos.has(campo)) saida[campo] = d[campo];
     }

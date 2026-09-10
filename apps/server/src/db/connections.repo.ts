@@ -18,6 +18,7 @@ const PUBLIC_COLUMNS = `
   statement_timeout_ms AS statementTimeoutMs, timezone,
   (write_password_enc IS NOT NULL) AS hasWriteCredential,
   auth_source AS authSource,
+  file_path AS filePath,
   created_at AS createdAt, updated_at AS updatedAt
 `;
 
@@ -34,6 +35,7 @@ const PUBLIC_COLUMNS_C = `
   c.statement_timeout_ms AS statementTimeoutMs, c.timezone,
   (c.write_password_enc IS NOT NULL) AS hasWriteCredential,
   c.auth_source AS authSource,
+  c.file_path AS filePath,
   c.created_at AS createdAt, c.updated_at AS updatedAt
 `;
 
@@ -53,6 +55,7 @@ interface ConnectionRow {
   timezone: string;
   hasWriteCredential: number;
   authSource: string | null;
+  filePath: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -315,9 +318,9 @@ export class ConnectionsRepository {
         `INSERT INTO connections (
            id, name, color, engine, host, port, database, username, password_enc,
            ssl_mode, write_enabled, statement_timeout_ms, timezone,
-           write_username, write_password_enc, auth_source,
+           write_username, write_password_enc, auth_source, file_path,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -328,7 +331,8 @@ export class ConnectionsRepository {
         // campo nasceu. O resolvido fica aqui e não como `default` no schema —
         // ADR 004.
         engine,
-        input.host,
+        // Host vazio quando a engine não o tem (SQLite é arquivo).
+        input.host ?? "",
         // A porta convencional é da engine, não do Postgres: 3306 no MySQL,
         // 8080 no `sqld`. O `?? 5432` de antes dava a porta errada para as
         // outras duas e obrigava o formulário a mandar sempre.
@@ -342,7 +346,7 @@ export class ConnectionsRepository {
          */
         input.database ?? "",
         input.username ?? "",
-        encrypt(this.#key, id, input.password),
+        encrypt(this.#key, id, input.password ?? ""),
         input.sslMode ?? "disable",
         input.writeEnabled === true ? 1 : 0,
         input.statementTimeoutMs ?? 30000,
@@ -363,6 +367,8 @@ export class ConnectionsRepository {
           : encrypt(this.#key, aadEscrita(id), input.writePassword),
         // `authSource` só existe no Mongo; vazio ou ausente vira null.
         input.authSource === undefined || input.authSource === "" ? null : input.authSource,
+        // `filePath` só existe no SQLite.
+        input.filePath === undefined || input.filePath === "" ? null : input.filePath,
         now,
         now,
       );
@@ -403,6 +409,9 @@ export class ConnectionsRepository {
     if (patch.timezone !== undefined) put("timezone", patch.timezone);
     if (patch.authSource !== undefined) {
       put("auth_source", patch.authSource === "" ? null : patch.authSource);
+    }
+    if (patch.filePath !== undefined) {
+      put("file_path", patch.filePath === "" ? null : patch.filePath);
     }
 
     /*

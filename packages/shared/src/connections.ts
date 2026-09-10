@@ -53,6 +53,8 @@ export const Connection = t.Object({
    * viaja na resposta, ao contrário da senha.
    */
   authSource: t.Union([t.String(), t.Null()]),
+  /** Caminho do arquivo SQLite. `null` nas outras engines. */
+  filePath: t.Union([t.String(), t.Null()]),
   createdAt: t.String(),
   updatedAt: t.String(),
 });
@@ -100,6 +102,12 @@ const FIELDS = {
    * falha de autenticação indiagnosticável (medido).
    */
   authSource: t.String({ minLength: 1, maxLength: 100 }),
+  /**
+   * Caminho do arquivo SQLite no servidor. Validado no driver contra uma raiz
+   * permitida — um caminho fora dela é recusado (não se abre arquivo arbitrário
+   * do sistema por pedido de conexão).
+   */
+  filePath: t.String({ minLength: 1, maxLength: 4096 }),
   color: t.Union([t.String({ maxLength: 32 }), t.Null()]),
   sslMode: SslMode,
   writeEnabled: t.Boolean(),
@@ -132,7 +140,9 @@ export const CreateConnection = t.Object({
    * ele quis dizer. Sem `default` no schema — ADR 004.
    */
   engine: t.Optional(Engine),
-  host: FIELDS.host,
+  // `host` é opcional no schema e obrigatório por engine (o SQLite não tem host
+  // — é um arquivo). `exigirCamposDaEngine` cobra quem precisa.
+  host: t.Optional(FIELDS.host),
   /*
    * `database` e `username` são **opcionais no schema e obrigatórios por
    * engine**. O libSQL não tem nem um nem outro: a URL aponta para um banco só,
@@ -146,7 +156,9 @@ export const CreateConnection = t.Object({
    */
   database: t.Optional(FIELDS.database),
   username: t.Optional(FIELDS.username),
-  password: FIELDS.password,
+  // `password` opcional: o SQLite não tem credencial, e um Redis/libSQL sem
+  // senha manda vazio. Quem exige senha é a engine (via `exigirCamposDaEngine`).
+  password: t.Optional(FIELDS.password),
   color: t.Optional(FIELDS.color),
   port: t.Optional(FIELDS.port),
   sslMode: t.Optional(FIELDS.sslMode),
@@ -156,6 +168,7 @@ export const CreateConnection = t.Object({
   writeUsername: t.Optional(FIELDS.writeUsername),
   writePassword: t.Optional(FIELDS.writePassword),
   authSource: t.Optional(FIELDS.authSource),
+  filePath: t.Optional(FIELDS.filePath),
 });
 export type CreateConnection = Static<typeof CreateConnection>;
 
