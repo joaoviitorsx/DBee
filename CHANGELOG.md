@@ -98,6 +98,27 @@ todas as sessões", e a UI não avisa quando a tailnet cai.
 
 ### Adicionado
 
+- **Exportação nas engines SQL não-Postgres (MySQL, MariaDB, libSQL, SQLite).**
+  Antes a exportação era só do Postgres (gate `exigirPostgres`); o resto recusava
+  no servidor e o botão sumia da tela. Agora toda engine SQL exporta
+  CSV/JSON/NDJSON e, na origem tabela, `.sql` (CREATE TABLE de referência +
+  INSERTs).
+
+  Estas engines não têm o cursor do `pg` (regra 7), então o caminho é outro: a
+  origem **tabela** pagina pela grade de **keyset** do driver (uma página por
+  vez, memória limitada ao lote — a contrapressão do `pull` do stream faz o
+  resto), caindo para `OFFSET` nas tabelas sem PK; a origem **consulta** roda o
+  `executar` uma vez, limitado por `maxRows` como qualquer consulta nelas. O
+  Postgres segue no seu `DECLARE CURSOR`.
+
+  O `.sql` cita o identificador pelo **dialeto**: crase no MySQL, aspas duplas no
+  SQLite/libSQL. No MySQL o valor ainda escapa a contrabarra — ela é caractere de
+  escape por padrão (`NO_BACKSLASH_ESCAPES` desligado) e o `sqlValue` sozinho
+  recarregaria o dado errado. Mongo e Redis continuam sem exportar (capacidade
+  `exportar: false`): documento e chave não viram linha de tabela sem inventar um
+  formato, e isso é fatia própria deles. O gate virou a capacidade
+  `exportar`, lida pela mesma tabela que decide o botão da tela.
+
 - **SQLite local aceso em leitura — a última engine.** Com ela, as **sete**
   engines declaradas estão implementadas. Era a fase adiada, por um motivo real:
   o `bun:sqlite` é síncrono e travaria o processo inteiro num app multiusuário

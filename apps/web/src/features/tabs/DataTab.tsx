@@ -39,6 +39,7 @@ export function DataTab({
   permiteConsulta = true,
   estimatedRows = null,
   writeEnabled = false,
+  exportavel = true,
   colunasSchema,
   foreignKeys,
   initialFilters,
@@ -54,6 +55,8 @@ export function DataTab({
   readonly estimatedRows?: number | null;
   /** A conexão permite escrita — habilita a edição de célula e o excluir linha. */
   readonly writeEnabled?: boolean;
+  /** A engine exporta? Falso no Mongo e no Redis — esconde o botão de export. */
+  readonly exportavel?: boolean;
   /** Colunas do schema (com nullable/default), para o formulário de "Nova linha". */
   readonly colunasSchema?: readonly Column[];
   /** FKs da tabela — habilitam o salto de navegação nas células. */
@@ -336,24 +339,27 @@ export function DataTab({
           )}
 
           {/* O export leva os MESMOS filtros e ordenação da tela: o arquivo tem
-              de ser o que a pessoa está vendo, não a tabela crua. */}
-          <ExportButton
-          connectionId={target.connectionId}
-          database={target.database}
-          source={{
-            kind: "table",
-            schema: target.schema,
-            table: target.relation,
-            ...(orderBy === null ? {} : { orderBy, orderDirection }),
-            ...(filtros.length > 0 ? { filters: filtros } : {}),
-          }}
-            carregadas={linhas.length}
-            temMais={consulta.hasNextPage}
-            // Com filtro a estimativa da tabela inteira mentiria: ela não sabe
-            // quantas linhas sobram depois do WHERE.
-            totalEstimado={filtros.length > 0 ? null : estimatedRows}
-            disabled={consulta.isPending}
-          />
+              de ser o que a pessoa está vendo, não a tabela crua. Escondido nas
+              engines que não exportam (Mongo, Redis). */}
+          {exportavel ? (
+            <ExportButton
+              connectionId={target.connectionId}
+              database={target.database}
+              source={{
+                kind: "table",
+                schema: target.schema,
+                table: target.relation,
+                ...(orderBy === null ? {} : { orderBy, orderDirection }),
+                ...(filtros.length > 0 ? { filters: filtros } : {}),
+              }}
+              carregadas={linhas.length}
+              temMais={consulta.hasNextPage}
+              // Com filtro a estimativa da tabela inteira mentiria: ela não sabe
+              // quantas linhas sobram depois do WHERE.
+              totalEstimado={filtros.length > 0 ? null : estimatedRows}
+              disabled={consulta.isPending}
+            />
+          ) : null}
           {trailing}
         </div>
       </div>

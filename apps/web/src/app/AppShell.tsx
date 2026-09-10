@@ -807,6 +807,7 @@ function TableTabContent({
   const engineDaAba = conexoesAba.data?.find((c) => c.id === connectionId)?.engine ?? "postgres";
   const semDiagrama = capacidadesDe(engineDaAba)?.diagramaErd === false;
   const permiteConsulta = capacidadesDe(engineDaAba)?.sqlLivre !== false;
+  const exportavel = capacidadesDe(engineDaAba)?.exportar === true;
 
   const rel =
     arvore.data?.schemas.find((s) => s.name === schema)?.relations.find((r) => r.name === relation) ??
@@ -898,6 +899,7 @@ function TableTabContent({
           target={tab.target}
           onConsultar={onConsultar}
           permiteConsulta={permiteConsulta}
+          exportavel={exportavel}
           estimatedRows={rel.estimatedRows}
           writeEnabled={danger}
           colunasSchema={rel.columns}

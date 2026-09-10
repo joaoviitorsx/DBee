@@ -151,8 +151,9 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
           onSelect: () => { actions.onOpenDiagram(target.connection.id, target.database); },
         });
       }
-      // Export é só do Postgres hoje (as outras engines o recusam no servidor).
-      if (target.connection.engine === "postgres") {
+      // Export vale em toda engine SQL; só Mongo e Redis o recusam (capacidade
+      // `exportar: false`), e é a mesma verdade que o servidor impõe.
+      if (capDb?.exportar === true) {
         itensNavegacao.push({
           id: "export",
           label: t("menu.exportar"),

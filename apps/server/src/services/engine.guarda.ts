@@ -40,6 +40,27 @@ export function exigirPostgres<T>(engine: Engine, recurso: string): ServiceResul
 }
 
 /**
+ * Recusa a exportação numa engine que não a oferece (Mongo, Redis).
+ *
+ * O par da `exigirPostgres`, mas pela **capacidade** e não pela engine: as
+ * engines SQL (Postgres, MySQL, MariaDB, libSQL, SQLite) exportam; o documento
+ * do Mongo e a chave do Redis não viram linha de tabela sem inventar um
+ * formato. `capacidadesDe(engine).exportar` é a mesma verdade que a tela lê
+ * para mostrar ou esconder o botão — uma regra, não duas.
+ */
+export function exigirExportacao<T>(engine: Engine): ServiceResult<T> | null {
+  const cap = capacidadesDe(engine);
+  if (cap === null) return fail<T>("bad_request", `o DBee ainda não fala ${engine}.`);
+  if (cap.exportar) return null;
+  return fail<T>(
+    "bad_request",
+    `exportação não existe em ${engine} no DBee. ` +
+      "O documento e a chave não viram linha de tabela sem inventar um formato.",
+  );
+}
+
+
+/**
  * Campos que a engine não tem, recusados na entrada.
  *
  * ## Por que o servidor precisa disto, e não só a tela

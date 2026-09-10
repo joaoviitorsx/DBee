@@ -113,6 +113,15 @@ export interface Capacidades {
   readonly sqlLivre: boolean;
   readonly cancelarQuery: boolean;
   readonly diagramaErd: boolean;
+  /**
+   * A engine oferece exportação em stream (CSV/TSV/JSON/NDJSON, e `.sql` nas
+   * que têm dialeto SQL de escrita).
+   *
+   * Falso no Mongo e no Redis: o documento e a chave não viram linha de tabela
+   * sem inventar um formato, e inventar em silêncio seria a tela oferecendo um
+   * arquivo que não representa o dado. Fica para uma fatia própria desses dois.
+   */
+  readonly exportar: boolean;
 }
 
 /**
@@ -163,6 +172,7 @@ export const CAPACIDADES: Readonly<
     sqlLivre: true,
     cancelarQuery: true,
     diagramaErd: true,
+    exportar: true,
   },
 
   /*
@@ -196,6 +206,7 @@ export const CAPACIDADES: Readonly<
     sqlLivre: true,
     cancelarQuery: true,
     diagramaErd: true,
+    exportar: true,
   },
 
   /*
@@ -218,6 +229,7 @@ export const CAPACIDADES: Readonly<
     sqlLivre: true,
     cancelarQuery: true,
     diagramaErd: true,
+    exportar: true,
   },
   /*
    * libSQL — a garantia mais forte depois do Postgres, e o formulário mais
@@ -271,6 +283,7 @@ export const CAPACIDADES: Readonly<
     cancelarQuery: false,
     // Sem schema fixo e sem chave estrangeira: não há diagrama ERD.
     diagramaErd: false,
+    exportar: false,
   },
 
   /*
@@ -295,6 +308,7 @@ export const CAPACIDADES: Readonly<
     sqlLivre: false,
     cancelarQuery: false,
     diagramaErd: false,
+    exportar: false,
   },
 
   /*
@@ -322,6 +336,7 @@ export const CAPACIDADES: Readonly<
     sqlLivre: true,
     cancelarQuery: false,
     diagramaErd: true,
+    exportar: true,
   },
 
   libsql: {
@@ -337,6 +352,7 @@ export const CAPACIDADES: Readonly<
     sqlLivre: true,
     cancelarQuery: false,
     diagramaErd: true,
+    exportar: true,
   },
 };
 
