@@ -3,6 +3,7 @@ import { engineImplementada, type Engine } from "@dbee/shared/puro";
 import type { PoolManager } from "../pg/pool";
 import { DriverLibsql } from "./libsql";
 import { DriverMongo } from "./mongo";
+import { DriverRedis } from "./redis";
 import { DriverMysql } from "./mysql";
 import { DriverPostgres } from "./postgres";
 import type { DriverLeitura } from "./tipos";
@@ -47,6 +48,11 @@ export class Drivers {
      * O `caCert` vai para o TLS do cliente (o `verify-full` valida contra ele).
      */
     this.#porEngine.set("mongodb", new DriverMongo(caCert));
+    /*
+     * Redis. Cliente próprio via `Bun.RedisClient` (primitiva, sem dependência).
+     * O `caCert` vai para o TLS do `rediss://`.
+     */
+    this.#porEngine.set("redis", new DriverRedis(caCert));
   }
 
   /**

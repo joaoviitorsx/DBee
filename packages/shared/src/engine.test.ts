@@ -68,7 +68,8 @@ describe("capacidades", () => {
       expect(comCapacidade.has(e), `${e} está implementada e não tem capacidade`).toBe(true);
     }
     expect(engineImplementada("postgres")).toBe(true);
-    expect(engineImplementada("redis")).toBe(false);
+    // `sqlite` segue não implementada (adiado: bun:sqlite bloqueia o event loop).
+    expect(engineImplementada("sqlite")).toBe(false);
   });
 
   /**

@@ -56,6 +56,7 @@ export const ENGINES_IMPLEMENTADAS: readonly Engine[] = [
   "mariadb",
   "libsql",
   "mongodb",
+  "redis",
 ];
 
 /**
@@ -142,7 +143,7 @@ export type CampoConexao =
  * a tabela afirmando o que o app não faz.
  */
 export const CAPACIDADES: Readonly<
-  Record<"postgres" | "mysql" | "mariadb" | "libsql" | "mongodb", Capacidades>
+  Record<"postgres" | "mysql" | "mariadb" | "libsql" | "mongodb" | "redis", Capacidades>
 > = {
   postgres: {
     niveis: "conexao/database/schema/tabela",
@@ -267,6 +268,28 @@ export const CAPACIDADES: Readonly<
     diagramaErd: false,
   },
 
+  /*
+   * Redis — a engine mais distante do que o DBee é. A árvore é conexão → banco
+   * numerado (o db 0..N do Redis, não um database nomeado), e a "tabela" é o
+   * conjunto de chaves daquele db, navegado por `SCAN`.
+   *
+   * `campos` é o mais enxuto: host, porta, senha (a credencial do Redis é só
+   * senha — o AUTH de usuário existe desde a 6, mas `username` fica para quando
+   * alguém precisar), TLS. Sem database (o número vem da árvore), sem username,
+   * sem timezone, sem timeout de statement.
+   */
+  redis: {
+    niveis: "conexao/db-numerado",
+    escopoReadOnly: "credencial",
+    readOnlyCobreDdl: false,
+    campos: ["host", "port", "password", "sslMode"],
+    portaPadrao: 6379,
+    dialeto: "postgres",
+    sqlLivre: false,
+    cancelarQuery: false,
+    diagramaErd: false,
+  },
+
   libsql: {
     niveis: "conexao/database/tabela",
     escopoReadOnly: "credencial",
@@ -296,7 +319,8 @@ export function capacidadesDe(engine: Engine): Capacidades | null {
     engine === "mysql" ||
     engine === "mariadb" ||
     engine === "libsql" ||
-    engine === "mongodb"
+    engine === "mongodb" ||
+    engine === "redis"
   )
     ? CAPACIDADES[engine]
     : null;
