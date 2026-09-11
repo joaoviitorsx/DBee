@@ -45,9 +45,11 @@
    2. Tokens
    -------------------------------------------------------------------------- */
 :root {
-  /* marca — assets/README.txt */
-  --amber: #f5a623;
-  --amber-wing: rgb(245 166 35 / 0.55);
+  /* marca — âmbar #E9A319 (o hex pedido para esta landing; o app ancora em
+     #F5A623, e os dois são o MESMO âmbar da abelha, meio tom de diferença).
+     Regra de ouro herdada: é o único saturado que a página produz. */
+  --amber: #e9a319;
+  --amber-wing: rgb(233 163 25 / 0.55);
   --graphite: #1c1917;
   --bone: #f7f3ec;
 
@@ -63,7 +65,7 @@
   --subtle: #7a7166;
 
   /* semântica */
-  --accent: #f5a623;
+  --accent: #e9a319;
   --accent-ink: #191612;
   --accent-soft: #382a14;
   --accent-line: #725322;
@@ -573,7 +575,11 @@ body::after {
   padding-top: calc(var(--header-h) + 48px);
   padding-bottom: 56px;
   overflow: clip;
-  background: var(--sunken);
+  /* Fundo TRANSPARENTE, de propósito: é a única seção assim. A cena fixa (favo
+     + pólen) vive atrás de tudo em z-0, e as seções seguintes têm fundo sólido
+     que a cobre à medida que sobem — então o favo só é visto no herói, e "some"
+     conforme a página rola por cima. É o "atravessar o favo" feito sem custo. */
+  background: transparent;
 }
 
 /* Halo âmbar: profundidade sem sombra difusa. Fica atrás de tudo e não
@@ -589,8 +595,8 @@ body::after {
   translate: -50% 0;
   background: radial-gradient(
     circle at center,
-    rgb(245 166 35 / 0.16) 0%,
-    rgb(245 166 35 / 0.05) 34%,
+    rgb(233 163 25 / 0.16) 0%,
+    rgb(233 163 25 / 0.05) 34%,
     transparent 66%
   );
 }
@@ -599,6 +605,20 @@ body::after {
   position: relative;
   z-index: 1;
   width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-items: center;
+  gap: clamp(28px, 5vw, 60px);
+}
+
+@media (min-width: 900px) {
+  .hero__inner {
+    grid-template-columns: 1.04fr 0.96fr;
+  }
+  /* A linha "role" atravessa as duas colunas e ancora no fim da dobra. */
+  .hero__scroll {
+    grid-column: 1 / -1;
+  }
 }
 
 .hero__badge {
@@ -689,28 +709,68 @@ body::after {
   background: var(--line-strong);
 }
 
-/* A captura do produto, sangrando pela direita — profundidade sem 3D. */
-.hero__shot {
+/* --------------------------------------------------------------------------
+   8b. A abelha do herói — o render 3D como peça central.
+   Três camadas em profundidades diferentes: o disco de luz ambiente (mais ao
+   fundo, parallax mais forte), o glow do cubo de mel (atrás da abelha, na
+   altura do cubo que ela segura) e a abelha em si. O JS faz a abelha "flutuar"
+   e o glow pulsar; sem JS tudo fica parado e legível.
+   -------------------------------------------------------------------------- */
+.hero__art {
   position: relative;
-  z-index: 1;
-  margin-top: clamp(48px, 7vw, 88px);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-xl);
-  overflow: hidden;
-  background: var(--surface);
-  box-shadow: 0 60px 120px -60px rgb(0 0 0 / 0.9);
+  display: grid;
+  place-items: center;
+  isolation: isolate;
+  /* Reserva de espaço na proporção do render (1:1): sem isto o layout pula
+     quando a imagem de 119 KB termina de baixar. */
+  aspect-ratio: 1;
+  width: min(540px, 92%);
+  margin-inline: auto;
 }
 
-.hero__shot img {
+.hero__bee {
+  position: relative;
+  z-index: 2;
   width: 100%;
+  height: auto;
+  /* A sombra é ovalada e cai no chão, não atrás — dá peso de objeto voando. */
+  filter: drop-shadow(0 42px 46px rgb(0 0 0 / 0.55));
+  will-change: transform;
 }
 
-.hero__shot figcaption {
-  padding: 14px 20px;
-  border-top: 1px solid var(--line);
-  font-size: 0.85rem;
-  color: var(--subtle);
-  background: var(--surface);
+/* Disco de luz ambiente: profundidade atrás da abelha inteira. */
+.hero__ring {
+  position: absolute;
+  z-index: 0;
+  inset: -8%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 58% 46%,
+    rgb(233 163 25 / 0.22),
+    rgb(233 163 25 / 0.06) 42%,
+    transparent 68%
+  );
+  filter: blur(6px);
+}
+
+/* Glow do cubo de mel: pequeno e intenso, alinhado ao canto inferior direito
+   do render (onde a abelha segura o cubo). O JS pulsa a escala e a opacidade. */
+.hero__glow {
+  position: absolute;
+  z-index: 1;
+  right: 4%;
+  bottom: 8%;
+  width: 44%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgb(255 197 74 / 0.6),
+    rgb(233 163 25 / 0.22) 40%,
+    transparent 70%
+  );
+  filter: blur(8px);
+  will-change: transform, opacity;
 }
 
 .hero__scroll {
@@ -730,6 +790,55 @@ body::after {
   width: 1px;
   height: 36px;
   background: linear-gradient(var(--accent), transparent);
+}
+
+/* --------------------------------------------------------------------------
+   8c. A cena — o favo e o pólen atrás do herói.
+   Fixa, em z-0: acima do fundo do body, abaixo de toda seção. As seções têm
+   fundo sólido e cobrem a cena conforme sobem — então ela só aparece no herói.
+   O <canvas> é o pólen à deriva (JS); o `.cena__favo` é o fundo estático que
+   segura a primeira dobra antes de o canvas montar, e o fallback no
+   reduced-motion. As duas camadas convivem.
+   -------------------------------------------------------------------------- */
+.cena {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.cena__favo {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 78% at 50% -8%, rgb(233 163 25 / 0.1), transparent 55%),
+    radial-gradient(70% 60% at 82% 26%, rgb(233 163 25 / 0.06), transparent 62%);
+}
+
+/* Textura de favo: o padrão "hexagons" do Hero Patterns, seamless, em âmbar
+   quase apagado. Data URI: mesma origem, nenhum request. */
+.cena__favo::after {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  opacity: 0.06;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='28' height='49' viewBox='0 0 28 49'%3E%3Cg fill='none' stroke='%23e9a319' stroke-width='1.2'%3E%3Cpath d='M13.99 9.25l13 7.5v15l-13 7.5L1 31.75v-15l12.99-7.5z'/%3E%3Cpath d='M27 15.25l13 7.5v15l-13 7.5L14 37.75v-15l13-7.5zM14 .25l13 7.5v15l-13 7.5L1 22.75v-15L14 .25z'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 46px auto;
+  /* Máscara vertical: o favo é forte no topo e some antes do fim da dobra, para
+     não brigar com a primeira seção que sobe por cima. */
+  -webkit-mask-image: linear-gradient(180deg, #000 0%, #000 42%, transparent 82%);
+  mask-image: linear-gradient(180deg, #000 0%, #000 42%, transparent 82%);
+}
+
+.cena__polen {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* A opacidade é escrita pelo JS conforme o herói sai — some antes de a
+     primeira seção cobrir a cena, para não haver borda dura. */
+  opacity: 1;
 }
 
 /* --------------------------------------------------------------------------
@@ -1662,7 +1771,7 @@ table.matrix .esc {
   left: 50%;
   bottom: -55%;
   translate: -50% 0;
-  background: radial-gradient(circle, rgb(245 166 35 / 0.14), transparent 62%);
+  background: radial-gradient(circle, rgb(233 163 25 / 0.14), transparent 62%);
 }
 
 .cta__inner {
@@ -1868,20 +1977,24 @@ table.matrix .esc {
 .js .split-chars .w > span {
   display: inline-block;
   transform: translate3d(0, 105%, 0);
-  transition: transform 900ms var(--ease-out);
-  transition-delay: var(--w-delay, 0ms);
 }
 
-/* Por caractere o percurso é maior e a curva tem um leve exagero no fim — é o
-   que separa "texto aparecendo" de "texto entrando com peso". */
+/* Por caractere o percurso é maior e a origem no canto dá o leve giro que
+   separa "texto aparecendo" de "texto entrando com peso". */
 .js .split-chars .w > span {
   transform: translate3d(0, 110%, 0) rotate(4deg);
   transform-origin: 0% 100%;
-  transition: transform 1080ms cubic-bezier(0.16, 1.06, 0.3, 1);
 }
 
-.js .split-words.is-in .w > span,
-.js .split-chars.is-in .w > span {
+/*
+ * O anime.js é quem move cada pedaço para o lugar (escrevendo transform inline),
+ * por isso NÃO há `transition` aqui: as duas animando o mesmo transform brigam
+ * e o texto treme. A classe `.is-in` continua sendo o caminho de FALLBACK — se
+ * o anime.js não carregar, o site.js adiciona `.is-in` e o texto aparece de uma
+ * vez, sem animação, mas legível.
+ */
+.js:not(.anime) .split-words.is-in .w > span,
+.js:not(.anime) .split-chars.is-in .w > span {
   transform: none;
 }
 
@@ -2182,6 +2295,19 @@ html:not(.js) .marquise {
 
   .js .cursor {
     display: none !important;
+  }
+
+  /* A cena imersiva: o pólen (canvas) não é montado pelo JS no reduced-motion;
+     resta o favo estático, parado e legível. A abelha e os brilhos ficam
+     imóveis — o herói continua rico, só não se mexe. */
+  .cena__polen {
+    display: none !important;
+  }
+  .hero__bee,
+  .hero__glow,
+  .hero__ring {
+    transform: none !important;
+    animation: none !important;
   }
 
   .marquise {

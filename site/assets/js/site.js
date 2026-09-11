@@ -2,41 +2,47 @@
    DBee — motor de movimento da landing
    ==========================================================================
 
-   Sem dependência externa, e não por purismo: a regra do projeto proíbe CDN em
-   runtime, e vendorizar GSAP+Lenis custaria ~90 KB de JS para fazer o que cabe
-   em ~12 KB aqui.
+   Duas camadas de animação, cada uma no que faz melhor:
 
-   Duas decisões que valem explicação, porque a alternativa é a "de manual":
+   1. anime.js (vendorizado, ~17 KB) orquestra o movimento DISCRETO e encenado:
+      a entrada do herói, a revelação das seções pela rolagem, os contadores, o
+      flutuar da abelha e o pulsar do cubo de mel. Disparado por
+      IntersectionObserver — nada anima fora da tela. Tudo em transform e
+      opacity: nenhuma propriedade que force recálculo de layout.
 
-   1. NÃO existe scroll hijacking. Um wrapper com translate3d por rAF (o padrão
-      Lenis) daria mais inércia, mas quebra `position: sticky`, quebra a busca
-      do navegador, quebra o Page Down do teclado e briga com o gesto de toque.
-      A rolagem aqui é a nativa. O peso vem de LERP nos elementos — parallax,
-      cursor, trilho, marquise, botão magnético — e de um sinal de VELOCIDADE
-      derivado da rolagem, que é o que dá a sensação de massa dos sites de
-      piloto: o conteúdo reage a quão rápido você rola, não só a onde parou.
+   2. Um único rAF próprio faz o movimento CONTÍNUO ligado à rolagem — parallax
+      com inércia, marquise de velocidade, trilho horizontal preso, cursor e
+      botão magnético, barra de progresso. anime.js não faz "scrub" de rolagem;
+      este laço faz, e é o que dá a massa dos sites de piloto: o conteúdo reage
+      a QUÃO RÁPIDO você rola, não só a onde parou.
 
-   2. Um único rAF e um único listener de scroll passivo. Ler layout
-      (getBoundingClientRect) e escrever estilo em fases separadas dentro do
-      mesmo quadro evita layout thrashing. Tudo que se escreve é transform,
-      opacity, ou uma custom property que só alimenta transform e opacity.
+   NÃO existe scroll hijacking (o padrão Lenis com translate3d por rAF): ele
+   quebra `position: sticky`, a busca do navegador, o Page Down e o gesto de
+   toque. A rolagem aqui é a nativa; o peso vem de LERP nos elementos.
 
-   O laço dorme quando nada se move (`vivo`), e acorda no scroll, no ponteiro e
-   no resize.
+   O favo e o pólen atrás do herói são um <canvas> 2D próprio — leve de
+   propósito: um Three.js de 600 KB para partículas de fundo pagaria caro por um
+   efeito que o canvas 2D entrega. Ele só desenha enquanto o herói está na tela.
+
+   prefers-reduced-motion: o movimento sai; o conteúdo, nunca. O CSS já garante
+   o estado final — o JS só evita gastar quadro. Sem JS, a página nasce legível.
    ========================================================================== */
 (function () {
   "use strict";
 
   var doc = document;
   var root = doc.documentElement;
+  var anime = window.anime || null;
 
-  /* prefers-reduced-motion: o movimento sai; o conteúdo, nunca.
-     O CSS já garante o estado final — aqui o JS só evita gastar quadro. */
+  /* Marca no <html> que o anime.js está presente. O CSS usa `.js:not(.anime)`
+     como caminho de fallback: se o anime.js não carregar, as revelações e o
+     texto fatiado aparecem de uma vez (sem animação), mas legíveis. */
+  if (anime) root.classList.add("anime");
+
   var mqReduce = window.matchMedia("(prefers-reduced-motion: reduce)");
   var mqFine = window.matchMedia("(hover: hover) and (pointer: fine)");
   /* A MESMA condição do CSS, altura incluída. Se as duas divergirem, o JS mede
-     e translada um trilho que o CSS não montou — e a seção some da tela sem
-     erro nenhum no console. */
+     e translada um trilho que o CSS não montou — e a seção some sem erro. */
   var mqRail = window.matchMedia("(min-width: 1000px) and (min-height: 800px)");
 
   var reduced = mqReduce.matches;
@@ -50,6 +56,8 @@
   function clamp(v, a, b) {
     return v < a ? a : v > b ? b : v;
   }
+
+  var EASE = "cubicBezier(.16,1,.3,1)";
 
   /* ------------------------------------------------------------------------
      1. Preloader
@@ -79,12 +87,11 @@
   /* ------------------------------------------------------------------------
      2. Tipografia fatiada
      Em JS, e não no HTML, para o markup continuar legível e o texto continuar
-     selecionável e copiável inteiro. Sem script, o título é um <h1> normal —
-     que é o que ele já é.
+     selecionável e copiável inteiro. Sem script, o título é um <h1> normal.
 
-     Duas granularidades, e a diferença importa: palavra para títulos de seção
-     (cascata legível), caractere só para o H1 do herói — a entrada mais lenta
-     e mais cara da página, que acontece uma vez.
+     Duas granularidades: palavra para títulos de seção (cascata legível),
+     caractere só para o H1 do herói — a entrada mais lenta e mais cara da
+     página, que acontece uma vez.
 
      O `aria-label` guarda a frase inteira antes do corte: sem ele, um leitor
      de tela anuncia letra por letra.
@@ -96,7 +103,6 @@
     el.setAttribute("aria-label", frase);
 
     var frag = doc.createDocumentFragment();
-    var i = 0;
     frase.split(" ").forEach(function (palavra, iw) {
       if (iw > 0) frag.appendChild(doc.createTextNode(" "));
       var w = doc.createElement("span");
@@ -107,19 +113,12 @@
         Array.prototype.forEach.call(palavra, function (ch) {
           var c = doc.createElement("span");
           c.textContent = ch;
-          /* 26ms por caractere COM TETO: numa frase longa o atraso linear puro
-             faria a última letra chegar meio segundo depois da primeira, e a
-             frase pareceria travada em vez de entrando. */
-          c.style.setProperty("--w-delay", Math.min(i * 26, 720) + "ms");
           w.appendChild(c);
-          i++;
         });
       } else {
         var inner = doc.createElement("span");
         inner.textContent = palavra;
-        inner.style.setProperty("--w-delay", i * 55 + "ms");
         w.appendChild(inner);
-        i++;
       }
       frag.appendChild(w);
     });
@@ -137,11 +136,101 @@
   }
 
   /* ------------------------------------------------------------------------
-     3. Revelação por entrada no viewport
+     3. Revelação por entrada no viewport, com anime.js
      ------------------------------------------------------------------------ */
+
+  /* Estado final imediato, sem animação — o caminho do reduced-motion e do
+     fallback sem anime.js. */
+  function mostrar(el) {
+    el.classList.add("is-in");
+    el.style.opacity = "1";
+    el.style.transform = "none";
+    if (el.dataset.conta !== undefined) el.textContent = el.dataset.conta;
+  }
   function revelarTudo() {
     $$("[data-fx], .split-words, .split-chars").forEach(function (el) {
       el.classList.add("is-in");
+    });
+    $$("[data-conta]").forEach(function (el) {
+      el.textContent = el.dataset.conta;
+    });
+  }
+
+  /* Um elemento [data-fx] entra por opacity + transform, pela curva com peso. */
+  function revelarFx(el) {
+    var tipo = el.dataset.fx;
+    /* A máscara das capturas é dirigida pelo CSS (clip-path composto), não pelo
+       anime.js: `clip-path` interpolado por biblioteca não é confiável, e o CSS
+       já resolve. Só precisa da classe. */
+    if (tipo === "mask") {
+      el.classList.add("is-in");
+      return;
+    }
+    if (!anime) {
+      el.classList.add("is-in");
+      return;
+    }
+    var d = parseFloat(el.style.getPropertyValue("--fx-delay")) || 0;
+    var props = {
+      targets: el,
+      opacity: [0, 1],
+      easing: EASE,
+      duration: 720,
+      delay: d,
+      complete: function () {
+        el.style.willChange = "auto";
+      }
+    };
+    if (tipo === "up") props.translateY = [30, 0];
+    else if (tipo === "scale") {
+      props.translateY = [26, 0];
+      props.scale = [0.97, 1];
+    }
+    anime(props);
+  }
+
+  /* Título fatiado: cada pedaço sobe de dentro de uma máscara, escalonado. */
+  function revelarSplit(el) {
+    if (!anime) {
+      el.classList.add("is-in");
+      return;
+    }
+    var chars = el.classList.contains("split-chars");
+    var spans = $$(".w > span", el);
+    if (spans.length === 0) return;
+    anime({
+      targets: spans,
+      translateY: ["110%", "0%"],
+      rotate: chars ? ["4deg", "0deg"] : "0deg",
+      duration: chars ? 1000 : 860,
+      delay: anime.stagger(chars ? 16 : 46),
+      easing: chars ? "cubicBezier(.16,1.06,.3,1)" : EASE
+    });
+  }
+
+  /* Contador: sobe até o valor com desaceleração. O texto final é o do
+     `data-conta` LITERAL — assim "0,093" mantém a vírgula e "100 mil" continua
+     "100 mil". O que se anima é a ilusão; o valor exibido no fim é o do HTML. */
+  function contar(el) {
+    var alvoTexto = el.dataset.conta;
+    var num = parseFloat(alvoTexto.replace(/[^\d.,-]/g, "").replace(",", "."));
+    if (reduced || !anime || isNaN(num)) {
+      el.textContent = alvoTexto;
+      return;
+    }
+    var casas = (alvoTexto.split(/[.,]/)[1] || "").replace(/\D+$/, "").length;
+    var proxy = { v: 0 };
+    anime({
+      targets: proxy,
+      v: num,
+      duration: 1100,
+      easing: "easeOutExpo",
+      update: function () {
+        el.textContent = proxy.v.toFixed(casas).replace(".", ",");
+      },
+      complete: function () {
+        el.textContent = alvoTexto;
+      }
     });
   }
 
@@ -151,9 +240,18 @@
       function (entries) {
         entries.forEach(function (e) {
           if (!e.isIntersecting) return;
-          e.target.classList.add("is-in");
-          if (e.target.dataset.conta !== undefined) contar(e.target);
-          io.unobserve(e.target);
+          var t = e.target;
+          if (
+            t.classList.contains("split-words") ||
+            t.classList.contains("split-chars")
+          ) {
+            revelarSplit(t);
+          } else if (t.dataset.conta !== undefined) {
+            contar(t);
+          } else {
+            revelarFx(t);
+          }
+          io.unobserve(t);
         });
       },
       { rootMargin: "0px 0px -12% 0px", threshold: 0.08 }
@@ -167,26 +265,22 @@
       });
     });
 
-    /* `:not([data-enter])`: o herói já está na tela quando a página carrega.
-       Se o observador o revelasse, ele apareceria por baixo do preloader e a
-       cortina subiria sobre um herói já montado — a entrada escalonada some.
-       Quem tem [data-enter] é revelado por entrada(), depois da cortina. */
+    /* `:not([data-enter])`: o herói é revelado por entrada(), depois da
+       cortina do preloader. Se o observador o revelasse, ele apareceria por
+       baixo do preloader e a entrada escalonada sumiria. */
     $$("[data-fx]:not([data-enter])").forEach(function (el) {
       io.observe(el);
     });
-    $$(".split-words:not([data-enter]), .split-chars:not([data-enter])").forEach(
-      function (el) {
-        io.observe(el);
-      }
-    );
+    $$(
+      ".split-words:not([data-enter]), .split-chars:not([data-enter])"
+    ).forEach(function (el) {
+      io.observe(el);
+    });
     $$("[data-conta]").forEach(function (el) {
       io.observe(el);
     });
   } else {
     revelarTudo();
-    $$("[data-conta]").forEach(function (el) {
-      el.textContent = el.dataset.conta;
-    });
   }
 
   mqReduce.addEventListener("change", function (e) {
@@ -194,46 +288,249 @@
     if (reduced) revelarTudo();
   });
 
+  /* ------------------------------------------------------------------------
+     3b. Entrada do herói e a abelha que flutua
+     ------------------------------------------------------------------------ */
+  function iniciarAbelha() {
+    if (reduced || !anime) return;
+    var bee = $("[data-bee]");
+    if (bee) {
+      anime({
+        targets: bee,
+        translateY: [-11, 11],
+        duration: 3600,
+        direction: "alternate",
+        loop: true,
+        easing: "easeInOutSine"
+      });
+    }
+    var glow = $("[data-glow]");
+    if (glow) {
+      /* O cubo de mel respira: escala e brilho em contrafase suave. */
+      anime({
+        targets: glow,
+        scale: [0.9, 1.09],
+        opacity: [0.5, 0.95],
+        duration: 2200,
+        direction: "alternate",
+        loop: true,
+        easing: "easeInOutQuad"
+      });
+    }
+  }
+
   function entrada() {
-    $$("[data-enter]").forEach(function (el, i) {
-      window.setTimeout(function () {
+    var enters = $$("[data-enter]");
+    if (reduced || !anime) {
+      enters.forEach(mostrar);
+      $$(".split-chars[data-enter], .split-words[data-enter]").forEach(function (
+        el
+      ) {
         el.classList.add("is-in");
-      }, 90 + i * 110);
-    });
+      });
+      return;
+    }
+
+    var tl = anime.timeline({ easing: EASE, duration: 760 });
+    tl.add({ targets: ".hero__badge", opacity: [0, 1], translateY: [14, 0] });
+
+    var tituloSpans = $$(".hero__title .w > span");
+    if (tituloSpans.length) {
+      tl.add(
+        {
+          targets: tituloSpans,
+          translateY: ["110%", "0%"],
+          rotate: ["4deg", "0deg"],
+          duration: 1000,
+          delay: anime.stagger(26),
+          easing: "cubicBezier(.16,1.06,.3,1)"
+        },
+        "-=520"
+      );
+    } else {
+      /* Herói sem fatiar (não deveria acontecer com anime): revela o título. */
+      var titulo = $(".hero__title");
+      if (titulo) tl.add({ targets: titulo, opacity: [0, 1] }, "-=520");
+    }
+
+    tl.add(
+      { targets: ".hero__sub", opacity: [0, 1], translateY: [26, 0] },
+      "-=640"
+    );
+    tl.add(
+      { targets: ".hero__actions", opacity: [0, 1], translateY: [24, 0] },
+      "-=580"
+    );
+    tl.add({ targets: ".hero__meta", opacity: [0, 1] }, "-=560");
+    tl.add(
+      {
+        targets: ".hero__art",
+        opacity: [0, 1],
+        translateY: [34, 0],
+        scale: [0.94, 1],
+        duration: 1150
+      },
+      "-=980"
+    );
+    tl.add({ targets: ".hero__scroll", opacity: [0, 1] }, "-=520");
+
+    tl.finished.then(iniciarAbelha);
   }
   if (preload === null) entrada();
 
   /* ------------------------------------------------------------------------
-     4. Contador
-     Sobe até o valor com desaceleração. O texto final é o do `data-conta`
-     LITERAL, não um número reformatado: assim "0,093" mantém a vírgula e
-     "100 mil" continua sendo "100 mil". O que se anima é a ilusão de contagem;
-     o valor exibido no fim é exatamente o que está no HTML.
+     4. Cena — favo e pólen à deriva (canvas 2D leve)
+     Só desenha enquanto o herói está na tela: o laço para quando a cena some
+     e volta ao rolar de volta ao topo. Sem WebGL, sem dependência.
      ------------------------------------------------------------------------ */
-  function contar(el) {
-    var alvoTexto = el.dataset.conta;
-    var num = parseFloat(alvoTexto.replace(/[^\d.,-]/g, "").replace(",", "."));
-    if (reduced || isNaN(num)) {
-      el.textContent = alvoTexto;
-      return;
+  (function cena() {
+    var canvas = $("[data-cena]");
+    if (canvas === null || reduced) return;
+    var ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    canvas.hidden = false;
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    var W = 0;
+    var H = 0;
+    var parts = [];
+    var raf = 0;
+    var pmx = 0;
+    var pmy = 0;
+
+    function medir() {
+      W = window.innerWidth;
+      H = window.innerHeight;
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      canvas.style.width = W + "px";
+      canvas.style.height = H + "px";
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     }
-    var casas = (alvoTexto.split(/[.,]/)[1] || "").replace(/\D+$/, "").length;
-    var inicio = performance.now();
-    var dur = 1100;
-    var passo = function (agora) {
-      var t = clamp((agora - inicio) / dur, 0, 1);
-      /* easeOutExpo: quase todo o movimento no começo, e o número "assenta" no
-         fim em vez de parar de repente. */
-      var e = t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
-      if (t < 1) {
-        el.textContent = (num * e).toFixed(casas).replace(".", ",");
-        window.requestAnimationFrame(passo);
-      } else {
-        el.textContent = alvoTexto;
+
+    function criar() {
+      parts = [];
+      var n = Math.round(clamp((W * H) / 20000, 22, 80));
+      for (var i = 0; i < n; i++) {
+        var z = Math.random(); /* profundidade 0..1: perto = maior, mais rápido */
+        parts.push({
+          x: Math.random() * W,
+          y: Math.random() * H,
+          z: z,
+          r: 1 + z * 2.6,
+          vy: -(0.05 + z * 0.2),
+          vx: (Math.random() - 0.5) * 0.12,
+          a: 0.1 + z * 0.42,
+          hex: Math.random() < 0.16,
+          s: 6 + z * 15,
+          rot: Math.random() * 6.283,
+          spin: (Math.random() - 0.5) * 0.008
+        });
       }
-    };
-    window.requestAnimationFrame(passo);
-  }
+    }
+
+    function hexPath(x, y, s, rot) {
+      ctx.beginPath();
+      for (var k = 0; k < 6; k++) {
+        var ang = rot + (k * Math.PI) / 3;
+        var px = x + Math.cos(ang) * s;
+        var py = y + Math.sin(ang) * s;
+        if (k === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+    }
+
+    function frame() {
+      raf = 0;
+      var y = window.scrollY || window.pageYOffset || 0;
+      /* Some antes de a primeira seção cobrir a cena, para não haver borda. */
+      var op = clamp(1 - y / (H * 0.9), 0, 1);
+      canvas.style.opacity = op.toFixed(3);
+      if (op <= 0.01) return; /* dorme; acorda no scroll de volta ao topo */
+
+      ctx.clearRect(0, 0, W, H);
+      for (var i = 0; i < parts.length; i++) {
+        var p = parts[i];
+        p.y += p.vy;
+        p.x += p.vx;
+        p.rot += p.spin;
+        if (p.y < -24) {
+          p.y = H + 24;
+          p.x = Math.random() * W;
+        }
+        if (p.x < -24) p.x = W + 24;
+        else if (p.x > W + 24) p.x = -24;
+
+        /* Parallax de ponteiro e de rolagem por profundidade. */
+        var px = p.x + pmx * p.z * 42 - y * p.z * 0.14;
+        var py = p.y + pmy * p.z * 30;
+
+        ctx.globalAlpha = p.a * op;
+        if (p.hex) {
+          hexPath(px, py, p.s, p.rot);
+          ctx.strokeStyle = "#e9a319";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        } else {
+          ctx.beginPath();
+          ctx.arc(px, py, p.r, 0, 6.2832);
+          ctx.fillStyle = "#f0b53a";
+          ctx.fill();
+        }
+      }
+      ctx.globalAlpha = 1;
+      raf = window.requestAnimationFrame(frame);
+    }
+
+    function acordarCena() {
+      if (!raf && !doc.hidden) raf = window.requestAnimationFrame(frame);
+    }
+
+    medir();
+    criar();
+    acordarCena();
+
+    var tc;
+    window.addEventListener(
+      "resize",
+      function () {
+        window.clearTimeout(tc);
+        tc = window.setTimeout(function () {
+          medir();
+          criar();
+          acordarCena();
+        }, 160);
+      },
+      { passive: true }
+    );
+    window.addEventListener(
+      "pointermove",
+      function (e) {
+        pmx = e.clientX / W - 0.5;
+        pmy = e.clientY / H - 0.5;
+        acordarCena();
+      },
+      { passive: true }
+    );
+    window.addEventListener(
+      "scroll",
+      function () {
+        if ((window.scrollY || 0) < H * 0.9) acordarCena();
+      },
+      { passive: true }
+    );
+    doc.addEventListener("visibilitychange", function () {
+      if (doc.hidden) {
+        if (raf) {
+          window.cancelAnimationFrame(raf);
+          raf = 0;
+        }
+      } else {
+        acordarCena();
+      }
+    });
+  })();
 
   /* ------------------------------------------------------------------------
      5. Cabeçalho que reage à direção da rolagem
@@ -244,8 +541,7 @@
   function atualizarHeader(y) {
     if (header === null) return;
     header.classList.toggle("is-stuck", y > 12);
-    /* Histerese de 6px: sem ela o cabeçalho pisca com o ricochete elástico do
-       toque, que produz dezenas de inversões de direção por segundo. */
+    /* Histerese de 6px: sem ela o cabeçalho pisca com o ricochete do toque. */
     if (Math.abs(y - ultimoY) > 6) {
       var descendo = y > ultimoY && y > 240;
       header.classList.toggle("is-hidden", descendo && !reduced);
@@ -255,8 +551,7 @@
 
   /* ------------------------------------------------------------------------
      6. Índice de capítulo
-     O marcador fixo que diz em que ponto da história você está. É o que
-     transforma nove blocos empilhados numa narrativa numerada.
+     O marcador fixo que diz em que ponto da história você está.
      ------------------------------------------------------------------------ */
   var indice = $("[data-indice]");
   var indiceNum = $("[data-indice-num]");
@@ -288,22 +583,12 @@
           );
         });
       },
-      /* Faixa fina no meio da tela: o capítulo "atual" é o que está sob os
-         olhos, não o que encostou na borda. */
       { rootMargin: "-45% 0px -45% 0px", threshold: 0 }
     );
     capitulos.forEach(function (c) {
       ioCap.observe(c);
     });
 
-    /*
-     * O índice some quando o rodapé entra.
-     *
-     * Ele é `position: fixed` no canto inferior esquerdo, que é exatamente onde
-     * a linha de copyright do rodapé termina — na captura em 1440 a pastilha
-     * cobria o "v0.3.7". E some por decisão, não só por colisão: o índice
-     * orienta dentro da narrativa, e sobre o rodapé a narrativa acabou.
-     */
     var rodape = doc.querySelector(".footer");
     if (rodape !== null) {
       new IntersectionObserver(
@@ -318,10 +603,7 @@
   }
 
   /* ------------------------------------------------------------------------
-     7. Parallax com inércia
-     O JS escreve só a custom property --py; o transform mora no CSS, para um
-     `transform` de outra regra (hover, revelação) não ser sobrescrito por
-     estilo inline.
+     7. Parallax com inércia (custom property --py; o transform mora no CSS)
      ------------------------------------------------------------------------ */
   var camadas = $$("[data-parallax]").map(function (el) {
     return { el: el, k: parseFloat(el.dataset.parallax) || 0.1, atual: 0, alvo: 0 };
@@ -329,12 +611,6 @@
 
   /* ------------------------------------------------------------------------
      8. Marquise de velocidade
-     Anda sozinha, devagar, e ACELERA com a rolagem — inclusive invertendo o
-     sentido quando se rola para cima. É o truque que dá massa à página: o
-     texto responde a quão rápido você rola, não a onde você parou.
-
-     O conteúdo é duplicado no HTML e o deslocamento é módulo da metade da
-     largura, então a emenda nunca aparece.
      ------------------------------------------------------------------------ */
   var marquises = $$("[data-marquise]").map(function (el) {
     return { el: el, base: parseFloat(el.dataset.marquise) || 0.35, pos: 0, larg: 0 };
@@ -342,16 +618,12 @@
 
   function medirMarquises() {
     marquises.forEach(function (m) {
-      /* Metade: o conteúdo está duplicado. */
       m.larg = m.el.scrollWidth / 2;
     });
   }
 
   /* ------------------------------------------------------------------------
      9. Trilho horizontal dos motores
-     A seção prende no viewport e a rolagem vertical vira deslocamento
-     horizontal. Só acima de 1000×800: abaixo disso a mesma marcação é uma
-     pilha vertical comum, sem pin e sem transform.
      ------------------------------------------------------------------------ */
   var rail = $("[data-rail]");
   var railTrack = $("[data-rail-track]");
@@ -370,15 +642,11 @@
     }
     var gut = parseFloat(getComputedStyle(doc.body).getPropertyValue("--gutter")) || 32;
     railLen = Math.max(0, railTrack.scrollWidth - window.innerWidth + gut);
-    /* Altura = uma tela presa + a distância a percorrer. Escrito uma vez por
-       resize, nunca por quadro. */
     rail.style.height = window.innerHeight + railLen + "px";
   }
 
   /* ------------------------------------------------------------------------
-     10. Cursor e botão magnético
-     Os dois só existem com ponteiro fino — num toque, "magnético" não quer
-     dizer nada e o cursor seria um ponto parado no canto.
+     10. Cursor e botão magnético (só com ponteiro fino)
      ------------------------------------------------------------------------ */
   var cursor = null;
   var cursorTexto = null;
@@ -405,12 +673,6 @@
       function (e) {
         mx = e.clientX;
         my = e.clientY;
-
-        /*
-         * A atração é calculada aqui, e não no laço: um `getBoundingClientRect`
-         * por botão por quadro seria leitura de layout a 60 Hz para elementos
-         * que não se movem sozinhos. Aqui só roda quando o ponteiro anda.
-         */
         imas.forEach(function (im) {
           var r = im.el.getBoundingClientRect();
           var dx = e.clientX - (r.left + r.width / 2);
@@ -418,8 +680,6 @@
           var raio = Math.max(r.width, r.height) * 0.95;
           var dist = Math.sqrt(dx * dx + dy * dy);
           if (dist < raio) {
-            /* A força cai com a distância: perto do centro quase não puxa, na
-               borda do raio puxa o máximo. Sem isso o botão gruda e treme. */
             var f = 1 - dist / raio;
             im.ax = dx * 0.34 * f;
             im.ay = dy * 0.44 * f;
@@ -433,7 +693,6 @@
       { passive: true }
     );
 
-    /* Delegação: o estado do cursor não precisa de um listener por elemento. */
     doc.addEventListener(
       "pointerover",
       function (e) {
@@ -449,13 +708,11 @@
   }
 
   /* ------------------------------------------------------------------------
-     11. O laço. Um só.
+     11. O laço. Um só. (movimento contínuo ligado à rolagem)
      ------------------------------------------------------------------------ */
   var sujo = true;
   var rodando = false;
 
-  /* Velocidade de rolagem, lerpada. É o sinal que alimenta a marquise e a
-     inclinação — e a razão de a página parecer ter massa. */
   var yAnterior = window.scrollY || 0;
   var veloSuave = 0;
   var ultimoQuadro = performance.now();
@@ -487,9 +744,6 @@
   function laco() {
     rodando = true;
     var agora = performance.now();
-    /* dt normalizado a 60 Hz: num monitor de 144 Hz um LERP de fator fixo
-       andaria mais que o dobro do previsto, e a página teria "peso" diferente
-       por hardware. */
     var dt = clamp((agora - ultimoQuadro) / 16.667, 0.2, 3);
     ultimoQuadro = agora;
 
@@ -502,7 +756,6 @@
     for (i = 0; i < camadas.length; i++) {
       var c = camadas[i];
       var r = c.el.getBoundingClientRect();
-      /* Fora da tela não vale quadro. */
       if (r.bottom < -200 || r.top > vh + 200) continue;
       c.alvo = (r.top + r.height / 2 - metade) * -c.k;
     }
@@ -523,7 +776,6 @@
 
     var vivo = false;
 
-    /* Saída do herói: 0 no topo, 1 quando ele já saiu. */
     if (heroi !== null) {
       heroi.style.setProperty("--hero-p", clamp(y / (vh * 0.85), 0, 1).toFixed(4));
     }
@@ -539,8 +791,6 @@
 
     for (i = 0; i < camadas.length; i++) {
       var l = camadas[i];
-      /* LERP: é daqui que vem o "peso". 0.085 dá arraste perceptível sem
-         parecer atrasado — abaixo disso o elemento parece preso à tela. */
       l.atual += (l.alvo - l.atual) * 0.085 * dt;
       if (Math.abs(l.alvo - l.atual) > 0.05) vivo = true;
       l.el.style.setProperty("--py", l.atual.toFixed(2) + "px");
@@ -552,22 +802,16 @@
       railTrack.style.transform = "translate3d(" + railX.toFixed(2) + "px,0,0)";
     }
 
-    /* Marquise: base constante + empurrão da velocidade de rolagem. */
     for (i = 0; i < marquises.length; i++) {
       var m = marquises[i];
       if (m.larg === 0) continue;
       m.pos -= (m.base + veloSuave * 0.55) * dt;
-      /* Módulo nos DOIS sentidos: rolar para cima inverte a marquise, e sem
-         isto ela sairia do intervalo e deixaria um vão à vista. */
       if (m.pos <= -m.larg) m.pos += m.larg;
       if (m.pos > 0) m.pos -= m.larg;
       m.el.style.transform = "translate3d(" + m.pos.toFixed(2) + "px,0,0)";
       vivo = true;
     }
 
-    /* Inclinação por velocidade — o efeito mais "de site de piloto" daqui.
-       Teto de 3,5°: acima disso o texto fica ilegível durante a rolagem, e uma
-       página que não se lê enquanto rola não serve. */
     var incl = clamp(veloSuave * 0.08, -3.5, 3.5);
     root.style.setProperty("--velo-skew", incl.toFixed(3) + "deg");
     if (Math.abs(incl) > 0.01) vivo = true;
@@ -617,9 +861,6 @@
     );
   }
 
-  /* A largura da marquise e a do trilho mudam quando a fonte troca do fallback
-     para a Sora. Sem remedir, a emenda da marquise aparece e o trilho para
-     antes do último cartão. */
   if (doc.fonts !== undefined && doc.fonts.ready !== undefined) {
     doc.fonts.ready.then(function () {
       medirRail();
@@ -630,9 +871,6 @@
 
   /* ------------------------------------------------------------------------
      12. Copiar comando
-     Sem fallback para execCommand: a página só é servida por HTTPS (Pages) ou
-     por localhost, e nos dois a Clipboard API existe. Se falhar, o botão diz
-     que falhou em vez de fingir que copiou.
      ------------------------------------------------------------------------ */
   $$("[data-copy]").forEach(function (botao) {
     var rotulo = $(".copy__txt", botao);
@@ -640,10 +878,8 @@
     botao.addEventListener("click", function () {
       var alvo = doc.getElementById(botao.dataset.copy);
       if (alvo === null) return;
-      /* O `innerText` devolve espaço NÃO-SEPARÁVEL onde o HTML tem `&nbsp;`, e
-         colar U+00A0 num terminal quebra o comando de um jeito que não se vê.
-         Escrito como escape, e não como o caractere literal: no fonte os dois
-         são pixels idênticos, e o `no-irregular-whitespace` reprova o literal. */
+      /* `innerText` devolve U+00A0 onde o HTML tem `&nbsp;`, e colar isso num
+         terminal quebra o comando de um jeito que não se vê. */
       var texto = alvo.innerText.replace(/\u00A0/g, " ");
       navigator.clipboard.writeText(texto).then(
         function () {
@@ -663,9 +899,6 @@
 
   /* ------------------------------------------------------------------------
      13. Trilho de capturas — arrastar com o ponteiro
-     A rolagem nativa continua funcionando (toque, roda, teclado). Isto só
-     acrescenta o arraste com o botão do mouse, que num trilho horizontal é o
-     gesto que a pessoa tenta primeiro no desktop.
      ------------------------------------------------------------------------ */
   var trilho = $("[data-arrasta]");
   if (trilho !== null && mqFine.matches) {

@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>DBee — cliente de banco de dados web, self-hosted, um container</title>
+    <title>DBee — um cliente, sete bancos, self-hosted num container</title>
     <meta
       name="description"
-      content="Cliente de banco web e self-hosted. Um container, sem SaaS e sem agente. PostgreSQL completo; MySQL, MariaDB e libSQL em leitura. A proteção contra escrita é o modo da transação, não uma regex no seu SQL."
+      content="Cliente de banco de dados web e self-hosted, um container. Sete motores num só lugar: PostgreSQL, MySQL, MariaDB, libSQL, SQLite, MongoDB e Redis — cada um fazendo o que de fato suporta. Somente-leitura por padrão; a garantia muda por família de banco, e o DBee mostra qual."
     />
     <meta name="theme-color" content="#141210" />
     <meta name="color-scheme" content="dark" />
@@ -19,10 +19,10 @@
 
     <meta property="og:type" content="website" />
     <meta property="og:locale" content="pt_BR" />
-    <meta property="og:title" content="DBee — o cliente de banco que não escreve sem você mandar" />
+    <meta property="og:title" content="DBee — um cliente, sete bancos, self-hosted num container" />
     <meta
       property="og:description"
-      content="Web, self-hosted, um container. PostgreSQL completo; MySQL, MariaDB e libSQL em leitura. A proteção contra escrita é o modo da transação."
+      content="Sete motores num só lugar: Postgres, MySQL, MariaDB, libSQL, SQLite, MongoDB e Redis. Somente-leitura por padrão; a garantia muda por família de banco, e o DBee mostra qual."
     />
     <meta property="og:image" content="assets/img/og.webp" />
     <meta name="twitter:card" content="summary_large_image" />
@@ -60,11 +60,38 @@
     <script>
       document.documentElement.classList.add("js");
     </script>
+    <!--
+      anime.js vendorizado (v3.2.2, ~17 KB) — orquestra o movimento 2D:
+      entrada encenada do herói, revelações por scroll, contadores, o flutuar
+      da abelha. Servido do próprio domínio, nunca de CDN (CLAUDE.md: nada de
+      CDN em runtime).
+
+      A camada imersiva do fundo (favo e pólen à deriva) é um <canvas> 2D
+      próprio, ~2 KB dentro do site.js — e NÃO um WebGL pesado. A escolha é por
+      leveza: um Three.js de 600 KB para partículas de fundo pagaria caro por um
+      efeito que o canvas 2D entrega. O herói abre rápido; o movimento é o
+      tempero, não o esqueleto.
+    -->
+    <script defer src="assets/js/anime.min.js"></script>
     <script defer src="assets/js/site.js"></script>
   </head>
 
   <body>
     <a class="skip" href="#conteudo">Pular para o conteúdo</a>
+
+    <!--
+      Cena 3D do herói. Um <canvas> fixo, atrás de tudo, onde o Three.js desenha
+      um túnel de favo por onde a câmera voa conforme a rolagem — a camada
+      imersiva. Nasce vazio: o WebGL só é montado depois do primeiro paint, e o
+      fundo estático (o favo em CSS abaixo) segura a primeira dobra enquanto isso.
+
+      `hidden` some no reduced-motion e quando não há WebGL — nesses casos o
+      herói é o gradiente âmbar e o favo estático, legível e parado.
+    -->
+    <div class="cena" aria-hidden="true">
+      <div class="cena__favo"></div>
+      <canvas class="cena__polen" data-cena hidden></canvas>
+    </div>
 
     <!-- Progresso da página: o único indicador global de "quanto falta". -->
     <div class="progresso" aria-hidden="true"><i data-progresso></i></div>
@@ -167,18 +194,19 @@
             <p class="hero__badge" data-fx="fade" data-enter>
               <img class="badge__mark" src="assets/img/marca.webp" alt="" width="20" height="20" />
               <!-- fonte: package.json "version" -->
-              <span><b>v0.3.7</b> · em produção diária desde a v0.1</span>
+              <span><b>v0.4.0</b> · em produção diária desde a v0.1</span>
               <i class="dot" aria-hidden="true"></i>
             </p>
 
             <h1 class="hero__title split-chars" data-enter>
-              O banco é seu. A escrita também.
+              Um cliente. Sete bancos.
             </h1>
 
             <p class="hero__sub" data-fx="up" data-enter>
               Cliente de banco <strong>web e self-hosted</strong>, em um
-              container. Nada muda por acidente: a proteção é o
-              <strong>modo da transação</strong>, não uma regex no seu SQL.
+              container. Postgres, MySQL, MariaDB, libSQL, SQLite, MongoDB e
+              Redis pela mesma janela — e <strong>somente-leitura por padrão</strong>,
+              porque escrever exige ligar a conexão e ter a permissão.
             </p>
 
             <div class="hero__actions" data-fx="up" data-enter>
@@ -203,23 +231,29 @@
             </p>
           </div>
 
-          <figure class="hero__shot" data-fx="scale" data-enter>
-            <img
-              src="assets/img/grid.webp"
-              width="1440"
-              height="900"
-              fetchpriority="high"
-              decoding="async"
-              alt="Tela do DBee: à esquerda a árvore de conexões, bancos e schemas; à direita a grade de resultados de uma tabela."
-            />
-            <figcaption>
-              Grade virtualizada: 100&nbsp;mil linhas sem travar. As telas usam
-              um catálogo de exemplo, feito para a documentação.
-            </figcaption>
+          <figure class="hero__art" data-enter data-fx="scale">
+            <!-- Cubo de mel brilhando: fica ATRÁS da abelha, na altura do cubo
+                 que ela segura (canto inferior direito do render). Pulsa pelo
+                 anime.js; sem JS é um glow parado. -->
+            <span class="hero__glow" data-glow aria-hidden="true"></span>
+            <span class="hero__ring" data-parallax="0.03" aria-hidden="true"></span>
+            <picture>
+              <source srcset="assets/img/bee-hero.webp" type="image/webp" />
+              <img
+                class="hero__bee"
+                data-bee
+                src="assets/img/bee-hero.png"
+                width="1000"
+                height="1000"
+                fetchpriority="high"
+                decoding="async"
+                alt="A abelha do DBee, de óculos, segurando um cubo de mel que brilha com o glifo da marca."
+              />
+            </picture>
           </figure>
 
           <p class="hero__scroll" data-fx="fade" data-enter>
-            <i aria-hidden="true"></i> role
+            <i aria-hidden="true"></i> role para atravessar o favo
           </p>
         </div>
       </section>
@@ -232,12 +266,14 @@
       <div class="marquise" aria-hidden="true">
         <div class="marquise__track" data-marquise="0.42">
           <span>
-            BEGIN READ ONLY <i></i> UM CONTAINER <i></i> <em>SEM SaaS</em> <i></i>
-            AUDITORIA DE TUDO <i></i> SELF-HOSTED <i></i> <em>SEM AGENTE</em> <i></i>
+            SETE MOTORES <i></i> BEGIN READ ONLY <i></i> UM CONTAINER <i></i>
+            <em>SEM SaaS</em> <i></i> AUDITORIA DE TUDO <i></i> SELF-HOSTED <i></i>
+            <em>SEM AGENTE</em> <i></i>
           </span>
           <span>
-            BEGIN READ ONLY <i></i> UM CONTAINER <i></i> <em>SEM SaaS</em> <i></i>
-            AUDITORIA DE TUDO <i></i> SELF-HOSTED <i></i> <em>SEM AGENTE</em> <i></i>
+            SETE MOTORES <i></i> BEGIN READ ONLY <i></i> UM CONTAINER <i></i>
+            <em>SEM SaaS</em> <i></i> AUDITORIA DE TUDO <i></i> SELF-HOSTED <i></i>
+            <em>SEM AGENTE</em> <i></i>
           </span>
         </div>
       </div>
@@ -288,35 +324,35 @@
            ================================================================ -->
       <div class="strip">
         <div class="shell shell--wide">
-          <p class="strip__label">Motores — estado real, não roadmap</p>
+          <p class="strip__label">Sete motores — todos falando hoje</p>
           <div class="strip__row" data-fx-group>
             <span class="chip chip--live" data-fx="up">
               <svg aria-hidden="true"><use href="#i-postgres" /></svg>
-              PostgreSQL <small>completo</small>
+              PostgreSQL <small>a referência</small>
             </span>
             <span class="chip chip--partial" data-fx="up">
               <svg aria-hidden="true"><use href="#i-mysql" /></svg>
-              MySQL <small>leitura</small>
+              MySQL <small>leitura + escrita</small>
             </span>
             <span class="chip chip--partial" data-fx="up">
               <svg aria-hidden="true"><use href="#i-mariadb" /></svg>
-              MariaDB <small>leitura</small>
+              MariaDB <small>leitura + escrita</small>
             </span>
-            <span class="chip chip--soon" data-fx="up">
+            <span class="chip chip--partial" data-fx="up">
               <svg aria-hidden="true"><use href="#i-libsql" /></svg>
-              libSQL <small>leitura</small>
+              libSQL <small>leitura + escrita</small>
             </span>
-            <span class="chip chip--soon" data-fx="up">
+            <span class="chip chip--partial" data-fx="up">
               <svg aria-hidden="true"><use href="#i-sqlite" /></svg>
-              SQLite <small>planejado</small>
+              SQLite <small>leitura + escrita</small>
             </span>
-            <span class="chip chip--soon" data-fx="up">
+            <span class="chip chip--partial" data-fx="up">
               <svg aria-hidden="true"><use href="#i-mongodb" /></svg>
-              MongoDB <small>planejado</small>
+              MongoDB <small>documentos</small>
             </span>
-            <span class="chip chip--soon" data-fx="up">
+            <span class="chip chip--partial" data-fx="up">
               <svg aria-hidden="true"><use href="#i-redis" /></svg>
-              Redis <small>planejado</small>
+              Redis <small>chave-valor</small>
             </span>
           </div>
         </div>
@@ -356,7 +392,7 @@
                     <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-postgres" /></svg></span>
                     <div>
                       <h3 class="engine__name">PostgreSQL</h3>
-                      <p class="engine__state">completo</p>
+                      <p class="engine__state">a referência</p>
                     </div>
                   </header>
                   <ul class="engine__list">
@@ -379,19 +415,20 @@
                     <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-mysql" /></svg></span>
                     <div>
                       <h3 class="engine__name">MySQL</h3>
-                      <p class="engine__state">leitura</p>
+                      <p class="engine__state">leitura + escrita</p>
                     </div>
                   </header>
                   <ul class="engine__list">
                     <li>Árvore: conexão → banco → tabela</li>
-                    <li>Catálogo: colunas, PK, índices e FKs</li>
-                    <li>Grade com filtro, ordem e paginação</li>
-                    <li>Consulta livre, com cancelamento</li>
-                    <li data-no>Exportação, DDL e edição de linha</li>
+                    <li>Grade por keyset, filtro, ordem e catálogo</li>
+                    <li>SQL livre, com cancelamento por <code>KILL</code></li>
+                    <li>DDL (create table/database) e edição de linha</li>
+                    <li>Exportação de tabela e bundle; diagrama</li>
                   </ul>
                   <p class="engine__guard">
-                    Garantia em <b>credencial</b> — <code>GRANT SELECT</code>.
-                    Sem interruptor de escrita: não haveria o que ligar.
+                    Garantia em <b>credencial</b> — leitura com
+                    <code>GRANT SELECT</code>. Escrever exige uma credencial de
+                    escrita, não um <code>SET</code> que o SQL desliga.
                   </p>
                 </article>
 
@@ -401,13 +438,13 @@
                     <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-mariadb" /></svg></span>
                     <div>
                       <h3 class="engine__name">MariaDB</h3>
-                      <p class="engine__state">leitura</p>
+                      <p class="engine__state">leitura + escrita</p>
                     </div>
                   </header>
                   <ul class="engine__list">
                     <li>As mesmas capacidades de tela do MySQL</li>
                     <li>Driver próprio onde os dois divergem: limite de tempo, JSON e <code>SEQUENCE</code></li>
-                    <li data-no>Exportação, DDL e edição de linha</li>
+                    <li>SQL, DDL, edição, export e diagrama</li>
                   </ul>
                   <p class="engine__guard">
                     Garantia em <b>credencial</b>. “MariaDB é MySQL com outra
@@ -416,19 +453,19 @@
                 </article>
 
                 <!-- libSQL -->
-                <article class="engine" data-fx="up">
+                <article class="engine engine--read" data-fx="up">
                   <header class="engine__top">
                     <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-libsql" /></svg></span>
                     <div>
                       <h3 class="engine__name">libSQL</h3>
-                      <p class="engine__state">leitura</p>
+                      <p class="engine__state">leitura + escrita</p>
                     </div>
                   </header>
                   <ul class="engine__list">
-                    <li>Árvore, catálogo, grade e consulta — falado por HTTP</li>
-                    <li>Selecionável no formulário; a credencial é o token JWT</li>
+                    <li>Árvore, catálogo, grade e SQL — falado por HTTP</li>
+                    <li>DDL (create table), edição, export e diagrama</li>
+                    <li data-no>Create database: o banco é único</li>
                     <li data-no>Cancelar consulta: o protocolo não tem</li>
-                    <li data-no>Exportação, DDL e edição de linha</li>
                   </ul>
                   <p class="engine__guard">
                     Garantia em <b>credencial</b> — o claim
@@ -438,41 +475,40 @@
                 </article>
 
                 <!-- SQLite -->
-                <article class="engine engine--planned" data-fx="up">
+                <article class="engine engine--read" data-fx="up">
                   <header class="engine__top">
                     <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-sqlite" /></svg></span>
                     <div>
                       <h3 class="engine__name">SQLite</h3>
-                      <p class="engine__state">planejado · bloqueado</p>
+                      <p class="engine__state">leitura + escrita</p>
                     </div>
                   </header>
                   <ul class="engine__list">
-                    <li data-no>Bloqueado por medição, não por prazo</li>
-                    <li>
-                      <code>bun:sqlite</code> é síncrono: uma consulta de
-                      47&nbsp;s deu <b>zero</b> tiques num temporizador de
-                      10&nbsp;ms
-                    </li>
+                    <li>SQL livre num worker — o síncrono do <code>bun:sqlite</code> não trava a UI</li>
+                    <li>DDL (create table), edição por handle r/w</li>
+                    <li>Cancelamento encerrando o worker; export e diagrama</li>
+                    <li data-no>Create database: o banco é um arquivo</li>
                   </ul>
                   <p class="engine__guard">
                     Garantia na <b>abertura do handle</b>
                     (<code>readonly: true</code>) — o <code>PRAGMA</code> o
-                    usuário desliga.
+                    usuário desligaria, o arquivo aberto só-leitura não.
                   </p>
                 </article>
 
                 <!-- MongoDB -->
-                <article class="engine engine--planned" data-fx="up">
+                <article class="engine engine--read" data-fx="up">
                   <header class="engine__top">
                     <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-mongodb" /></svg></span>
                     <div>
                       <h3 class="engine__name">MongoDB</h3>
-                      <p class="engine__state">planejado</p>
+                      <p class="engine__state">documentos</p>
                     </div>
                   </header>
                   <ul class="engine__list">
-                    <li data-no>Nada implementado</li>
-                    <li>Precisa de outra vista: documento aninhado não cabe numa grade de colunas</li>
+                    <li>Grade de documentos com filtros</li>
+                    <li>Edição de campo no topo e <b>aninhado</b>, por dot-notation com validador de path</li>
+                    <li data-no>SQL, exportação e diagrama: não se aplicam</li>
                   </ul>
                   <p class="engine__guard">
                     Garantia em <b>credencial</b> — papel <code>read</code>. Um
@@ -481,17 +517,18 @@
                 </article>
 
                 <!-- Redis -->
-                <article class="engine engine--planned" data-fx="up">
+                <article class="engine engine--read" data-fx="up">
                   <header class="engine__top">
                     <span class="engine__glyph" aria-hidden="true"><svg><use href="#i-redis" /></svg></span>
                     <div>
                       <h3 class="engine__name">Redis</h3>
-                      <p class="engine__state">planejado</p>
+                      <p class="engine__state">chave-valor</p>
                     </div>
                   </header>
                   <ul class="engine__list">
-                    <li data-no>Nada implementado</li>
-                    <li>Vista de chave/valor, seis tipos. Sem tabela não há grade, keyset nem ERD</li>
+                    <li>Grade de chaves por <code>SCAN</code></li>
+                    <li>Edição de <code>string</code> e estruturada de hash, list, set e zset</li>
+                    <li data-no>SQL, exportação e diagrama: sem tabela, não se aplicam</li>
                   </ul>
                   <p class="engine__guard">
                     Garantia em <b>credencial</b> — ACL <code>+@read</code>.
@@ -647,9 +684,9 @@
         <div class="shell shell--wide">
           <div class="numeros__grid" data-fx-group>
             <div class="numero" data-fx="up">
-              <b><span data-conta="4">0</span></b>
+              <b><span data-conta="7">0</span></b>
               <p>motores falando hoje</p>
-              <small>engine.puro.ts · ENGINES_IMPLEMENTADAS</small>
+              <small>engine.puro.ts · CAPACIDADES</small>
             </div>
             <div class="numero" data-fx="up">
               <b><span data-conta="1">0</span></b>
@@ -740,9 +777,9 @@
               <p>
                 Cinco formatos, com a memória não crescendo com a tabela. Várias
                 tabelas num <code>.zip</code>, do mesmo instante, com os filtros
-                da tela.
+                da tela. Nas engines SQL, não só no Postgres.
               </p>
-              <p class="bento__note">fonte: README.md · CLAUDE.md regra 7. Só PostgreSQL.</p>
+              <p class="bento__note">fonte: README.md · CLAUDE.md regra 7 · CHANGELOG (export multi-tabela).</p>
             </article>
 
             <article class="bento__card" data-fx="up">
@@ -1003,7 +1040,7 @@ docker exec dbee cat /data/setup-token</pre>
         </div>
 
         <div class="footer__bottom">
-          <span>© <span data-ano>2026</span> DBee · <code>v0.3.7</code></span>
+          <span>© <span data-ano>2026</span> DBee · <code>v0.4.0</code></span>
           <span>Sem CDN, sem cookie, sem rastreador.</span>
         </div>
       </div>
