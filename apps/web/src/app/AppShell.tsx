@@ -35,7 +35,8 @@ import { SubTabButtons, SubTabs, TabStrip } from "../features/tabs/TabStrip";
 import { FronteiraDeErro } from "../components/FronteiraDeErro";
 import { ConnectionTree, type ConnectionHealth, type TreeTarget } from "../features/tree/ConnectionTree";
 import { treeMenuSections, treeMenuTitle, type TreeMenuActions } from "../features/tree/treeMenu";
-import { useSchema, useTreeExpansion } from "../features/tree/useTree";
+import { capacidadesDe, dialetoDe } from "@dbee/shared/puro";
+import { useConnections, useSchema, useTreeExpansion } from "../features/tree/useTree";
 import {
   activeTab,
   closeTab,
@@ -358,6 +359,7 @@ export function AppShell({
               key={abaExport.id}
               connectionId={abaExport.connectionId}
               database={abaExport.database}
+              postgres={connections.find((c) => c.id === abaExport.connectionId)?.engine === "postgres"}
             />
           ) : abaDiagrama !== null ? (
             <DiagramTabContent
@@ -465,6 +467,7 @@ export function AppShell({
           connectionId={criandoTabela.connectionId}
           database={criandoTabela.database}
           schema={criandoTabela.schema}
+          dialeto={dialetoDe(connections.find((c) => c.id === criandoTabela.connectionId)?.engine ?? "postgres")}
           onClose={() => { setCriandoTabela(null); }}
         />
       ) : null}
@@ -472,6 +475,7 @@ export function AppShell({
       {criandoDatabase !== null ? (
         <CreateDatabaseDialog
           connectionId={criandoDatabase}
+          dialeto={dialetoDe(connections.find((c) => c.id === criandoDatabase)?.engine ?? "postgres")}
           onClose={() => { setCriandoDatabase(null); }}
         />
       ) : null}
@@ -667,7 +671,18 @@ function TopBar({
           ) : null}
           <span className="truncate text-xs text-ink">{connection.name}</span>
           <span className="truncate font-mono text-xs text-muted">
-            {target === null ? database : `${database}.${target.schema}.${target.relation}`}
+            {/*
+              Nas engines sem nível de schema (MySQL, MariaDB, libSQL) o schema
+              É o database — o catálogo repete o nome para a API manter a forma.
+              Mostrar `main.main.artista` ou `loja.loja.peca` é o breadcrumb
+              afirmando um nível que a árvore não tem. Colapsa quando os dois
+              coincidem: `database.relação`.
+            */}
+            {target === null
+              ? database
+              : target.schema === database
+                ? `${database}.${target.relation}`
+                : `${database}.${target.schema}.${target.relation}`}
           </span>
         </div>
       ) : null}
@@ -790,6 +805,14 @@ function TableTabContent({
   const t = useT();
   const { connectionId, database, schema, relation } = tab.target;
   const arvore = useSchema(connectionId, database, true);
+  // A aba Diagrama não existe nas engines sem ERD (Mongo: sem schema, sem FK).
+  const conexoesAba = useConnections();
+  const engineDaAba = conexoesAba.data?.find((c) => c.id === connectionId)?.engine ?? "postgres";
+  const semDiagrama = capacidadesDe(engineDaAba)?.diagramaErd === false;
+  const permiteConsulta = capacidadesDe(engineDaAba)?.sqlLivre !== false;
+  const exportavel = capacidadesDe(engineDaAba)?.exportar === true;
+  const redisEstruturado = engineDaAba === "redis";
+  const mongoDocumento = engineDaAba === "mongodb";
 
   const rel =
     arvore.data?.schemas.find((s) => s.name === schema)?.relations.find((r) => r.name === relation) ??
@@ -817,7 +840,7 @@ function TableTabContent({
    * comum, com o inspetor no `trailing`.
    */
   const barraComum = (
-    <SubTabs value={tab.view} onChange={onView} counts={counts} trailing={inspetorBtn} />
+    <SubTabs value={tab.view} onChange={onView} counts={counts} trailing={inspetorBtn} semDiagrama={semDiagrama} />
   );
 
   return (
@@ -880,13 +903,17 @@ function TableTabContent({
         <DataTab
           target={tab.target}
           onConsultar={onConsultar}
+          permiteConsulta={permiteConsulta}
+          exportavel={exportavel}
+          redisEstruturado={redisEstruturado}
+          mongoDocumento={mongoDocumento}
           estimatedRows={rel.estimatedRows}
           writeEnabled={danger}
           colunasSchema={rel.columns}
           foreignKeys={rel.foreignKeys}
           onOpenTableFiltered={onOpenTableFiltered}
           {...(tab.initialFilters !== undefined ? { initialFilters: tab.initialFilters } : {})}
-          leading={<SubTabButtons value={tab.view} onChange={onView} counts={counts} />}
+          leading={<SubTabButtons value={tab.view} onChange={onView} counts={counts} semDiagrama={semDiagrama} />}
           trailing={inspetorBtn}
         />
       )}

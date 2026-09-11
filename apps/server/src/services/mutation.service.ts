@@ -2,6 +2,7 @@ import {
   construirDelete,
   construirInsert,
   construirUpdate,
+  type RedisValueEditRequest,
   type RowDeleteRequest,
   type RowInsertRequest,
   type RowMutationResult,
@@ -16,6 +17,11 @@ import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { PoolClient } from "pg";
 
 import type { PoolManager } from "../pg/pool";
+import type { Drivers } from "../driver/registro";
+import type { MutacaoLinha } from "../driver/tipos";
+import { MutacaoError } from "../driver/erros";
+import { gravaPorCredencialSeparada } from "@dbee/shared/puro";
+import { exigirPostgres } from "./engine.guarda";
 import { type MutationResult, mutFail, mutOk } from "./result";
 
 /**
@@ -34,6 +40,8 @@ export interface MutationServiceDeps {
   readonly repository: ConnectionsRepository;
   readonly pools: PoolManager;
   readonly log: QueryLogRepository;
+  /** Quem fala com cada engine — para rotear a edição das engines de credencial. */
+  readonly drivers?: Drivers;
 }
 
 /**
@@ -57,38 +65,55 @@ export class MutationService {
   readonly #repository: ConnectionsRepository;
   readonly #pools: PoolManager;
   readonly #log: QueryLogRepository;
+  readonly #drivers: Drivers | undefined;
 
-  constructor({ repository, pools, log }: MutationServiceDeps) {
+  constructor({ repository, pools, log, drivers }: MutationServiceDeps) {
     this.#repository = repository;
     this.#pools = pools;
     this.#log = log;
+    this.#drivers = drivers;
   }
 
-  update(
+  async update(
     connectionId: string,
     request: RowUpdateRequest,
     ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
+    const viaDriver = await this.#viaDriver(connectionId, request.database, ator, {
+      tipo: "update",
+      req: request,
+    });
+    if (viaDriver !== null) return viaDriver;
     return this.#aplicar(connectionId, request.database, ator, request, (tipos) =>
       construirUpdate(request, tipos),
     );
   }
 
-  delete(
+  async delete(
     connectionId: string,
     request: RowDeleteRequest,
     ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
+    const viaDriver = await this.#viaDriver(connectionId, request.database, ator, {
+      tipo: "delete",
+      req: request,
+    });
+    if (viaDriver !== null) return viaDriver;
     return this.#aplicar(connectionId, request.database, ator, request, (tipos) =>
       construirDelete(request, tipos),
     );
   }
 
-  insert(
+  async insert(
     connectionId: string,
     request: RowInsertRequest,
     ator: Ator,
   ): Promise<MutationResult<RowMutationResult>> {
+    const viaDriver = await this.#viaDriver(connectionId, request.database, ator, {
+      tipo: "insert",
+      req: request,
+    });
+    if (viaDriver !== null) return viaDriver;
     // Reusa #aplicar: um INSERT de uma linha afeta exatamente 1 (ou o Postgres
     // recusa por constraint, e o erro vai inteiro para a tela).
     //
@@ -187,6 +212,15 @@ export class MutationService {
       return mutFail("decryption_failed");
     }
     if (connection === null) return mutFail("not_found");
+    /*
+     * Só o Postgres faz isto. Sem esta guarda, uma conexão MySQL faria o
+     * `PoolManager` do Postgres falar protocolo de Postgres com a porta 3306,
+     * e o erro seria de handshake — sem relação com a verdade, que é
+     * "isto não existe aqui".
+     */
+    const semSuporte = exigirPostgres<never>(connection.engine, "edição de linhas");
+    // `write_forbidden` pelo motivo mais forte: a engine não oferece escrita.
+    if (semSuporte !== null && !semSuporte.ok) return mutFail("write_forbidden", semSuporte.detail);
     // A conexão manda: sem `write_enabled`, nem a requisição mais explícita
     // libera escrita. (O `readOnly: false` já é exigido pelo schema.) A tentativa
     // negada vai ao query_log: escrita barrada é justamente o evento que uma
@@ -266,6 +300,121 @@ export class MutationService {
       this.#registrar(connectionId, database, construido.literal, "error", message, null, inicio, ator);
       return mutFail("upstream_error", message);
     }
+  }
+
+  /**
+   * Aplica a edição pela **credencial de escrita**, nas engines que gravam por
+   * credencial (Mongo/Redis). Devolve `null` quando não é o caso — e aí o
+   * chamador segue pelo caminho SQL (Postgres).
+   *
+   * O portão é o mesmo do SQL livre: a credencial de escrita tem que existir na
+   * conexão **e** o ator ter concessão. Faltando qualquer uma, recusa com
+   * `write_forbidden` e registra a tentativa — escrita barrada é o evento que a
+   * auditoria existe para provar.
+   */
+  async #viaDriver(
+    connectionId: string,
+    database: string,
+    ator: Ator,
+    mut: MutacaoLinha,
+  ): Promise<MutationResult<RowMutationResult> | null> {
+    let connection;
+    try {
+      connection = this.#repository.resolve(connectionId, ator);
+    } catch {
+      return mutFail("decryption_failed");
+    }
+    if (connection === null) return mutFail("not_found");
+
+    // Só as engines com `mutarLinha` roteiam por aqui (Mongo, Redis, SQLite); o
+    // Postgres não a tem e segue pelo caminho SQL parametrizado.
+    const driver = this.#drivers?.para(connection.engine);
+    if (driver?.mutarLinha === undefined) return null;
+
+    const inicio = performance.now();
+
+    /*
+     * O portão difere por família de garantia:
+     * - credencial (Mongo/Redis): precisa da credencial de escrita presente **e**
+     *   da concessão do ator;
+     * - handle (SQLite): não há credencial — a escrita é abrir o arquivo r/w —,
+     *   então o portão é `writeEnabled` da conexão **e** a concessão.
+     * `podeEscrever` já dobra a concessão nos dois casos.
+     */
+    const porCredencial = gravaPorCredencialSeparada(connection.engine);
+    const temAutorizacaoBase = porCredencial ? connection.hasWriteCredential : connection.writeEnabled;
+    const podeGravar = temAutorizacaoBase && this.#repository.podeEscrever(connectionId, ator);
+    if (!podeGravar) {
+      const motivo = !temAutorizacaoBase
+        ? porCredencial
+          ? "esta conexão não tem credencial de escrita configurada"
+          : "escrita não habilitada nesta conexão"
+        : "você não tem concessão de escrita nesta conexão";
+      this.#registrar(
+        connectionId,
+        database,
+        `-- edição recusada: ${motivo}`,
+        "error",
+        `write_forbidden: ${motivo}`,
+        null,
+        inicio,
+        ator,
+      );
+      return mutFail("write_forbidden", motivo);
+    }
+
+    try {
+      const r = await driver.mutarLinha(connection, mut);
+      this.#registrar(connectionId, database, r.sql, "ok", null, r.rowCount, inicio, ator);
+      /*
+       * `matchedCount`/`deletedCount` 0 é a guarda otimista pegando: a linha
+       * mudou (ou sumiu) entre a leitura e o clique. Reporta como conflito, não
+       * como sucesso silencioso — o mesmo espírito da prova de cardinalidade do
+       * Postgres.
+       */
+      if (r.rowCount === 0 && mut.tipo !== "insert") {
+        return mutFail("row_changed");
+      }
+      return mutOk(r);
+    } catch (err: unknown) {
+      const message =
+        err instanceof MutacaoError ? err.message : err instanceof Error ? err.message : String(err);
+      this.#registrar(connectionId, database, `-- ${mut.tipo}`, "error", message, null, inicio, ator);
+      return mutFail("upstream_error", message);
+    }
+  }
+
+  /**
+   * Edição estruturada de uma coleção do Redis (hash/list/set/zset).
+   *
+   * Passa pelo **mesmo portão** de escrita das outras edições (`#viaDriver`):
+   * credencial de escrita presente + concessão do ator, auditoria, e o
+   * `rowCount: 0` das ops guardadas vira `row_changed`. Só o Redis a aceita — a
+   * guarda de engine recusa qualquer outra antes de rotear.
+   */
+  async editarValorRedis(
+    connectionId: string,
+    request: RedisValueEditRequest,
+    ator: Ator,
+  ): Promise<MutationResult<RowMutationResult>> {
+    let connection;
+    try {
+      connection = this.#repository.resolve(connectionId, ator);
+    } catch {
+      return mutFail("decryption_failed");
+    }
+    if (connection === null) return mutFail("not_found");
+    if (connection.engine !== "redis") {
+      return mutFail("write_forbidden", "a edição estruturada de coleção só existe no Redis");
+    }
+
+    const r = await this.#viaDriver(connectionId, request.database, ator, {
+      tipo: "redis-valor",
+      req: request,
+    });
+    // `#viaDriver` só devolve `null` para engine sem `mutarLinha`; o Redis a tem,
+    // então o caminho é sempre não-nulo aqui.
+    return r ?? mutFail("upstream_error", "driver do Redis indisponível");
   }
 
   #registrar(

@@ -2,6 +2,7 @@ import { Elysia, t } from "elysia";
 
 import {
   ErrorResponse,
+  RedisValueEditRequest,
   RowDeleteRequest,
   RowInsertRequest,
   RowMutationResult,
@@ -73,4 +74,17 @@ export const mutationRoutes = (service: MutationService, users: UsersRepository)
         );
       },
       { params: t.Object({ id: t.String() }), body: RowInsertRequest, response: respostas },
+    )
+    .post(
+      "/:id/redis/value",
+      async ({ params, body, status, sessao }) => {
+        const result = await service.editarValorRedis(params.id, body, exigirAtor(sessao));
+        if (result.ok) return result.value;
+        const { status: code, body: payload } = MUTATION_FAILURES[result.failure];
+        return status(
+          code,
+          result.detail === undefined ? payload : { ...payload, message: result.detail },
+        );
+      },
+      { params: t.Object({ id: t.String() }), body: RedisValueEditRequest, response: respostas },
     );

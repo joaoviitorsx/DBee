@@ -131,7 +131,15 @@ async function resposta(
     corpo = Bun.gzipSync(new Uint8Array(await arquivo.arrayBuffer()));
     cacheGzip.set(caminho, corpo);
   }
-  return new Response(corpo, { headers: { ...headers, "content-encoding": "gzip" } });
+  /*
+   * `corpo as BodyInit`: `Uint8Array` é corpo de resposta válido em runtime, mas
+   * os tipos do Bun estreitaram `BodyInit` e passaram a recusar o genérico
+   * `Uint8Array<ArrayBufferLike>` que o `gzipSync` devolve. O cast é de tipo, não
+   * de comportamento — evita copiar os bytes só para satisfazer a assinatura.
+   */
+  return new Response(corpo as BodyInit, {
+    headers: { ...headers, "content-encoding": "gzip" },
+  });
 }
 
 const TIPOS: Readonly<Record<string, string>> = {

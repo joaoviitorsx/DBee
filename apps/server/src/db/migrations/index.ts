@@ -5,6 +5,9 @@ import userRoles from "./004_user_roles.sql" with { type: "text" };
 import connectionAccess from "./005_connection_access.sql" with { type: "text" };
 import auditIndexes from "./006_audit_indexes.sql" with { type: "text" };
 import connectionEngine from "./007_connection_engine.sql" with { type: "text" };
+import writeCredential from "./008_write_credential.sql" with { type: "text" };
+import authSource from "./009_auth_source.sql" with { type: "text" };
+import filePath from "./010_file_path.sql" with { type: "text" };
 
 export interface Migration {
   readonly version: number;
@@ -25,6 +28,9 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 5, name: "005_connection_access", sql: connectionAccess },
   { version: 6, name: "006_audit_indexes", sql: auditIndexes },
   { version: 7, name: "007_connection_engine", sql: connectionEngine },
+  { version: 8, name: "008_write_credential", sql: writeCredential },
+  { version: 9, name: "009_auth_source", sql: authSource },
+  { version: 10, name: "010_file_path", sql: filePath },
 ];
 
 /**
@@ -36,4 +42,4 @@ export const MIGRATIONS: readonly Migration[] = [
  * duas vezes, e uma se disfarçou de erro de conexão na UI — erro alto no boot é
  * mais barato que diagnóstico errado na tela.
  */
-export const EXPECTED_SCHEMA = 7;
+export const EXPECTED_SCHEMA = 10;

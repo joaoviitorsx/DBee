@@ -50,9 +50,16 @@ interface Escolha {
 export function ExportTabContent({
   connectionId,
   database,
+  postgres = true,
 }: {
   readonly connectionId: string;
   readonly database: string;
+  /**
+   * Só o Postgres tem índices/triggers/rotinas no dump (são `pg_get_*` do
+   * catálogo). Nas outras engines esses extras são ignorados no servidor —
+   * então a seção nem aparece, em vez de oferecer um controle morto (§5).
+   */
+  readonly postgres?: boolean;
 }) {
   const { t, formatarNumero } = useIdioma();
   const arvore = useSchema(connectionId, database, true);
@@ -265,17 +272,20 @@ export function ExportTabContent({
         </Campo>
 
         <div className="sm:col-span-2 lg:col-span-4">
-          <span className="text-2xs font-semibold uppercase tracking-wide text-subtle">
-            {t("exp.incluir")}
-          </span>
+          {postgres ? (
+            <span className="text-2xs font-semibold uppercase tracking-wide text-subtle">
+              {t("exp.incluir")}
+            </span>
+          ) : null}
           <div className="mt-1 flex flex-wrap items-center gap-x-5 gap-y-1.5">
-            {(
-              [
-                [t("exp.indices"), indexes, setIndexes],
-                [t("exp.triggers"), triggers, setTriggers],
-                [t("exp.rotinas"), routines, setRoutines],
-              ] as const
-            ).map(([rotulo, ligado, alternar]) => (
+            {postgres
+              ? (
+                [
+                  [t("exp.indices"), indexes, setIndexes],
+                  [t("exp.triggers"), triggers, setTriggers],
+                  [t("exp.rotinas"), routines, setRoutines],
+                ] as const
+              ).map(([rotulo, ligado, alternar]) => (
               <label
                 key={rotulo}
                 className={cn(
@@ -290,9 +300,10 @@ export function ExportTabContent({
                   onChange={(e) => { alternar(e.target.checked); }}
                   className="h-4 w-4 accent-[var(--color-muted)]"
                 />
-                {rotulo}
-              </label>
-            ))}
+                  {rotulo}
+                </label>
+                ))
+              : null}
             <span className="ml-auto flex items-center gap-3">
               <span className="text-2xs text-subtle">
                 {t("exp.selecionadas", { n: selecionadas.length, total: tabelas.length })}

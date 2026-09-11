@@ -6,6 +6,7 @@ import { Plug, X } from "lucide-react";
 import { useState, type ComponentProps } from "react";
 
 import { Button, Field, Input } from "../../components/ui";
+import { SeletorDeEngine } from "./SeletorDeEngine";
 import { AcessoDaConexao } from "../../features/usuarios/AcessoDaConexao";
 import { useT } from "../../i18n";
 import type { ChaveI18n } from "../../i18n/pt";
@@ -55,8 +56,8 @@ interface ConnectionFormProps {
 
 function initialDraft(editing: Connection | null): ConnectionDraft {
   return {
-    // Conexão nova nasce Postgres — é a única engine implementada, e o seletor
-    // de engine não é renderizado enquanto for assim (ver `mostra`).
+    // Conexão nova nasce Postgres — a única implementada, e a única que o
+    // seletor deixa escolher (ver `SeletorDeEngine`).
     engine: editing?.engine ?? "postgres",
     name: editing?.name ?? "",
     host: editing?.host ?? "",
@@ -68,6 +69,16 @@ function initialDraft(editing: Connection | null): ConnectionDraft {
     sslMode: editing?.sslMode ?? "disable",
     writeEnabled: editing?.writeEnabled ?? false,
     timezone: editing?.timezone ?? "UTC",
+    /*
+     * A credencial de escrita nunca volta do servidor (como a senha), então na
+     * edição ela nasce vazia — e vazio, num patch, significa "não mexe". Só é
+     * enviada se a pessoa digitar algo.
+     */
+    writeUsername: "",
+    writePassword: "",
+    // `authSource` só existe no Mongo; vazio nas outras. `admin` é o padrão de
+    // fato do Mongo, e preencher ajuda mais que deixar em branco.
+    authSource: editing?.authSource ?? "",
   };
 }
 
@@ -108,10 +119,41 @@ export function ConnectionForm({
   const capacidades = capacidadesDe(draft.engine ?? "postgres");
   const mostra = (campo: CampoConexao): boolean =>
     capacidades === null || capacidades.campos.includes(campo);
+  const ehLibsql = (draft.engine ?? "postgres") === "libsql";
+
+  /**
+   * O que vai para a API: **só os campos que a engine tem**.
+   *
+   * O rascunho carrega todos, porque trocar de motor não pode apagar o que a
+   * pessoa já digitou (ela pode voltar atrás). Mas mandar um campo que a engine
+   * não tem é recusado com 400 pelo servidor, de propósito — atribuição em
+   * massa —, e mandar `database: ""` para um libSQL guardaria um database que
+   * ninguém escolheu.
+   *
+   * `name`, `engine`, `color` e `password` não passam pelo filtro: os três
+   * primeiros existem em toda engine, e `password` é a credencial (o token, no
+   * libSQL), que está sempre em `campos` de quem precisa dela.
+   */
+  const paraEnvio = (d: ConnectionDraft): ConnectionDraft => {
+    if (capacidades === null) return d;
+    const permitidos = new Set<string>(capacidades.campos);
+    const saida: Record<string, unknown> = {
+      engine: d.engine,
+      name: d.name,
+      color: d.color,
+    };
+    // `password` só quando a engine tem credencial — o SQLite não tem, e mandar
+    // `password: ""` para ele seria campo de outra engine (recusado no servidor).
+    if (permitidos.has("password")) saida["password"] = d.password;
+    for (const campo of ["host", "port", "database", "username", "sslMode", "timezone", "statementTimeoutMs", "writeEnabled", "writeUsername", "writePassword", "authSource"] as const) {
+      if (permitidos.has(campo)) saida[campo] = d[campo];
+    }
+    return saida as unknown as ConnectionDraft;
+  };
 
   const handleSubmit: NonNullable<ComponentProps<"form">["onSubmit"]> = (event) => {
     event.preventDefault();
-    onSubmit(draft);
+    onSubmit(paraEnvio(draft));
   };
 
   const isEdit = editing !== null;
@@ -150,7 +192,17 @@ export function ConnectionForm({
                 {isEdit ? t("form.editarTitulo") : t("form.novoTitulo")}
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted">
-                {isEdit ? t("form.editarDescricao") : t("form.novoDescricao")}
+                {/*
+                  A frase fala da credencial que vai para o disco, e no libSQL
+                  ela é um token, não uma senha. Mesma classe do rótulo do
+                  campo: chamar de senha manda a pessoa procurar algo que o
+                  servidor dela não tem.
+                */}
+                {isEdit
+                  ? t("form.editarDescricao")
+                  : ehLibsql
+                    ? t("form.novoDescricaoToken")
+                    : t("form.novoDescricao")}
               </Dialog.Description>
             </div>
             <Dialog.Close asChild>
@@ -162,6 +214,34 @@ export function ConnectionForm({
 
           <form onSubmit={handleSubmit} className="flex min-h-0 flex-1 flex-col">
             <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              {/*
+                * O motor vem antes do nome porque é ele que decide o resto do
+                * formulário: `capacidadesDe` governa quais campos aparecem
+                * abaixo. Perguntar o motor depois faria os campos trocarem
+                * debaixo de algo que a pessoa já preencheu.
+                */}
+              <SeletorDeEngine
+                valor={draft.engine ?? "postgres"}
+                onChange={(engine) => {
+                  /*
+                   * A porta acompanha o motor — 5432, 3306, 8080 — **desde que
+                   * ainda seja a porta padrão do motor anterior**. Se a pessoa
+                   * digitou uma porta, ela fica: trocar o motor não é motivo
+                   * para apagar o que ela escreveu.
+                   */
+                  const anterior = capacidadesDe(draft.engine ?? "postgres")?.portaPadrao;
+                  const nova = capacidadesDe(engine)?.portaPadrao;
+                  setDraft((atual) => ({
+                    ...atual,
+                    engine,
+                    ...(atual.port === anterior && nova !== null && nova !== undefined
+                      ? { port: nova }
+                      : {}),
+                  }));
+                }}
+                desabilitado={isEdit}
+              />
+
               <Field label={t("form.nome")} htmlFor="name" hint={t("form.nomeAjuda")}>
                 <Input
                   id="name"
@@ -217,7 +297,17 @@ export function ConnectionForm({
                     placeholder="10.0.0.4"
                   />
                 </Field>
-                <Field label={t("form.porta")} htmlFor="port" hint={t("form.portaAjuda")}>
+                {/*
+                  A dica da porta é do motor. "Nunca o PgBouncer" é conselho de
+                  Postgres, e mostrá-lo sob um campo de libSQL é a tela dando
+                  uma instrução que não se aplica ao servidor que está do outro
+                  lado — foi a captura em 1440 que pegou.
+                */}
+                <Field
+                  label={t("form.porta")}
+                  htmlFor="port"
+                  hint={ehLibsql ? t("form.portaAjudaLibsql") : t("form.portaAjuda")}
+                >
                   <Input
                     id="port"
                     type="number"
@@ -234,6 +324,7 @@ export function ConnectionForm({
 
               {mostra("database") || mostra("username") ? (
               <div className="grid grid-cols-2 gap-3">
+                {mostra("database") ? (
                 <Field label={t("form.database")} htmlFor="database">
                   <Input
                     id="database"
@@ -243,6 +334,8 @@ export function ConnectionForm({
                     onChange={(e) => { set("database", e.target.value); }}
                   />
                 </Field>
+                ) : null}
+                {mostra("username") ? (
                 <Field label={t("form.usuario")} htmlFor="username">
                   <Input
                     id="username"
@@ -252,14 +345,23 @@ export function ConnectionForm({
                     onChange={(e) => { set("username", e.target.value); }}
                   />
                 </Field>
+                ) : null}
               </div>
               ) : null}
 
               {mostra("password") ? (
               <Field
-                label={t("form.senha")}
+                /*
+                 * No libSQL a credencial é um **token JWT**, não uma senha —
+                 * e é o claim dele (`"a":"ro"`) que decide se a conexão grava.
+                 * Chamar isso de "senha" faria a pessoa procurar um campo que
+                 * o servidor dela não tem.
+                 */
+                label={ehLibsql ? t("form.token") : t("form.senha")}
                 htmlFor="password"
-                hint={isEdit ? t("form.senhaAjuda") : undefined}
+                hint={
+                  ehLibsql ? t("form.tokenAjuda") : isEdit ? t("form.senhaAjuda") : undefined
+                }
               >
                 <Input
                   id="password"
@@ -270,6 +372,65 @@ export function ConnectionForm({
                   onChange={(e) => { set("password", e.target.value); }}
                 />
               </Field>
+              ) : null}
+
+              {mostra("authSource") ? (
+              <Field
+                label={t("form.authSource")}
+                htmlFor="auth-source"
+                hint={t("form.authSourceAjuda")}
+              >
+                <Input
+                  id="auth-source"
+                  mono
+                  required
+                  autoComplete="off"
+                  placeholder="admin"
+                  value={draft.authSource ?? ""}
+                  onChange={(e) => { set("authSource", e.target.value); }}
+                />
+              </Field>
+              ) : null}
+
+              {mostra("writePassword") ? (
+              <div className="rounded-[6px] border border-line bg-sunken/40 p-3">
+                <p className="text-xs font-medium text-muted">{t("form.credEscrita")}</p>
+                <p className="mt-0.5 text-2xs text-subtle">
+                  {isEdit && editing.hasWriteCredential
+                    ? t("form.credEscritaAjudaTem")
+                    : t("form.credEscritaAjuda")}
+                </p>
+                <div className="mt-2.5 space-y-2.5">
+                  {mostra("writeUsername") ? (
+                    <Field label={t("form.usuarioEscrita")} htmlFor="write-username">
+                      <Input
+                        id="write-username"
+                        mono
+                        autoComplete="off"
+                        value={draft.writeUsername ?? ""}
+                        onChange={(e) => { set("writeUsername", e.target.value); }}
+                      />
+                    </Field>
+                  ) : null}
+                  <Field
+                    label={ehLibsql ? t("form.tokenEscrita") : t("form.senhaEscrita")}
+                    htmlFor="write-password"
+                  >
+                    <Input
+                      id="write-password"
+                      type="password"
+                      autoComplete="new-password"
+                      placeholder={
+                        isEdit && editing.hasWriteCredential
+                          ? t("form.credEscritaMantem")
+                          : undefined
+                      }
+                      value={draft.writePassword ?? ""}
+                      onChange={(e) => { set("writePassword", e.target.value); }}
+                    />
+                  </Field>
+                </div>
+              </div>
               ) : null}
 
               {mostra("sslMode") ? (

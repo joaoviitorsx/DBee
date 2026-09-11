@@ -1,5 +1,5 @@
 import { type QueryResponse, type SavedQuery, type StatementResult } from "@dbee/shared";
-import { splitStatements } from "@dbee/shared/puro";
+import { capacidadesDe, dialetoDe, splitStatements, type DialetoSql } from "@dbee/shared/puro";
 import { useMutation } from "@tanstack/react-query";
 import { BookmarkPlus, FolderOpen, Play, Square, Table2, TriangleAlert } from "lucide-react";
 import { useRef, useState } from "react";
@@ -14,7 +14,7 @@ import { Trabalhando } from "../motion/Trabalhando";
 import { ResultGrid } from "../grid/ResultGrid";
 import { cn } from "../../lib/cn";
 import { useT } from "../../i18n";
-import { useSchema } from "../tree/useTree";
+import { useConnections, useSchema } from "../tree/useTree";
 import type { QueryTab, TableTarget } from "../../app/workspace";
 import type { RowFilter } from "@dbee/shared";
 import { SqlEditor } from "./SqlEditor";
@@ -56,6 +56,23 @@ export function QueryTabContent({
   // A árvore do database, para o autocomplete do editor. Já costuma estar em
   // cache (a navegação a buscou); aqui ela é reusada, não rebuscada.
   const arvore = useSchema(tab.connectionId, tab.database, true);
+  /*
+   * O dialeto da conexão desta aba. É o que faz o editor separar statements do
+   * mesmo jeito que o servidor vai separar: com a gramática do Postgres num SQL
+   * de MySQL, `'O\'Brien; ...'` viraria dois trechos aqui e um lá.
+   */
+  const conexoes = useConnections();
+  const engineDaAba = conexoes.data?.find((c) => c.id === tab.connectionId)?.engine ?? "postgres";
+  const dialeto: DialetoSql = dialetoDe(engineDaAba);
+  /**
+   * A engine consegue cancelar uma consulta em voo?
+   *
+   * O Postgres (`pg_cancel_backend`), o MySQL (`KILL QUERY`) e o SQLite
+   * (terminação do worker) conseguem; o libSQL **não** — o protocolo HTTP não
+   * oferece cancelamento. Sem isto o botão "Cancelar" apareceria no libSQL sem
+   * fazer nada, que é o tipo de ação morta que o design-system §5 proíbe.
+   */
+  const podeCancelar = capacidadesDe(engineDaAba)?.cancelarQuery === true;
 
   /**
    * O painel de baixo: o resultado da consulta, ou os dados da tabela de origem.
@@ -124,6 +141,7 @@ export function QueryTabContent({
         <SqlEditor
           value={sql}
           onChange={setSql}
+          dialeto={dialeto}
           {...(arvore.data === undefined ? {} : { schema: arvore.data })}
           // Cmd+Enter roda só o statement sob o cursor; Cmd+Shift+Enter, tudo.
           onRunStatement={(trecho) => { if (trecho.trim() !== "") executar.mutate(trecho); }}
@@ -152,7 +170,7 @@ export function QueryTabContent({
             {t("query.executarTudo")}
           </Button>
 
-          {executar.isPending ? (
+          {executar.isPending && podeCancelar ? (
             <Button
               variant="danger"
               size="sm"
@@ -277,7 +295,7 @@ export function QueryTabContent({
             {t("query.vazio")}
           </p>
         ) : (
-          <Resultado resposta={resposta} sql={sqlExecutado} tab={tab} />
+          <Resultado resposta={resposta} sql={sqlExecutado} tab={tab} dialeto={dialeto} />
         )}
       </div>
     </div>
@@ -315,10 +333,12 @@ function Resultado({
   resposta,
   sql,
   tab,
+  dialeto,
 }: {
   readonly resposta: QueryResponse;
   readonly sql: string;
   readonly tab: QueryTab;
+  readonly dialeto: DialetoSql;
 }) {
   const t = useT();
   /*
@@ -326,7 +346,7 @@ function Resultado({
    * executá-los. Reconstruir a fatia de outro jeito exportaria um texto e
    * mostraria outro assim que o SQL tivesse `;` dentro de string.
    */
-  const statements = splitStatements(sql);
+  const statements = splitStatements(sql, dialeto);
 
   return (
     <>

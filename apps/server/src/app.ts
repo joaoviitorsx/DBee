@@ -7,6 +7,7 @@ import { SettingsRepository } from "./db/settings.repo";
 import { UsersRepository } from "./db/users.repo";
 import { QueryLogRepository } from "./db/queryLog.repo";
 import { SavedQueriesRepository } from "./db/savedQueries.repo";
+import { Drivers } from "./driver/registro";
 import { MutationService } from "./services/mutation.service";
 import { AuditService } from "./services/audit.service";
 import type { Store } from "./db/client";
@@ -15,6 +16,7 @@ import { auditRoutes } from "./routes/audit";
 import { authRoutes } from "./routes/auth";
 import { connectionsRoutes } from "./routes/connections";
 import { ddlRoutes } from "./routes/ddl";
+import { cabecalhosDeSeguranca } from "./routes/cabecalhos";
 import { errorHandler } from "./routes/errors";
 import { exportRoutes } from "./routes/export";
 import { sessionGuard } from "./routes/guard";
@@ -66,17 +68,23 @@ export function createApp({
   releasesApi,
 }: AppDeps) {
   const repository = new ConnectionsRepository(store.db, store.key);
+  /*
+   * Quem sabe falar com cada engine. Criado uma vez: cada driver é dono do seu
+   * pool, e recriá-los por requisição abriria conexão nova a cada clique. O de
+   * Postgres recebe o `PoolManager` que já existe, em vez de abrir um segundo.
+   */
+  const drivers = new Drivers(pools, caCert);
   const users = new UsersRepository(store.db);
   const auth = new AuthService({ users, dataDir });
-  const schema = new SchemaService({ repository, pools });
+  const schema = new SchemaService({ repository, pools, drivers });
   const log = new QueryLogRepository(store.db);
   const audit = new AuditService(log);
   const savedQueries = new SavedQueriesRepository(store.db);
-  const query = new QueryService({ repository, pools, log });
-  const mutation = new MutationService({ repository, pools, log });
-  const rows = new RowsService({ repository, pools, schema, log });
-  const exportar = new ExportService({ repository, pools, schema, log });
-  const ddl = new DdlService({ repository, pools, log });
+  const query = new QueryService({ repository, log, drivers });
+  const mutation = new MutationService({ repository, pools, log, drivers });
+  const rows = new RowsService({ repository, schema, log, drivers });
+  const exportar = new ExportService({ repository, pools, schema, log, drivers });
+  const ddl = new DdlService({ repository, pools, log, drivers });
   const usuarios = new UsersService(users);
   const update = new UpdateService({
     settings: new SettingsRepository(store.db, store.key),
@@ -87,11 +95,15 @@ export function createApp({
   const connections = new ConnectionsService({
     repository,
     caCert,
+    drivers,
     // Editar ou apagar conexão invalida a árvore em cache e derruba os pools:
     // host, senha ou timezone mudaram, e o que estava aberto não vale mais.
     onConnectionChanged: (id) => {
       schema.evict(id);
       pools.evict(id);
+      // Os drivers têm pools próprios (o de MySQL tem o seu): esquecer só o do
+      // Postgres deixaria conexões MySQL falando com o servidor antigo.
+      void drivers.esquecer(id);
     },
   });
 
@@ -100,6 +112,9 @@ export function createApp({
       // Antes de qualquer rota: o formato de erro padrão do Elysia ecoa o corpo
       // submetido, senha inclusive.
       .use(errorHandler)
+      // Cabeçalhos de segurança em toda resposta. Vem logo depois do tratamento
+      // de erro para valer inclusive nas respostas de erro.
+      .use(cabecalhosDeSeguranca)
       /*
        * O guard vem **antes de toda rota registrada abaixo**, e a ordem é o
        * mecanismo: hook global do Elysia vale para o que vem depois do `.use()`.

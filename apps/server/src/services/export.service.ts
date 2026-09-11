@@ -1,23 +1,37 @@
 import {
   CONTENT_TYPE,
+  EXPORT_BATCH,
   exportFilename,
   PREVIEW_MAX_BYTES,
   splitStatements,
   sqlIdent,
+  type DialetoSql,
   type ExportBundleRequest,
   type ExportRequest,
   type Relation,
+  type RowCursor,
   type RowsRequest,
 } from "@dbee/shared";
 
+import { dialetoDe } from "@dbee/shared/puro";
+
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
+import type { Drivers } from "../driver/registro";
+import { citarIdent, exportarEmStream, type PaginaExport } from "../driver/exportador";
+import {
+  streamBundleDriver,
+  type BundleOpcoesDriver,
+  type BundleTablePlanoDriver,
+} from "../driver/bundle";
+import type { DriverLeitura } from "../driver/tipos";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import { streamBundle, type BundleOptions, type BundleTablePlan } from "../pg/bundle";
 import { streamExport } from "../pg/exporter";
 import type { PoolManager } from "../pg/pool";
 import { RowsError, planRows } from "../pg/rows";
 import type { SchemaService } from "./schema.service";
+import { exigirExportacao } from "./engine.guarda";
 import { type ServiceResult, fail, ok } from "./result";
 
 
@@ -26,6 +40,7 @@ export interface ExportServiceDeps {
   readonly pools: PoolManager;
   readonly schema: SchemaService;
   readonly log: QueryLogRepository;
+  readonly drivers: Drivers;
 }
 
 export interface ExportStream {
@@ -97,6 +112,48 @@ function montarCreateTable(schema: string, table: string, relation: Relation): s
 }
 
 /**
+ * `CREATE TABLE` de referência para as engines não-Postgres.
+ *
+ * Genérico e honesto sobre o que é: colunas com o tipo **nativo** que a
+ * introspecção daquela engine devolveu (tipo do MySQL, do SQLite), nulidade e a
+ * PRIMARY KEY. Fica de fora o que a fronteira não modela por tabela — FKs,
+ * índices, checks. O identificador é citado pelo dialeto (crase no MySQL, aspas
+ * duplas no SQLite/libSQL). Não há o caso `serial` do Postgres: as outras
+ * engines carregam o auto-incremento no próprio tipo.
+ *
+ * ## O DEFAULT só entra no SQLite
+ *
+ * No SQLite o `PRAGMA table_info` devolve o default **como literal SQL já
+ * citado** (`'BR'`, `0`, `CURRENT_TIMESTAMP`): dá para reemitir cru e recarrega.
+ * No MySQL o `information_schema` devolve o default de string **sem aspas**
+ * (`BR`, não `'BR'` — medido em `mysql/introspect-completo`), e `DEFAULT BR`
+ * lê `BR` como identificador: o arquivo **não recarrega**. Como não há um único
+ * formato que sirva para os dois, e este CREATE TABLE é referência e não
+ * fidelidade total, o default é omitido no MySQL em vez de sair inválido.
+ */
+function montarCreateTableGenerico(alvo: string, relation: Relation, dialeto: DialetoSql): string {
+  const linhas = relation.columns.map((c) => {
+    const partes = [`  ${citarIdent(c.name, dialeto)} ${c.dataType}`];
+    if (!c.nullable) partes.push("NOT NULL");
+    // Só o SQLite devolve o default como literal já citado (ver doc acima).
+    if (c.defaultValue !== null && dialeto === "sqlite") partes.push(`DEFAULT ${c.defaultValue}`);
+    return partes.join(" ");
+  });
+
+  if (relation.primaryKey.length > 0) {
+    const cols = relation.primaryKey.map((n) => citarIdent(n, dialeto)).join(", ");
+    linhas.push(`  PRIMARY KEY (${cols})`);
+  }
+
+  return (
+    `-- tabela: ${relation.name}\n` +
+    `-- gerado pelo DBee — CREATE TABLE de referência (colunas, defaults, PK).\n` +
+    `-- FKs, índices e checks ficam de fora.\n` +
+    `CREATE TABLE ${alvo} (\n${linhas.join(",\n")}\n);\n`
+  );
+}
+
+/**
  * Export em stream.
  *
  * A transação vive **enquanto o stream vive**: o cursor só existe dentro dela.
@@ -109,12 +166,14 @@ export class ExportService {
   readonly #pools: PoolManager;
   readonly #schema: SchemaService;
   readonly #log: QueryLogRepository;
+  readonly #drivers: Drivers;
 
-  constructor({ repository, pools, schema, log }: ExportServiceDeps) {
+  constructor({ repository, pools, schema, log, drivers }: ExportServiceDeps) {
     this.#repository = repository;
     this.#pools = pools;
     this.#schema = schema;
     this.#log = log;
+    this.#drivers = drivers;
   }
 
   async export(
@@ -137,6 +196,23 @@ export class ExportService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
+
+    /*
+     * Exportação existe em todas as engines SQL; só o Mongo e o Redis a
+     * recusam (o documento e a chave não viram linha de tabela sem inventar um
+     * formato). A guarda lê a capacidade, não a engine.
+     */
+    const semSuporte = exigirExportacao<ExportStream>(connection.engine);
+    if (semSuporte !== null) return semSuporte;
+
+    /*
+     * As engines que não são o Postgres não têm o cursor do `pg` (regra 7):
+     * exportam pela grade de keyset do driver, no caminho próprio abaixo. O
+     * Postgres segue pelo `DECLARE CURSOR` + `FETCH` que é a razão desta rota.
+     */
+    if (connection.engine !== "postgres") {
+      return await this.#exportDriver(connectionId, connection, request, ator);
+    }
 
     const database = request.database ?? connection.database;
 
@@ -251,6 +327,230 @@ export class ExportService {
     }
   }
   /**
+   * Exportação das engines SQL que não são o Postgres (MySQL, MariaDB, libSQL,
+   * SQLite).
+   *
+   * Sem o cursor do `pg`: a origem **tabela** pagina pela grade de keyset do
+   * driver (`linhas`), uma página de cada vez; a origem **consulta** roda o
+   * `executar` uma vez (limitado por `maxRows`, como qualquer consulta nessas
+   * engines). O formato `.sql` cita o identificador pelo dialeto da engine.
+   */
+  async #exportDriver(
+    connectionId: string,
+    connection: ResolvedConnection,
+    request: ExportRequest,
+    ator: Ator,
+  ): Promise<ServiceResult<ExportStream>> {
+    const database = request.database ?? connection.database;
+    const driver = this.#drivers.para(connection.engine);
+    const dialeto = dialetoDe(connection.engine);
+
+    let base: string;
+    // Mutável: o produtor tabela o reescreve com o SELECT real (com
+    // placeholders) assim que a primeira página volta — sem isso o log grava só
+    // um comentário e "exportou a tabela inteira" fica indistinguível de
+    // "exportou só as linhas de um CNPJ". O Postgres já registra o SELECT real;
+    // este é o mesmo registro para as outras engines.
+    let sqlAuditado: string;
+    let sqlTabela: string | undefined;
+    let sqlPrelude: string | undefined;
+    let proximaPagina: () => Promise<PaginaExport | null>;
+
+    if (request.source.kind === "query") {
+      if (request.format === "sql") {
+        return fail("bad_request", "exportar como .sql só vale para uma tabela, não uma consulta");
+      }
+      const statements = splitStatements(request.source.sql, dialeto);
+      if (statements.length === 0) return fail("bad_request", "não há SQL para exportar");
+      if (statements.length > 1) return fail("bad_request", "exporte um statement por vez");
+      const sql = statements[0]?.sql ?? "";
+      base = "consulta";
+      sqlAuditado = sql;
+      proximaPagina = this.#produtorConsulta(driver, connection, database, sql, request.maxRows);
+    } else {
+      const arvore = await this.#schema.get(connectionId, database, false, ator);
+      if (!arvore.ok) return arvore;
+
+      const { schema: schemaName, table } = request.source;
+      const relation = arvore.value.schemas
+        .find((s) => s.name === schemaName)
+        ?.relations.find((r) => r.name === table);
+      if (relation === undefined) {
+        return fail("not_found", `${schemaName}.${table} não existe neste database`);
+      }
+
+      base = `${schemaName}.${table}`;
+      // Comentário só como fallback; o produtor o substitui pelo SELECT real.
+      sqlAuditado = `-- export ${request.format} de ${base}`;
+      if (request.format === "sql") {
+        // Nestas engines a tabela é qualificada pela conexão (banco/arquivo), não
+        // por schema: o destino do INSERT é só o nome citado pelo dialeto.
+        sqlTabela = citarIdent(table, dialeto);
+        sqlPrelude = montarCreateTableGenerico(sqlTabela, relation, dialeto);
+      }
+      proximaPagina = this.#produtorTabela(
+        driver,
+        connection,
+        database,
+        schemaName,
+        relation,
+        request.source,
+        request.maxRows,
+        (sql) => { sqlAuditado = sql; },
+      );
+    }
+
+    const inicio = performance.now();
+    const { stream, contentType } = exportarEmStream(
+      {
+        format: request.format,
+        csv: request.csv,
+        dialeto,
+        ...(sqlTabela === undefined ? {} : { sqlTabela }),
+        ...(sqlPrelude === undefined ? {} : { sqlPrelude }),
+        proximaPagina,
+      },
+      (resultado, erro) => {
+        this.#log.record({
+          connectionId,
+          database,
+          sql: sqlAuditado,
+          status: erro === null ? "ok" : "error",
+          error: erro,
+          rowCount: resultado.rows,
+          durationMs: Math.round(performance.now() - inicio),
+          readOnly: true,
+          actor: ator.id,
+        });
+      },
+    );
+
+    return ok({ stream, contentType, filename: exportFilename(base, request.format) });
+  }
+
+  /**
+   * Produtor de páginas da origem **tabela**: pagina pela grade do driver.
+   *
+   * Com chave primária, avança por keyset (cursor opaco devolvido pela página
+   * anterior). Sem PK a grade cai para `OFFSET` — o mesmo caminho degradado que
+   * a aba Dados já usa e avisa; aqui o laço acompanha o `keyset: false` da
+   * resposta e passa a contar por offset. O teto `maxRows` é aplicado contando
+   * as linhas entregues, nunca com `LIMIT` injetado no SQL do usuário.
+   *
+   * ## Ordem estável no caminho sem PK
+   *
+   * `OFFSET` sobre um resultado sem `ORDER BY` pode pular ou repetir linha entre
+   * páginas — inofensivo na grade (uma página por vez), mas um export costura
+   * milhares de linhas num arquivo só que a pessoa vai confiar. Por isso, numa
+   * tabela sem PK e sem ordenação pedida, o export ordena pela **primeira
+   * coluna** para dar uma ordem determinística. Não é total (valores repetidos
+   * na primeira coluna ainda podem reordenar), mas é muito melhor que nenhuma, e
+   * a aba Dados continua avisando que sem PK a ordem não é garantida.
+   *
+   * `aoLerSql` recebe o SELECT real (com placeholders) da primeira página, para
+   * a auditoria registrar o que de fato rodou — filtros e tudo.
+   */
+  #produtorTabela(
+    driver: DriverLeitura,
+    connection: ResolvedConnection,
+    database: string,
+    schema: string,
+    relation: Relation,
+    source: Extract<ExportRequest["source"], { kind: "table" }>,
+    maxRows: number | undefined,
+    aoLerSql: (sql: string) => void,
+  ): () => Promise<PaginaExport | null> {
+    let cursor: RowCursor | undefined;
+    let offset = 0;
+    let semKeyset = false;
+    let entregues = 0;
+    let acabou = false;
+    let primeira = true;
+
+    // Sem PK e sem ordenação pedida: ordena pela primeira coluna (ver doc).
+    const ordemPadrao =
+      relation.primaryKey.length === 0 && source.orderBy === undefined
+        ? relation.columns[0]?.name
+        : undefined;
+    const orderBy = source.orderBy ?? ordemPadrao;
+
+    return async () => {
+      if (acabou) return null;
+      const restante =
+        maxRows === undefined ? EXPORT_BATCH : Math.min(EXPORT_BATCH, maxRows - entregues);
+      if (restante <= 0) {
+        acabou = true;
+        return null;
+      }
+
+      const pedido: RowsRequest = {
+        ...(orderBy === undefined ? {} : { orderBy }),
+        ...(source.orderDirection === undefined ? {} : { orderDirection: source.orderDirection }),
+        ...(source.filters === undefined ? {} : { filters: source.filters }),
+        ...(semKeyset ? { offset } : cursor === undefined ? {} : { after: cursor }),
+        limit: restante,
+      };
+
+      const r = await driver.linhas(connection, database, schema, relation, pedido);
+      if (primeira) {
+        primeira = false;
+        aoLerSql(r.sql);
+      }
+      // Apara um eventual excesso do driver sobre o `limit` pedido (defesa em
+      // profundidade: os drivers respeitam o limite, mas o teto `maxRows` não
+      // pode depender disso).
+      const rows = r.resposta.rows.length > restante
+        ? r.resposta.rows.slice(0, restante)
+        : r.resposta.rows;
+      entregues += rows.length;
+      offset += rows.length;
+
+      if (!r.resposta.keyset) {
+        // Sem PK: página parcial (ou vazia) é o fim.
+        semKeyset = true;
+        if (r.resposta.rows.length < restante) acabou = true;
+      } else if (r.resposta.nextCursor === null || !r.resposta.hasMore) {
+        acabou = true;
+      } else {
+        cursor = r.resposta.nextCursor;
+      }
+
+      return { columns: r.resposta.columns.map((c) => c.name), rows };
+    };
+  }
+
+  /**
+   * Produtor de páginas da origem **consulta**: uma página só.
+   *
+   * Estas engines não têm cursor de servidor — o `executar` materializa o
+   * resultado (limitado por `maxRows`, como qualquer consulta delas). A
+   * formatação continua em stream, mas a leitura é de uma vez.
+   */
+  #produtorConsulta(
+    driver: DriverLeitura,
+    connection: ResolvedConnection,
+    database: string,
+    sql: string,
+    maxRows: number | undefined,
+  ): () => Promise<PaginaExport | null> {
+    let feito = false;
+    return async () => {
+      if (feito) return null;
+      feito = true;
+      const r = await driver.executar(connection, {
+        sql,
+        database,
+        maxRows: maxRows ?? 1_000_000_000,
+        somenteLeitura: true,
+      });
+      if (r.error !== null) throw new Error(r.error.message);
+      const primeiro = r.results[0];
+      if (primeiro === undefined) return { columns: [], rows: [] };
+      return { columns: primeiro.columns.map((c) => c.name), rows: primeiro.rows };
+    };
+  }
+
+  /**
    * Dump `.sql` de várias tabelas (§5).
    *
    * Um snapshot só (`REPEATABLE READ`) para o arquivo recarregar: tabelas lidas
@@ -270,6 +570,25 @@ export class ExportService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
+
+    /*
+     * O dump existe em todas as engines SQL; só o Mongo e o Redis o recusam
+     * (o documento e a chave não viram linha de tabela). A guarda lê a
+     * capacidade, não a engine — a mesma que o export de uma tabela usa.
+     */
+    const semSuporte = exigirExportacao<ExportStream>(connection.engine);
+    if (semSuporte !== null) return semSuporte;
+
+    /*
+     * As engines que não são o Postgres não têm o cursor do `pg` nem a
+     * transação `REPEATABLE READ` que dá ao dump do Postgres o instante único
+     * (regra 7). Elas paginam pela grade de keyset do driver, no caminho
+     * próprio abaixo — que também emite o `CREATE TABLE` no dialeto delas e
+     * registra, no cabeçalho, que as tabelas não vêm de um instante único.
+     */
+    if (connection.engine !== "postgres") {
+      return await this.#exportBundleDriver(connectionId, connection, request, ator);
+    }
 
     const database = request.database ?? connection.database;
     const format = request.format ?? "sql";
@@ -410,6 +729,128 @@ export class ExportService {
       });
       return fail("upstream_error", message);
     }
+  }
+
+  /**
+   * Dump de várias tabelas nas engines SQL que não são o Postgres (MySQL,
+   * MariaDB, libSQL, SQLite).
+   *
+   * Ramifica de `exportBundle` como `#exportDriver` ramifica de `export()`, e
+   * pela mesma razão: sem o cursor do `pg` e sem a transação `REPEATABLE READ`,
+   * cada tabela pagina pela grade de keyset do driver (`#produtorTabela`) e o
+   * laço genérico (`streamBundleDriver`) costura as páginas num stream só.
+   *
+   * ## O que este caminho NÃO tem, e por quê
+   *
+   * - **Sem snapshot único entre tabelas.** Não há a transação que dá ao
+   *   Postgres o instante compartilhado; as tabelas podem refletir instantes
+   *   ligeiramente diferentes. Aceitável e honesto — o cabeçalho do `.sql` diz.
+   * - **Sem índices, triggers nem rotinas.** São `pg_get_*` do catálogo do
+   *   Postgres. As opções `indexes`/`triggers`/`routines` são **ignoradas** aqui
+   *   em vez de recusadas: uma linha desmarcada da UI que veio ligada não é erro.
+   * - **Sem `COPY` nem `ON CONFLICT`.** O `COPY … FROM stdin` é do Postgres e o
+   *   `ON CONFLICT` diverge de dialeto entre estas engines; os dados saem sempre
+   *   como `INSERT` simples, o mesmo do export de uma tabela. `data: "none"`
+   *   ainda desliga os dados.
+   *
+   * O que cobre: `CREATE TABLE` de referência no dialeto da engine (via
+   * `montarCreateTableGenerico`, com o identificador citado por `citarIdent`) +
+   * os `INSERT`s. Os formatos não-`.sql` saem como um arquivo por tabela num
+   * `.zip`, o mesmo container do Postgres.
+   */
+  async #exportBundleDriver(
+    connectionId: string,
+    connection: ResolvedConnection,
+    request: ExportBundleRequest,
+    ator: Ator,
+  ): Promise<ServiceResult<ExportStream>> {
+    const database = request.database ?? connection.database;
+    const format = request.format ?? "sql";
+    const structure = request.structure ?? "create";
+    const dataMode = request.data ?? "insert";
+    const output = request.output ?? "download";
+    const ehSql = format === "sql";
+    const dialeto = dialetoDe(connection.engine);
+    const driver = this.#drivers.para(connection.engine);
+
+    const arvore = await this.#schema.get(connectionId, database, false, ator);
+    if (!arvore.ok) return arvore;
+
+    const schemasDaArvore = arvore.value.schemas;
+    type Rel = (typeof schemasDaArvore)[number]["relations"][number];
+    const acharRelation = (schema: string, table: string): Rel | undefined =>
+      schemasDaArvore.find((sc) => sc.name === schema)?.relations.find((r) => r.name === table);
+
+    const planos: BundleTablePlanoDriver[] = [];
+    for (const escolha of request.tables) {
+      // Uma tabela sem estrutura nem dados é uma linha desmarcada que veio
+      // junto, não um erro — pular é o que a UI espera.
+      if (!escolha.structure && !escolha.data) continue;
+
+      const relation = acharRelation(escolha.schema, escolha.table);
+      if (relation === undefined) {
+        return fail("not_found", `${escolha.schema}.${escolha.table} não existe neste database`);
+      }
+
+      // Estrutura só faz sentido em SQL: um CSV não carrega DDL.
+      const querEstrutura = ehSql && escolha.structure && structure !== "none";
+      const querDados = escolha.data && dataMode !== "none";
+      // Nestas engines a tabela é qualificada pela conexão (banco/arquivo), não
+      // por schema: o destino do INSERT é só o nome citado pelo dialeto.
+      const qualified = citarIdent(escolha.table, dialeto);
+
+      planos.push({
+        schema: escolha.schema,
+        table: escolha.table,
+        qualified,
+        ddl: querEstrutura ? montarCreateTableGenerico(qualified, relation, dialeto) : null,
+        columns: relation.columns.map((c) => c.name),
+        dropFirst: structure === "drop-create" && querEstrutura,
+        proximaPagina: querDados
+          ? this.#produtorTabela(
+              driver,
+              connection,
+              database,
+              escolha.schema,
+              relation,
+              { kind: "table", schema: escolha.schema, table: escolha.table },
+              // Sem teto: o dump traz a tabela inteira.
+              undefined,
+              // A auditoria do bundle registra a lista de tabelas, não o SELECT
+              // de cada uma — o produtor não precisa reportar o SQL aqui.
+              () => {
+                /* sem auditoria por tabela no bundle */
+              },
+            )
+          : null,
+      });
+    }
+
+    if (planos.length === 0) return fail("bad_request", "nenhuma tabela selecionada");
+
+    const opcoes: BundleOpcoesDriver = { format, dialeto };
+
+    const inicio = performance.now();
+    const resumo = planos.map((p) => `${p.schema}.${p.table}`).join(", ");
+    const sqlDoLog = `-- export ${format} de ${String(planos.length)} tabela(s): ${resumo}`;
+
+    // Sem `withStreamingTransaction`: os drivers devolvem a conexão ao pool a
+    // cada página, então não há transação a manter viva enquanto o stream vive.
+    const stream = streamBundleDriver(planos, opcoes, (resultado, erro) => {
+      this.#log.record({
+        connectionId,
+        database,
+        sql: sqlDoLog,
+        status: erro === null ? "ok" : "error",
+        error: erro,
+        rowCount: resultado.rows,
+        durationMs: Math.round(performance.now() - inicio),
+        readOnly: true,
+        actor: ator.id,
+      });
+    });
+
+    return ok(this.#embrulhar(stream, database, format, output));
   }
 
   /**

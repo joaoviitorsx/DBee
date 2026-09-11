@@ -1,3 +1,4 @@
+import { RowsError } from "../driver/erros";
 import type { PoolClient } from "pg";
 
 import type {
@@ -46,15 +47,14 @@ const TUDO_TEXTO: TextTypesConfig = { getTypeParser: () => (v) => v };
  */
 const cite = (nome: string): string => `"${nome.replaceAll('"', '""')}"`;
 
-export class RowsError extends Error {
-  constructor(
-    readonly code: "unknown_column" | "invalid_cursor",
-    message: string,
-  ) {
-    super(message);
-    this.name = "RowsError";
-  }
-}
+/**
+ * Reexportado de `driver/erros.ts`.
+ *
+ * A classe mudou de lugar quando o MySQL passou a montar a mesma grade: o
+ * conceito é da grade, não do Postgres, e duas classes com o mesmo nome faziam
+ * o serviço reconhecer só uma delas.
+ */
+export { RowsError };
 
 /** Acumula os parâmetros e devolve o `$n` de cada um. */
 class Parametros {

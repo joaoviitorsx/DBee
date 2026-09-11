@@ -8,7 +8,6 @@ import {
   Loader2,
   MoreHorizontal,
   Pencil,
-  Plug,
   Plus,
   Search,
   Table2,
@@ -18,6 +17,9 @@ import {
 import { useMemo, useState } from "react";
 
 import { Button, Input } from "../../components/ui";
+import { capacidadesDe } from "@dbee/shared/puro";
+
+import { IconeEngine, NOME_ENGINE } from "../../components/IconeEngine";
 import { anchorFromEvent, anchorFromRect, type MenuAnchor } from "../../components/ContextMenu";
 import { HoneycombCluster } from "../../components/HoneycombCluster";
 import { useT } from "../../i18n";
@@ -463,7 +465,28 @@ function ConnectionBranch({
             <span className={cn("h-1.5 w-1.5 rounded-full", HEALTH_DOT[saude === "ok" ? "ok" : "untested"])} />
           )}
         </span>
-        <Plug aria-hidden className={cn("h-3.5 w-3.5 shrink-0", perigo ? "text-danger-ink" : "text-muted")} />
+        {/*
+          * A marca do motor no lugar onde havia uma tomada genérica.
+          *
+          * A tomada dizia "isto é uma conexão" — que a árvore já diz por ser a
+          * árvore de conexões. A marca diz **qual banco está do outro lado**,
+          * que é informação que não estava em lugar nenhum da linha. Um ícone
+          * entra e um sai: a densidade da linha não muda.
+          */}
+        <span className="flex shrink-0 items-center" title={NOME_ENGINE[connection.engine]}>
+          {/*
+            * Sempre `text-muted`, inclusive com escrita habilitada.
+            *
+            * A tomada que estava aqui virava rosa no estado de perigo, e a
+            * marca herdou isso por um momento. Está errado: qual motor é não
+            * muda porque a escrita foi habilitada, e o rosa a três pixels do
+            * ponto de saúde lê como "esta conexão deu erro". O estado já é dito
+            * pela borda âmbar, pelo fundo e pelo selo do lápis — três vezes.
+            * Aqui a regra do conjunto vale: a forma diz qual, a cor diz como.
+            */}
+          <IconeEngine engine={connection.engine} className="h-3.5 w-3.5 text-muted" />
+          <span className="sr-only">{NOME_ENGINE[connection.engine]}</span>
+        </span>
         <span className="truncate text-sm font-medium text-ink">{connection.name}</span>
         <span className="sr-only">{t(HEALTH_LABEL[saude])}</span>
         {/*
@@ -558,6 +581,18 @@ function DatabaseBranch({
 }) {
   const t = useT();
   const node = databaseNode(connection.id, database);
+  /*
+   * A engine tem o nível de schema?
+   *
+   * Sai da capacidade, e não de um `if (engine === "mysql")` aqui: quando a
+   * próxima engine sem schema entrar, ela já vem certa. `null` (engine sem
+   * capacidade declarada) desenha o nível, que é o comportamento de sempre.
+   */
+  const capacidades = capacidadesDe(connection.engine);
+  // Todas as engines sem nível de schema (MySQL, MariaDB, libSQL, MongoDB) —
+  // só o Postgres tem "schema" no meio. Checar a ausência de "schema" no lugar
+  // de uma string exata faz a árvore acompanhar cada engine nova sozinha.
+  const semNivelDeSchema = capacidades !== null && !capacidades.niveis.includes("schema");
   const expanded = tree.isExpanded(node);
   const perigo = connection.writeEnabled;
 
@@ -613,6 +648,7 @@ function DatabaseBranch({
                 database={database}
                 schemaName={entry.node.name}
                 relations={entry.relations}
+                semNivelDeSchema={semNivelDeSchema}
                 // Busca ativa expande tudo: esconder o resultado atrás de um
                 // clique anula o motivo de ter buscado.
                 forceOpen={autoExpandir}
@@ -634,6 +670,7 @@ function SchemaBranch({
   database,
   schemaName,
   relations,
+  semNivelDeSchema,
   forceOpen,
   tree,
   onOpenRelation,
@@ -644,6 +681,15 @@ function SchemaBranch({
   readonly database: string;
   readonly schemaName: string;
   readonly relations: readonly RelationTree[];
+  /**
+   * A engine não tem o nível de schema (`niveis: "conexao/database/tabela"`).
+   *
+   * No MySQL, `SCHEMA` e `DATABASE` são a mesma coisa: o driver devolve um nó
+   * de schema com o nome do próprio database, para a resposta manter a forma do
+   * fio, e é aqui que ele deixa de ser desenhado. Mostrar `loja > loja > tabela`
+   * seria a tela inventando uma hierarquia que o servidor não tem.
+   */
+  readonly semNivelDeSchema: boolean;
   readonly forceOpen: boolean;
   readonly tree: TreeState;
   readonly onOpenRelation: (target: TableTarget) => void;
@@ -651,10 +697,12 @@ function SchemaBranch({
   readonly activeTarget: TableTarget | null;
 }) {
   const node = schemaNode(connection.id, database, schemaName);
-  const expanded = forceOpen || tree.isExpanded(node);
+  // Sem o nível, não há o que expandir: as relações são filhas do database.
+  const expanded = semNivelDeSchema || forceOpen || tree.isExpanded(node);
 
   return (
     <li>
+      {semNivelDeSchema ? null : (
       <Row
         depth={2}
         expandable
@@ -669,6 +717,7 @@ function SchemaBranch({
         <span className="truncate text-xs text-muted">{schemaName}</span>
         <span className="shrink-0 text-2xs text-subtle">{relations.length}</span>
       </Row>
+      )}
 
       {expanded ? (
         <ul>
@@ -683,7 +732,9 @@ function SchemaBranch({
             return (
               <li key={relation.name}>
                 <Row
-                  depth={3}
+                  // Sem o nível de schema, a tabela é neta da conexão e não
+                  // bisneta: o recuo tem que dizer a mesma coisa que a árvore.
+                  depth={semNivelDeSchema ? 2 : 3}
                   expandable={false}
                   danger={connection.writeEnabled}
                   active={ativo}

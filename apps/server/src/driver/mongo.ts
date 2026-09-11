@@ -1,0 +1,173 @@
+import type {
+  DatabaseInfo,
+  DatabaseSchema,
+  DatabaseTree,
+  Engine,
+  Relation,
+  RowsRequest,
+  TestConnectionResult,
+} from "@dbee/shared";
+
+import type { ResolvedConnection } from "../db/connections.repo";
+import { ClienteMongo } from "../mongo/cliente";
+import {
+  inferirCatalogoCampos,
+  introspectarArvore,
+  introspectarCompleto,
+  listarDatabases,
+  NOME_PADRAO,
+  type CatalogoCampos,
+} from "../mongo/introspect";
+import { lerLinhas, planejarLinhas } from "../mongo/rows";
+import { atualizar, excluir, inserir } from "../mongo/mutacao";
+import { MutacaoError } from "./erros";
+import { testConnectionMongo } from "../mongo/test-connection";
+import type {
+  DriverLeitura,
+  MutacaoLinha,
+  ResultadoExecucao,
+  ResultadoLinhas,
+} from "./tipos";
+import type { RowMutationResult } from "@dbee/shared";
+
+/**
+ * O driver de MongoDB, em leitura.
+ *
+ * ## Onde ele diverge das engines SQL
+ *
+ * O Mongo não tem SQL, então `executar` — o editor de SQL livre — **não existe**
+ * nesta engine (`capacidadesDe("mongodb").sqlLivre === false`); a rota nem o
+ * chama. A navegação é pela grade de documentos e pelos filtros, que o `linhas`
+ * atende traduzindo os operadores fechados da grade em query do Mongo.
+ *
+ * Sem transação somente-leitura (como as outras de credencial), sem diagrama
+ * (sem schema fixo e sem FK), sem cancelamento (o driver não expõe um id de
+ * operação estável para `killOp`). Cada uma dessas é uma capacidade declarada
+ * `false`, e a tela esconde o que a engine não faz.
+ *
+ * A escrita de documento é a fatia seguinte — leitura primeiro, como MySQL e
+ * libSQL entraram.
+ */
+export class DriverMongo implements DriverLeitura {
+  readonly engine: Engine = "mongodb";
+  readonly #clientes: ClienteMongo;
+
+  constructor(caCert: string | undefined) {
+    this.#clientes = new ClienteMongo(caCert);
+  }
+
+  /** O database dos dados, com o padrão quando a conexão não deu um. */
+  #db(conexao: ResolvedConnection, database: string): string {
+    const escolhido = database === "" ? conexao.database : database;
+    return escolhido === "" ? NOME_PADRAO : escolhido;
+  }
+
+  async testarConexao(conexao: ResolvedConnection): Promise<TestConnectionResult> {
+    return await testConnectionMongo(conexao, undefined);
+  }
+
+  async listarDatabases(conexao: ResolvedConnection): Promise<DatabaseInfo[]> {
+    const cliente = await this.#clientes.leitura(conexao);
+    return await listarDatabases(cliente, conexao.database);
+  }
+
+  async arvore(conexao: ResolvedConnection, database: string): Promise<DatabaseTree> {
+    const cliente = await this.#clientes.leitura(conexao);
+    return await introspectarArvore(cliente, this.#db(conexao, database));
+  }
+
+  async esquema(conexao: ResolvedConnection, database: string): Promise<DatabaseSchema> {
+    const cliente = await this.#clientes.leitura(conexao);
+    return await introspectarCompleto(cliente, this.#db(conexao, database));
+  }
+
+  async linhas(
+    conexao: ResolvedConnection,
+    database: string,
+    // O Mongo não tem nível de schema: o database qualifica a coleção.
+    _schema: string,
+    relacao: Relation,
+    pedido: RowsRequest,
+  ): Promise<ResultadoLinhas> {
+    const cliente = await this.#clientes.leitura(conexao);
+    const db = this.#db(conexao, database);
+    const plano = planejarLinhas(relacao, pedido);
+    return {
+      resposta: await lerLinhas(cliente, db, relacao, pedido),
+      // O "SQL" que a auditoria registra é a query do Mongo, em JSON. Não é
+      // executável como SQL, mas descreve exatamente o que rodou — que é o
+      // ponto da auditoria.
+      sql: `db.${relacao.name}.find(${JSON.stringify(plano.filtro)})`,
+      // Os valores de filtro já estão dentro do JSON acima; não há marcadores
+      // posicionais como no SQL. Vazio evita duplicar no log.
+      parametros: [],
+    };
+  }
+
+  // Sem params: o Mongo não tem SQL, e um método pode omitir o que ignora e
+  // ainda satisfazer a interface. `sqlLivre: false` faz a tela nem oferecer o
+  // editor; chegar aqui é a rota chamando o que não devia.
+  // eslint-disable-next-line @typescript-eslint/require-await -- o contrato é assíncrono.
+  async executar(): Promise<ResultadoExecucao> {
+    throw new Error("o MongoDB não tem editor de SQL livre — a navegação é pela grade e filtros");
+  }
+
+  /**
+   * Edição de documento pela credencial de **escrita**. A coleção é o `table`
+   * do request; o database, o `database`. O serviço só chega aqui com a
+   * credencial de escrita presente e o ator concedido.
+   */
+  async mutarLinha(conexao: ResolvedConnection, mut: MutacaoLinha): Promise<RowMutationResult> {
+    // A edição estruturada é só do Redis; aqui ela não tem forma (não há `table`
+    // nem membro de coleção). Recusa antes de tocar no cliente.
+    if (mut.tipo === "redis-valor") {
+      throw new MutacaoError("a edição estruturada de coleção só existe no Redis");
+    }
+    const cliente = await this.#clientes.escrita(conexao);
+    const db = this.#db(conexao, mut.req.database);
+    const colecao = mut.req.table;
+
+    /*
+     * O catálogo dos campos (topo e aninhados), pela credencial de **leitura** —
+     * a de escrita pode não ter permissão de amostrar, e o catálogo é o mesmo.
+     * Os tipos fazem a guarda casar (`{preco: 18.9}`, não `{preco: "18.9"}`): o
+     * valor da grade é texto, e sem o tipo o filtro não bate no documento. Os
+     * campos aninhados são o que o validador de path consulta para deixar passar
+     * `endereco.cidade` e recusar `endereco.$gt`/campo desconhecido.
+     */
+    const cat = await this.#catalogoDe(conexao, db, colecao);
+
+    switch (mut.tipo) {
+      case "update":
+        return await atualizar(cliente, db, colecao, mut.req, cat.topo, cat.aninhados);
+      case "delete":
+        return await excluir(cliente, db, colecao, mut.req, cat.topo, cat.aninhados);
+      case "insert":
+        return await inserir(cliente, db, colecao, mut.req, cat.topo);
+    }
+  }
+
+  /** Catálogo de campos (topo + aninhados) de uma coleção, pela credencial de leitura. */
+  async #catalogoDe(
+    conexao: ResolvedConnection,
+    db: string,
+    colecao: string,
+  ): Promise<CatalogoCampos> {
+    return await inferirCatalogoCampos(await this.#clientes.leitura(conexao), db, colecao);
+  }
+
+  // eslint-disable-next-line @typescript-eslint/require-await -- o contrato é assíncrono.
+  async cancelar(): Promise<boolean> {
+    // `capacidadesDe("mongodb").cancelarQuery` é `false`: a tela não oferece o
+    // botão. `false` aqui é a mesma resposta para quem chamar mesmo assim.
+    return false;
+  }
+
+  async esquecer(id: string): Promise<void> {
+    await this.#clientes.esquecer(id);
+  }
+
+  async desligar(): Promise<void> {
+    await this.#clientes.desligar();
+  }
+}

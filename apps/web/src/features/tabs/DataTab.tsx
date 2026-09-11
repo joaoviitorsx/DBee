@@ -10,6 +10,8 @@ import { ExportButton } from "../export/ExportButton";
 import { Trabalhando, TrabalhandoInline } from "../motion/Trabalhando";
 import { ResultGrid } from "../grid/ResultGrid";
 import { RowEditModal, type Pendente, type PkValor } from "../grid/RowEditModal";
+import { RedisValueModal, type RedisAlvo, type TipoColecao } from "../grid/RedisValueModal";
+import { MongoDocModal, type MongoAlvo } from "../grid/MongoDocModal";
 import { InsertModal } from "../grid/InsertModal";
 import { useT } from "../../i18n";
 
@@ -36,8 +38,12 @@ const PAGINA = 500;
 export function DataTab({
   target,
   onConsultar,
+  permiteConsulta = true,
   estimatedRows = null,
   writeEnabled = false,
+  exportavel = true,
+  redisEstruturado = false,
+  mongoDocumento = false,
   colunasSchema,
   foreignKeys,
   initialFilters,
@@ -47,10 +53,18 @@ export function DataTab({
 }: {
   readonly target: TableTarget;
   readonly onConsultar: () => void;
+  /** A engine tem editor de SQL livre? Falso no Mongo — sem "Consultar". */
+  readonly permiteConsulta?: boolean;
   /** `reltuples` do catálogo, para a escolha "exportar tudo" ter um número. */
   readonly estimatedRows?: number | null;
   /** A conexão permite escrita — habilita a edição de célula e o excluir linha. */
   readonly writeEnabled?: boolean;
+  /** A engine exporta? Falso no Mongo e no Redis — esconde o botão de export. */
+  readonly exportavel?: boolean;
+  /** É Redis? Liga o editor estruturado da coluna `value` das coleções. */
+  readonly redisEstruturado?: boolean;
+  /** É Mongo? Liga o editor de documento aninhado (célula objeto/array). */
+  readonly mongoDocumento?: boolean;
   /** Colunas do schema (com nullable/default), para o formulário de "Nova linha". */
   readonly colunasSchema?: readonly Column[];
   /** FKs da tabela — habilitam o salto de navegação nas células. */
@@ -73,6 +87,9 @@ export function DataTab({
   const [rascunho, setRascunho] = useState({ column: "", value: "" });
   // Edição de linha (v0.2): o modal do diff, e a linha selecionada para excluir.
   const [pendente, setPendente] = useState<Pendente | null>(null);
+  // Redis: a coluna `value` de uma coleção abre o editor estruturado.
+  const [redisAlvo, setRedisAlvo] = useState<RedisAlvo | null>(null);
+  const [mongoAlvo, setMongoAlvo] = useState<MongoAlvo | null>(null);
   const [linhaSel, setLinhaSel] = useState<number | null>(null);
   const [inserindo, setInserindo] = useState(false);
 
@@ -192,11 +209,78 @@ export function DataTab({
     return out;
   };
 
+  const COLECOES = new Set<string>(["hash", "list", "set", "zset"]);
+
+  /**
+   * Redis: o duplo clique na coluna `value` de uma coleção abre o editor
+   * estruturado direto (sem passar pelo input inline, que não serve a JSON).
+   * Devolve `true` quando assumiu a célula — o grid usa isso para não abrir o
+   * editor inline por cima.
+   */
+  const abrirEditorRedis = (li: number, col: number): boolean => {
+    if (!redisEstruturado || colunas[col]?.name !== "value") return false;
+    const linha = linhas[li];
+    if (linha === undefined) return false;
+    const iTipo = colunas.findIndex((c) => c.name === "type");
+    const iKey = colunas.findIndex((c) => c.name === "key");
+    const tipo = iTipo >= 0 ? (linha[iTipo] ?? "") : "";
+    const key = iKey >= 0 ? (linha[iKey] ?? "") : "";
+    if (!COLECOES.has(tipo) || key === "") return false;
+    setRedisAlvo({
+      database: target.database,
+      key,
+      type: tipo as TipoColecao,
+      valueJson: linha[col] ?? null,
+    });
+    return true;
+  };
+
+  /**
+   * Mongo: o duplo clique numa célula cujo valor é objeto/array (JSON) abre o
+   * editor de documento aninhado. Célula escalar não entra aqui — cai no editor
+   * de célula normal (edição de campo de topo). O `_id` nunca é editável.
+   */
+  const abrirEditorMongo = (li: number, col: number): boolean => {
+    if (!mongoDocumento) return false;
+    const coluna = colunas[col]?.name;
+    const linha = linhas[li];
+    if (coluna === undefined || coluna === "_id" || linha === undefined) return false;
+    const cel = linha[col] ?? null;
+    // Só objeto/array (o render do Mongo faz JSON desses). Escalar → edição normal.
+    if (cel === null || !(cel.startsWith("{") || cel.startsWith("["))) return false;
+    const iId = colunas.findIndex((c) => c.name === "_id");
+    const idValue = iId >= 0 ? (linha[iId] ?? "") : "";
+    if (idValue === "") return false;
+    setMongoAlvo({
+      database: target.database,
+      schema: target.schema,
+      collection: target.relation,
+      idColumn: "_id",
+      idValue,
+      campo: coluna,
+      valueJson: cel,
+    });
+    return true;
+  };
+
+  /**
+   * O editor próprio da célula: Redis primeiro, depois Mongo. Só quando a
+   * edição está de fato liberada (`editavel`) — senão o modal abriria numa
+   * conexão só-leitura e o servidor recusaria a gravação.
+   */
+  const abrirEditorCustom = (li: number, col: number): boolean =>
+    editavel && (abrirEditorRedis(li, col) || abrirEditorMongo(li, col));
+
   const abrirEdicao = (li: number, col: number, valor: string): void => {
     const p = pkDaLinha(li);
     const coluna = colunas[col]?.name;
     const linha = linhas[li];
     if (p === null || coluna === undefined || linha === undefined) return;
+
+    // Editor próprio (Redis/Mongo) tem prioridade; o grid já o abre no duplo
+    // clique, mas se cair aqui via Enter do inline, roteia para ele também.
+    if (abrirEditorCustom(li, col)) return;
+
     setPendente({
       kind: "update",
       database: target.database,
@@ -250,9 +334,11 @@ export function DataTab({
         ) : null}
 
         <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <Button size="sm" variant="secondary" onClick={onConsultar}>
-            {t("aba.consultar")}
-          </Button>
+          {permiteConsulta ? (
+            <Button size="sm" variant="secondary" onClick={onConsultar}>
+              {t("aba.consultar")}
+            </Button>
+          ) : null}
 
           {editavel && (colunasSchema?.length ?? 0) > 0 ? (
             <Button size="sm" variant="secondary" onClick={() => { setInserindo(true); }}>
@@ -331,24 +417,27 @@ export function DataTab({
           )}
 
           {/* O export leva os MESMOS filtros e ordenação da tela: o arquivo tem
-              de ser o que a pessoa está vendo, não a tabela crua. */}
-          <ExportButton
-          connectionId={target.connectionId}
-          database={target.database}
-          source={{
-            kind: "table",
-            schema: target.schema,
-            table: target.relation,
-            ...(orderBy === null ? {} : { orderBy, orderDirection }),
-            ...(filtros.length > 0 ? { filters: filtros } : {}),
-          }}
-            carregadas={linhas.length}
-            temMais={consulta.hasNextPage}
-            // Com filtro a estimativa da tabela inteira mentiria: ela não sabe
-            // quantas linhas sobram depois do WHERE.
-            totalEstimado={filtros.length > 0 ? null : estimatedRows}
-            disabled={consulta.isPending}
-          />
+              de ser o que a pessoa está vendo, não a tabela crua. Escondido nas
+              engines que não exportam (Mongo, Redis). */}
+          {exportavel ? (
+            <ExportButton
+              connectionId={target.connectionId}
+              database={target.database}
+              source={{
+                kind: "table",
+                schema: target.schema,
+                table: target.relation,
+                ...(orderBy === null ? {} : { orderBy, orderDirection }),
+                ...(filtros.length > 0 ? { filters: filtros } : {}),
+              }}
+              carregadas={linhas.length}
+              temMais={consulta.hasNextPage}
+              // Com filtro a estimativa da tabela inteira mentiria: ela não sabe
+              // quantas linhas sobram depois do WHERE.
+              totalEstimado={filtros.length > 0 ? null : estimatedRows}
+              disabled={consulta.isPending}
+            />
+          ) : null}
           {trailing}
         </div>
       </div>
@@ -389,6 +478,7 @@ export function DataTab({
             onSort={ordenarPor}
             editavel={editavel}
             onEditCell={abrirEdicao}
+            {...(redisEstruturado || mongoDocumento ? { abrirEditorCustom } : {})}
             fkColunas={fkColunas}
             {...(onOpenTableFiltered !== undefined ? { onSaltoFk: saltarFk } : {})}
             onCellClick={(li) => { setLinhaSel(li); }}
@@ -406,6 +496,22 @@ export function DataTab({
           pendente={pendente}
           tipos={tiposDeColuna}
           onClose={() => { setPendente(null); }}
+        />
+      ) : null}
+
+      {redisAlvo !== null ? (
+        <RedisValueModal
+          connectionId={target.connectionId}
+          alvo={redisAlvo}
+          onClose={() => { setRedisAlvo(null); }}
+        />
+      ) : null}
+
+      {mongoAlvo !== null ? (
+        <MongoDocModal
+          connectionId={target.connectionId}
+          alvo={mongoAlvo}
+          onClose={() => { setMongoAlvo(null); }}
         />
       ) : null}
 

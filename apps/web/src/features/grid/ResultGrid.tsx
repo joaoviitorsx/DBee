@@ -68,6 +68,14 @@ export interface ResultGridProps {
   /** Duplo clique numa célula, editado e confirmado com Enter, chega aqui. */
   readonly onEditCell?: (linha: number, coluna: number, valor: string) => void;
   /**
+   * Editor **próprio** de uma célula: chamado no duplo clique ANTES do editor
+   * inline. Se devolver `true`, a célula tem um editor dedicado (o modal
+   * estruturado do Redis) e o inline não abre. É o que faz o duplo clique numa
+   * coleção do Redis ir direto ao editor, sem passar por um input de texto que
+   * não serve para JSON.
+   */
+  readonly abrirEditorCustom?: (linha: number, coluna: number) => boolean;
+  /**
    * Nomes de coluna com FK — ganham a affordance de salto (navegação por FK).
    * O consumidor sabe quais têm FK (a tabela, pela introspecção); o grid só
    * pinta o gatilho.
@@ -88,6 +96,7 @@ export function ResultGrid({
   onSort,
   editavel = false,
   onEditCell,
+  abrirEditorCustom,
   fkColunas,
   onSaltoFk,
 }: ResultGridProps) {
@@ -599,8 +608,15 @@ export function ResultGrid({
                   <button
                     type="button"
                     onDoubleClick={
-                      editavel
-                        ? () => { setEditando({ linha: item.index, coluna: j, valor: celula ?? "" }); }
+                      editavel || abrirEditorCustom !== undefined
+                        ? () => {
+                            // Editor próprio primeiro (modal do Redis); se ele
+                            // assumir a célula, o inline não abre.
+                            if (abrirEditorCustom?.(item.index, j) === true) return;
+                            if (editavel) {
+                              setEditando({ linha: item.index, coluna: j, valor: celula ?? "" });
+                            }
+                          }
                         : undefined
                     }
                     onClick={(e) => {

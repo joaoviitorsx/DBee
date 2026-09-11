@@ -11,6 +11,7 @@ export * from "./meta";
 export * from "./mutation";
 export * from "./overview";
 export * from "./query";
+export * from "./redis";
 export * from "./rows";
 export * from "./savedQueries";
 export * from "./schema";

@@ -1,0 +1,196 @@
+# =============================================================================
+# Publica a landing (site/) no GitHub Pages.
+# =============================================================================
+#
+# COMO ISSO FUNCIONA, PARA QUEM NUNCA USOU O PAGES
+#
+# O GitHub Pages tem dois modos. O antigo publica uma branch (`gh-pages`) e
+# exige que alguém empurre HTML para lá. Este workflow usa o modo novo, "GitHub
+# Actions": nada é commitado em lugar nenhum — o workflow empacota uma pasta
+# num artefato e o Pages serve aquele artefato. A pasta aqui é `site/`, e ela
+# não tem build: é HTML, CSS, JS, fonte e imagem, prontos.
+#
+# ANTES DO PRIMEIRO DEPLOY — três cliques, uma vez só:
+#
+#   1. Settings → Pages → "Build and deployment" → Source: **GitHub Actions**.
+#      Sem isso o deploy falha com "Pages site not found" e a mensagem não diz
+#      que o problema é este seletor.
+#
+#   2. Settings → Actions → General → Workflow permissions: deixe em
+#      "Read repository contents" (o padrão). Este workflow NÃO precisa de
+#      escrita no repo — as permissões que ele precisa estão declaradas em
+#      `permissions:` abaixo, e valem só para esta execução.
+#
+#   3. Domínio próprio (opcional). Ver a seção CNAME mais abaixo.
+#
+# DEPOIS: cada push na branch `main` que toque em `site/` republica o site em
+# um ou dois minutos. Dá para rodar à mão em Actions → "Publicar a landing" →
+# "Run workflow".
+#
+# O QUE ESTE WORKFLOW NÃO FAZ: ele não constrói nem publica o app (`apps/`).
+# O app vira imagem Docker no `release.yml`, disparado por tag. São duas coisas
+# separadas de propósito — a landing muda muito mais que o produto, e um deploy
+# de página não pode arrastar o binário junto.
+# =============================================================================
+
+name: Publicar a landing
+
+on:
+  push:
+    branches: [main]
+    # Só republica quando a landing muda. Um commit em apps/ não gasta minuto
+    # de Actions nem gera um deploy idêntico ao anterior.
+    paths:
+      - "site/**"
+      - ".github/workflows/pages.yml"
+  # Botão manual em Actions → Publicar a landing → Run workflow.
+  workflow_dispatch:
+
+# Permissões desta execução. `pages: write` e `id-token: write` são o que o
+# par upload-pages-artifact/deploy-pages exige; `contents: read` é o checkout.
+# Nada aqui dá poder de escrever no repositório.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Um deploy por vez. `cancel-in-progress: false` porque cancelar um deploy no
+# meio pode deixar o Pages servindo um estado parcial — é melhor a fila esperar.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Empacotar
+  # ---------------------------------------------------------------------------
+  empacotar:
+    name: Empacotar site/
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------------
+      # CNAME — o domínio próprio.
+      #
+      # O Pages lê um arquivo chamado exatamente `CNAME`, na raiz do que for
+      # publicado, contendo SÓ o domínio (sem http://, sem barra, sem comentário).
+      # Ele já existe versionado em `site/CNAME`.
+      #
+      # Para trocar de domínio há duas formas, e a segunda evita commit:
+      #
+      #   a) edite `site/CNAME` e faça push; ou
+      #   b) crie a variável de repositório PAGES_DOMAIN
+      #      (Settings → Secrets and variables → Actions → Variables → New)
+      #      com o domínio. Ela vence o arquivo.
+      #
+      # Para publicar SEM domínio próprio (em joaoviitorsx.github.io/DBee),
+      # ponha PAGES_DOMAIN com o valor literal `none`: o passo apaga o CNAME.
+      #
+      # Do lado do DNS, uma vez só: um registro CNAME do seu subdomínio para
+      # `joaoviitorsx.github.io.` (com o ponto final). Depois que propagar,
+      # marque "Enforce HTTPS" em Settings → Pages.
+      # -----------------------------------------------------------------------
+      - name: Resolver o domínio (CNAME)
+        env:
+          DOMINIO: ${{ vars.PAGES_DOMAIN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DOMINIO}" ]; then
+            echo "PAGES_DOMAIN não definida — usando o site/CNAME versionado."
+          elif [ "${DOMINIO}" = "none" ]; then
+            echo "PAGES_DOMAIN=none — publicando sem domínio próprio."
+            rm -f site/CNAME
+          else
+            echo "PAGES_DOMAIN=${DOMINIO} — sobrescrevendo site/CNAME."
+            printf '%s\n' "${DOMINIO}" > site/CNAME
+          fi
+          echo "CNAME final: $(cat site/CNAME 2>/dev/null || echo '<nenhum>')"
+
+      # -----------------------------------------------------------------------
+      # Conferência de links locais.
+      #
+      # Está aqui porque o modo de falha do Pages é silencioso: um href com o
+      # nome errado não quebra o deploy, ele publica uma página com a imagem
+      # faltando ou o CSS ausente, e ninguém percebe até alguém abrir. O
+      # equivalente ao "build limpo não é evidência" do CLAUDE.md: o deploy
+      # verde não prova que a página carrega.
+      #
+      # Só confere caminho LOCAL (relativo ou começando com /). Link externo
+      # (http://, https://, mailto:, #âncora, data:) fica de fora — verificar
+      # host de terceiro num CI é receita de falha intermitente.
+      # -----------------------------------------------------------------------
+      - name: Conferir que todo asset referenciado existe
+        run: |
+          set -euo pipefail
+          falhou=0
+          while IFS= read -r pagina; do
+            dir=$(dirname "$pagina")
+            # Extrai o valor de href="" e src="" de cada página.
+            # `|| true` no grep: com `pipefail`, uma página sem nenhum href
+            # faria o grep sair 1 e o passo acusar falha onde não há nenhuma.
+            (grep -oE '(href|src)="[^"]+"' "$pagina" 2>/dev/null || true) \
+              | sed -E 's/^(href|src)="//; s/"$//' \
+              | while IFS= read -r ref; do
+                  case "$ref" in
+                    ""|"#"*|http://*|https://*|mailto:*|data:*|//*) continue ;;
+                  esac
+                  # Tira âncora e query do fim do caminho.
+                  limpo="${ref%%#*}"; limpo="${limpo%%\?*}"
+                  [ -z "$limpo" ] && continue
+                  case "$limpo" in
+                    /*) alvo="site${limpo}" ;;
+                    *)  alvo="${dir}/${limpo}" ;;
+                  esac
+                  # Um caminho terminado em / é uma pasta com index.html.
+                  case "$alvo" in */) alvo="${alvo}index.html" ;; esac
+                  if [ ! -e "$alvo" ]; then
+                    echo "::error file=${pagina}::referência quebrada: ${ref} (procurei em ${alvo})"
+                    exit 1
+                  fi
+                done || falhou=1
+          done < <(find site -name '*.html')
+          if [ "$falhou" -ne 0 ]; then
+            echo "Há referência quebrada em site/. O deploy foi abortado."
+            exit 1
+          fi
+          echo "Todos os caminhos locais das páginas existem."
+
+      - name: Relatar o peso do que vai ser publicado
+        run: |
+          set -euo pipefail
+          echo "### Peso da landing" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          du -sh site >> "$GITHUB_STEP_SUMMARY"
+          du -ah site | sort -rh | head -15 >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preparar o Pages
+        uses: actions/configure-pages@v5
+
+      # Empacota a pasta como artefato do Pages. `path: site` é o que faz o
+      # site ser servido na RAIZ do domínio — se fosse o repositório inteiro,
+      # a landing viveria em /site/ e todo link relativo continuaria certo,
+      # mas o endereço ficaria feio e o README iria junto.
+      - name: Empacotar site/
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  # ---------------------------------------------------------------------------
+  # 2. Publicar
+  # Job separado porque o `environment: github-pages` precisa ficar só no passo
+  # que de fato implanta — é ele que aparece com a URL na aba Environments.
+  # ---------------------------------------------------------------------------
+  publicar:
+    name: Publicar no Pages
+    needs: empacotar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Implantar
+        id: deploy
+        uses: actions/deploy-pages@v4

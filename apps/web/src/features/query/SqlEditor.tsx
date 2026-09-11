@@ -1,12 +1,12 @@
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
-import { PostgreSQL, sql as sqlLang } from "@codemirror/lang-sql";
+import { MySQL, PostgreSQL, SQLite, sql as sqlLang, type SQLDialect } from "@codemirror/lang-sql";
 import { tags } from "@lezer/highlight";
 import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { acceptCompletion, autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import type { DatabaseSchema } from "@dbee/shared";
-import { splitStatements } from "@dbee/shared/puro";
+import { splitStatements, type DialetoSql } from "@dbee/shared/puro";
 import { useEffect, useMemo, useRef } from "react";
 
 import { construirCompletion } from "./completion";
@@ -140,6 +140,25 @@ const realce = HighlightStyle.define([
   { tag: tags.operator, color: "var(--color-muted)" },
 ]);
 
+/**
+ * O dialeto do CodeMirror para cada dialeto de engine.
+ *
+ * É a metade "sintaxe da engine" do autocomplete: cada dialeto traz o **próprio
+ * conjunto de palavras-chave** e a **citação de identificador** certa. Com o
+ * Postgres fixo, um usuário de MySQL via `AUTO_INCREMENT`/`LIMIT … OFFSET`
+ * sumir da lista e a crase (`` `tabela` ``) não ser reconhecida como
+ * identificador — o editor sugeria e destacava uma sintaxe que não é a do banco
+ * conectado.
+ *
+ * `mysql` cobre MariaDB (o `dialetoDe` já os une), e `sqlite` cobre o libSQL —
+ * a mesma gramática que o `splitStatements` usa para esses dois.
+ */
+const DIALETO_CODEMIRROR: Record<DialetoSql, SQLDialect> = {
+  postgres: PostgreSQL,
+  mysql: MySQL,
+  sqlite: SQLite,
+};
+
 export interface SqlEditorProps {
   readonly value: string;
   readonly onChange: (value: string) => void;
@@ -155,6 +174,14 @@ export interface SqlEditorProps {
    * não perder foco nem cursor no meio da digitação.
    */
   readonly schema?: DatabaseSchema;
+  /**
+   * Como separar statements — a gramática da engine desta conexão.
+   *
+   * Padrão `postgres` porque é a engine que sempre existiu; o editor nunca
+   * ficou sem separador, e um `undefined` aqui significa "conexão que ainda
+   * não chegou", não "outro dialeto".
+   */
+  readonly dialeto?: DialetoSql;
 }
 
 /**
@@ -164,9 +191,17 @@ export interface SqlEditorProps {
  * usa** para separar o SQL recebido. Duas implementações divergiriam no SQL
  * estranho (dollar quoting, `;` dentro de string) e o editor destacaria um
  * trecho enquanto o servidor executaria outro.
+ *
+ * O `dialeto` acompanha pelo mesmo motivo: o servidor separa o SQL do MySQL
+ * com a gramática do MySQL, e um editor lendo com a do Postgres destacaria um
+ * trecho diferente do que seria executado.
  */
-export function statementSobCursor(sql: string, cursor: number): { sql: string; de: number; ate: number } | null {
-  const statements = splitStatements(sql);
+export function statementSobCursor(
+  sql: string,
+  cursor: number,
+  dialeto: DialetoSql = "postgres",
+): { sql: string; de: number; ate: number } | null {
+  const statements = splitStatements(sql, dialeto);
   if (statements.length === 0) return null;
 
   for (const s of statements) {
@@ -188,7 +223,14 @@ export function statementSobCursor(sql: string, cursor: number): { sql: string; 
     : { sql: primeiro.sql, de: primeiro.offset, ate: primeiro.offset + primeiro.sql.length };
 }
 
-export function SqlEditor({ value, onChange, onRunStatement, onRunAll, schema }: SqlEditorProps) {
+export function SqlEditor({
+  value,
+  onChange,
+  onRunStatement,
+  onRunAll,
+  schema,
+  dialeto = "postgres",
+}: SqlEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   // A configuração da linguagem SQL vive num compartimento próprio para poder
@@ -209,7 +251,9 @@ export function SqlEditor({ value, onChange, onRunStatement, onRunAll, schema }:
 
   const configSql = (): Extension =>
     sqlLang({
-      dialect: PostgreSQL,
+      // O dialeto da engine conectada, não o Postgres fixo: é o que traz as
+      // palavras-chave certas e a citação de identificador certa para a lista.
+      dialect: DIALETO_CODEMIRROR[dialetoRef.current],
       upperCaseKeywords: false,
       ...(completion === null
         ? {}
@@ -229,6 +273,16 @@ export function SqlEditor({ value, onChange, onRunStatement, onRunAll, schema }:
   useEffect(() => {
     acoes.current = { onChange, onRunStatement, onRunAll };
   });
+
+  /*
+   * O dialeto vai por ref pelo mesmo motivo das ações: o keymap é montado uma
+   * vez, e uma dependência a mais no efeito remontaria o editor — perdendo
+   * foco e cursor — só porque a lista de conexões chegou.
+   */
+  const dialetoRef = useRef(dialeto);
+  useEffect(() => {
+    dialetoRef.current = dialeto;
+  }, [dialeto]);
 
   useEffect(() => {
     const el = host.current;
@@ -257,7 +311,7 @@ export function SqlEditor({ value, onChange, onRunStatement, onRunAll, schema }:
           preventDefault: true,
           run: (v) => {
             const doc = v.state.doc.toString();
-            const alvo = statementSobCursor(doc, v.state.selection.main.head);
+            const alvo = statementSobCursor(doc, v.state.selection.main.head, dialetoRef.current);
             if (alvo !== null) acoes.current.onRunStatement(alvo.sql);
             return true;
           },
@@ -294,15 +348,18 @@ export function SqlEditor({ value, onChange, onRunStatement, onRunAll, schema }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Schema chegou (ou mudou): troca só o compartimento da linguagem. O
-  // documento, o histórico e o cursor ficam intactos.
+  // Schema chegou (ou mudou), ou a conexão da aba trocou de engine: troca só o
+  // compartimento da linguagem. O documento, o histórico e o cursor ficam
+  // intactos. O `dialeto` entra aqui porque ele decide o dialeto do CodeMirror
+  // (palavras-chave e citação) — o `dialetoRef` já foi atualizado pelo efeito
+  // acima, que roda antes deste por vir antes na ordem de declaração.
   useEffect(() => {
     const v = view.current;
     if (v === null) return;
     v.dispatch({ effects: linguagem.current.reconfigure(configSql()) });
-    // `configSql` fecha sobre `completion`, que é a dependência real.
+    // `configSql` fecha sobre `completion` e `dialetoRef`, as dependências reais.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [completion]);
+  }, [completion, dialeto]);
 
   // Só reescreve o documento quando o valor de fora diverge — sem isto, digitar
   // dispararia uma reescrita que move o cursor para o fim a cada tecla.

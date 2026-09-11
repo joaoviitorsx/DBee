@@ -1,0 +1,24 @@
+-- A credencial de escrita: opcional, separada da de leitura.
+--
+-- As engines cuja garantia é a credencial (MySQL, MariaDB, libSQL) não têm
+-- transação somente-leitura que resista (medido, docs/multi-engine.md §1). Até
+-- aqui isso significava "só leitura, ponto". Estas duas colunas destravam a
+-- escrita sem abrir mão da promessa central do DBee — "nada muda por acidente":
+-- a leitura continua usando a credencial de sempre, e a escrita só acontece
+-- quando existe uma **segunda** credencial, gravável, conectada de propósito.
+--
+-- Nulas por padrão, e nulo é o estado que importa: conexão sem credencial de
+-- escrita segue somente-leitura, como antes desta migração. Um binário anterior
+-- continua abrindo este banco (não pede as colunas, e o `migrate` só aborta
+-- ABAIXO do esperado) — rollback de deploy segue possível.
+--
+-- `write_username` é nulo no libSQL: lá a credencial é só o token JWT gravável,
+-- que vai em `write_password_enc`. No MySQL/MariaDB os dois são usados.
+--
+-- `write_password_enc` é cifrado como qualquer credencial (ADR 005), mas com
+-- AAD **distinto** do da senha de leitura (`v2:<id>#write` contra `v2:<id>`):
+-- sem isso, quem tem escrita no volume trocaria a senha de leitura pela de
+-- escrita DENTRO da mesma linha, e a leitura passaria a rodar com a credencial
+-- gravável — o oposto exato do que estas colunas existem para garantir.
+ALTER TABLE connections ADD COLUMN write_username TEXT;
+ALTER TABLE connections ADD COLUMN write_password_enc TEXT;

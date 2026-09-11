@@ -160,16 +160,19 @@ export function SubTabs({
   onChange,
   counts,
   trailing,
+  semDiagrama = false,
 }: {
   readonly value: TableView;
   readonly onChange: (view: TableView) => void;
   readonly counts: { readonly columns: number; readonly indexes: number };
   /** Ações da vista atual — Consultar, filtro, export — na mesma barra. */
   readonly trailing?: ReactNode;
+  /** Esconde a aba Diagrama nas engines sem ERD (Mongo). */
+  readonly semDiagrama?: boolean;
 }) {
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-line pl-3 pr-2">
-      <SubTabButtons value={value} onChange={onChange} counts={counts} />
+      <SubTabButtons value={value} onChange={onChange} counts={counts} semDiagrama={semDiagrama} />
       {trailing !== undefined ? (
         <div className="ml-auto flex min-w-0 items-center gap-2 py-1.5">{trailing}</div>
       ) : null}
@@ -188,18 +191,23 @@ export function SubTabButtons({
   value,
   onChange,
   counts,
+  semDiagrama = false,
 }: {
   readonly value: TableView;
   readonly onChange: (view: TableView) => void;
   readonly counts: { readonly columns: number; readonly indexes: number };
+  /** Esconde a aba Diagrama nas engines sem ERD (Mongo: sem schema, sem FK). */
+  readonly semDiagrama?: boolean;
 }) {
   const t = useT();
-  const itens = [
-    { id: "data", label: t("aba.dados"), badge: null },
-    { id: "structure", label: t("aba.estrutura"), badge: counts.columns },
-    { id: "indexes", label: t("aba.indices"), badge: counts.indexes },
-    { id: "diagram", label: t("aba.diagrama"), badge: null },
-  ] as const;
+  const itens = (
+    [
+      { id: "data", label: t("aba.dados"), badge: null },
+      { id: "structure", label: t("aba.estrutura"), badge: counts.columns },
+      { id: "indexes", label: t("aba.indices"), badge: counts.indexes },
+      { id: "diagram", label: t("aba.diagrama"), badge: null },
+    ] as const
+  ).filter((i) => !(semDiagrama && i.id === "diagram"));
 
   /*
    * `overflow-x-auto` em vez de `shrink-0`: a 320 px a fila de sub-abas

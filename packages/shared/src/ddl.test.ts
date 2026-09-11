@@ -278,3 +278,117 @@ describe("montarCreateDatabase", () => {
     expect(() => montarCreateDatabase({ name: "a\u0000b" })).toThrow(DdlInvalido);
   });
 });
+
+describe("montarCreateTable — dialetos não-Postgres", () => {
+  it("MySQL: crase no identificador, serial PK vira AUTO_INCREMENT, tipos mapeados", () => {
+    const sql = montarCreateTable(
+      pedido({
+        name: "clientes",
+        columns: [
+          coluna({ name: "id", type: "bigserial", primaryKey: true }),
+          coluna({ name: "nome", type: "varchar", length: 120, notNull: true }),
+          coluna({ name: "dados", type: "jsonb" }),
+          coluna({ name: "ativo", type: "boolean", defaultValue: "1" }),
+        ],
+      }),
+      "mysql",
+    );
+    expect(sql).toContain("CREATE TABLE `clientes`");
+    expect(sql).toContain("`id` BIGINT AUTO_INCREMENT");
+    expect(sql).toContain("`nome` VARCHAR(120) NOT NULL");
+    expect(sql).toContain("`dados` JSON");
+    expect(sql).toContain("`ativo` TINYINT(1) DEFAULT '1'");
+    expect(sql).toContain("PRIMARY KEY (`id`)");
+    // Sem qualificar por schema (o database qualifica), sem COMMENT ON.
+    expect(sql).not.toContain('"public"');
+    expect(sql).not.toContain("COMMENT ON");
+  });
+
+  it("MySQL: VARCHAR sem tamanho recebe 255", () => {
+    const sql = montarCreateTable(
+      pedido({ columns: [coluna({ name: "s", type: "varchar" })] }),
+      "mysql",
+    );
+    expect(sql).toContain("`s` VARCHAR(255)");
+  });
+
+  it("SQLite: serial PK única vira INTEGER PRIMARY KEY AUTOINCREMENT, sem constraint de tabela", () => {
+    const sql = montarCreateTable(
+      pedido({
+        name: "itens",
+        columns: [
+          coluna({ name: "id", type: "serial", primaryKey: true }),
+          coluna({ name: "nome", type: "text" }),
+        ],
+      }),
+      "sqlite",
+    );
+    expect(sql).toContain('CREATE TABLE "itens"');
+    expect(sql).toContain('"id" INTEGER PRIMARY KEY AUTOINCREMENT');
+    expect(sql).toContain('"nome" TEXT');
+    // Não repete a PK como constraint de tabela.
+    expect(sql).not.toContain("PRIMARY KEY (");
+  });
+
+  it("SQLite: PK composta usa a constraint de tabela (sem autoincrement)", () => {
+    const sql = montarCreateTable(
+      pedido({
+        columns: [
+          coluna({ name: "a", type: "integer", primaryKey: true }),
+          coluna({ name: "b", type: "integer", primaryKey: true }),
+        ],
+      }),
+      "sqlite",
+    );
+    expect(sql).toContain('PRIMARY KEY ("a", "b")');
+    expect(sql).not.toContain("AUTOINCREMENT");
+  });
+
+  it("default de expressão não portável é recusado fora do Postgres", () => {
+    expect(() =>
+      montarCreateTable(
+        pedido({ columns: [coluna({ name: "u", type: "uuid", defaultExpression: "gen_random_uuid()" })] }),
+        "mysql",
+      ),
+    ).toThrow(DdlInvalido);
+    // now()/current_timestamp têm equivalente e passam.
+    const sql = montarCreateTable(
+      pedido({ columns: [coluna({ name: "c", type: "timestamp", defaultExpression: "now()" })] }),
+      "mysql",
+    );
+    expect(sql).toContain("DEFAULT CURRENT_TIMESTAMP");
+  });
+
+  it("MySQL: numa PK composta o serial vai para a frente (InnoDB exige)", () => {
+    const sql = montarCreateTable(
+      pedido({
+        columns: [
+          coluna({ name: "org_id", type: "integer", primaryKey: true }),
+          coluna({ name: "id", type: "bigserial", primaryKey: true }),
+        ],
+      }),
+      "mysql",
+    );
+    // O serial (`id`, AUTO_INCREMENT) precede o `org_id` na constraint.
+    expect(sql).toContain("PRIMARY KEY (`id`, `org_id`)");
+    expect(sql).toContain("`id` BIGINT AUTO_INCREMENT");
+  });
+
+  it("Postgres/SQLite preservam a ordem da PK composta", () => {
+    const sqlPg = montarCreateTable(
+      pedido({
+        columns: [
+          coluna({ name: "org_id", type: "integer", primaryKey: true }),
+          coluna({ name: "periodo", type: "date", primaryKey: true }),
+        ],
+      }),
+    );
+    expect(sqlPg).toContain('PRIMARY KEY ("org_id", "periodo")');
+  });
+
+  it("montarCreateDatabase no MySQL é só CREATE DATABASE com crase", () => {
+    expect(montarCreateDatabase({ name: "loja", encoding: "UTF8", owner: "x" }, "mysql")).toBe(
+      "CREATE DATABASE `loja`;",
+    );
+  });
+});

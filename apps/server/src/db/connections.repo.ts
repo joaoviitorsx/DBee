@@ -1,5 +1,6 @@
 import type { Database, Statement } from "bun:sqlite";
 
+import { capacidadesDe, gravaPorCredencialSeparada } from "@dbee/shared/puro";
 import type { Connection, CreateConnection, Engine, SslMode, UpdateConnection } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
@@ -15,6 +16,9 @@ const PUBLIC_COLUMNS = `
   id, name, color, engine, host, port, database, username,
   ssl_mode AS sslMode, write_enabled AS writeEnabled,
   statement_timeout_ms AS statementTimeoutMs, timezone,
+  (write_password_enc IS NOT NULL) AS hasWriteCredential,
+  auth_source AS authSource,
+  file_path AS filePath,
   created_at AS createdAt, updated_at AS updatedAt
 `;
 
@@ -29,6 +33,9 @@ const PUBLIC_COLUMNS_C = `
   c.id, c.name, c.color, c.engine, c.host, c.port, c.database, c.username,
   c.ssl_mode AS sslMode, c.write_enabled AS writeEnabled,
   c.statement_timeout_ms AS statementTimeoutMs, c.timezone,
+  (c.write_password_enc IS NOT NULL) AS hasWriteCredential,
+  c.auth_source AS authSource,
+  c.file_path AS filePath,
   c.created_at AS createdAt, c.updated_at AS updatedAt
 `;
 
@@ -46,18 +53,60 @@ interface ConnectionRow {
   writeEnabled: number;
   statementTimeoutMs: number;
   timezone: string;
+  hasWriteCredential: number;
+  authSource: string | null;
+  filePath: string | null;
   createdAt: string;
   updatedAt: string;
 }
 
 function toConnection(row: ConnectionRow): Connection {
-  return { ...row, writeEnabled: row.writeEnabled === 1 };
+  return { ...row, writeEnabled: row.writeEnabled === 1, hasWriteCredential: row.hasWriteCredential === 1 };
+}
+
+/**
+ * O `writeEnabled` **efetivo**: "esta requisição/este usuário pode gravar aqui?"
+ *
+ * Uma coisa nas duas famílias de engine, para o resto do sistema (e a tela) ler
+ * um campo só:
+ *
+ * - Postgres: `write_enabled` da conexão. A escrita é o modo da transação.
+ * - Credencial (MySQL/MariaDB/libSQL): existe uma **credencial de escrita**
+ *   (`hasWriteCredential`). O `write_enabled` ali é sempre 0 — o interruptor
+ *   não existe —, e usá-lo esconderia a escrita que a credencial destrava.
+ *
+ * Em ambos, dobrado pela concessão do ator (`canWrite`). Admin tem `canWrite`
+ * verdadeiro por definição (migração 005).
+ */
+function writeEnabledEfetivo(c: Connection, canWrite: boolean): boolean {
+  const base = gravaPorCredencialSeparada(c.engine) ? c.hasWriteCredential : c.writeEnabled;
+  return base && canWrite;
 }
 
 /** Conexão com a senha já decifrada — só circula dentro do servidor. */
 export interface ResolvedConnection extends Connection {
   readonly password: string;
+  /**
+   * A credencial de escrita, decifrada — presente só quando a conexão tem uma
+   * (`hasWriteCredential`) e a engine grava por credencial separada. `username`
+   * é `""` no libSQL (a credencial é o token, que vai em `password`).
+   *
+   * Ausente é o caso comum: sem credencial de escrita, a conexão é
+   * somente-leitura, e nada aqui abre esse caminho.
+   */
+  readonly writeCredential?: { readonly username: string; readonly password: string };
 }
+
+/**
+ * O id de AAD da credencial de **escrita** — distinto do da leitura.
+ *
+ * A senha de leitura cifra com AAD `v2:<id>`; a de escrita, com `v2:<id>#write`.
+ * Sem essa distinção, quem tivesse escrita no volume trocaria uma pela outra
+ * DENTRO da mesma linha (as duas autenticariam sob o mesmo AAD), e a leitura
+ * passaria a rodar com a credencial gravável — o oposto do que a separação
+ * garante. É a mesma defesa do ADR 005, um nível mais fino.
+ */
+const aadEscrita = (id: string): string => `${id}#write`;
 
 export class ConnectionsRepository {
   readonly #db: Database;
@@ -69,6 +118,10 @@ export class ConnectionsRepository {
   readonly #byId: Statement<ConnectionRow, [string]>;
   readonly #byIdParaUsuario: Statement<ConnectionRow & { canWrite: number }, [string, string]>;
   readonly #secretById: Statement<{ password_enc: string }, [string]>;
+  readonly #writeSecretById: Statement<
+    { write_username: string | null; write_password_enc: string | null },
+    [string]
+  >;
   readonly #delete: Statement<unknown, [string]>;
 
   constructor(db: Database, key: EncryptionKey) {
@@ -95,6 +148,10 @@ export class ConnectionsRepository {
     this.#secretById = db.query<{ password_enc: string }, [string]>(
       "SELECT password_enc FROM connections WHERE id = ?",
     );
+    this.#writeSecretById = db.query<
+      { write_username: string | null; write_password_enc: string | null },
+      [string]
+    >("SELECT write_username, write_password_enc FROM connections WHERE id = ?");
     this.#delete = db.query<unknown, [string]>("DELETE FROM connections WHERE id = ?");
   }
 
@@ -107,13 +164,18 @@ export class ConnectionsRepository {
    * por id deixaria qualquer um usar um id que conhecesse.
    */
   list(ator: Ator): Connection[] {
-    if (ator.role === "admin") return this.#list.all().map(toConnection);
+    if (ator.role === "admin") {
+      return this.#list.all().map((row) => {
+        const c = toConnection(row);
+        return { ...c, writeEnabled: writeEnabledEfetivo(c, true) };
+      });
+    }
     // O `writeEnabled` da lista é o **efetivo**, igual ao do `find`. Devolver o
     // da conexão faria a UI desenhar a tarja de escrita para quem o servidor
     // recusaria — a tela afirmando o contrário do que o sistema faz.
     return this.#listParaUsuario.all(ator.id).map((row) => {
       const conexao = toConnection(row);
-      return { ...conexao, writeEnabled: conexao.writeEnabled && row.canWrite === 1 };
+      return { ...conexao, writeEnabled: writeEnabledEfetivo(conexao, row.canWrite === 1) };
     });
   }
 
@@ -147,12 +209,31 @@ export class ConnectionsRepository {
   find(id: string, ator: Ator): Connection | null {
     if (ator.role === "admin") {
       const row = this.#byId.get(id);
-      return row === null ? null : toConnection(row);
+      if (row === null) return null;
+      const c = toConnection(row);
+      return { ...c, writeEnabled: writeEnabledEfetivo(c, true) };
     }
     const row = this.#byIdParaUsuario.get(ator.id, id);
     if (row === null) return null;
     const conexao = toConnection(row);
-    return { ...conexao, writeEnabled: conexao.writeEnabled && row.canWrite === 1 };
+    return { ...conexao, writeEnabled: writeEnabledEfetivo(conexao, row.canWrite === 1) };
+  }
+
+  /**
+   * Se este ator pode **escrever** nesta conexão.
+   *
+   * `find` já dobra a concessão dentro de `writeEnabled`, e isso basta para a
+   * tela. Não basta para decidir execução nas engines cuja garantia é a
+   * credencial: ali `writeEnabled` é sempre `false` (o interruptor não existe),
+   * então a concessão fica indistinguível da ausência dela.
+   *
+   * Admin escreve em tudo — é o que a migração 005 define. Para `member`, vale
+   * a concessão.
+   */
+  podeEscrever(id: string, ator: Ator): boolean {
+    if (ator.role === "admin") return this.#byId.get(id) !== null;
+    const row = this.#byIdParaUsuario.get(ator.id, id);
+    return row !== null && row.canWrite === 1;
   }
 
   /**
@@ -173,7 +254,25 @@ export class ConnectionsRepository {
 
     // O id entra como AAD: um password_enc movido para outra conexão não
     // decifra (ADR 005).
-    return { ...connection, password: decrypt(this.#key, id, row.password_enc) };
+    const base: ResolvedConnection = {
+      ...connection,
+      password: decrypt(this.#key, id, row.password_enc),
+    };
+
+    /*
+     * A credencial de escrita, quando existe. Decifrada com o AAD distinto
+     * (`aadEscrita`): a mesma proteção do ADR 005 impede que ela seja a senha
+     * de leitura movida de coluna.
+     */
+    const w = this.#writeSecretById.get(id);
+    if (w?.write_password_enc == null) return base;
+    return {
+      ...base,
+      writeCredential: {
+        username: w.write_username ?? "",
+        password: decrypt(this.#key, aadEscrita(id), w.write_password_enc),
+      },
+    };
   }
 
   // --- concessões -----------------------------------------------------------
@@ -212,39 +311,75 @@ export class ConnectionsRepository {
   create(input: CreateConnection): Connection {
     const now = new Date().toISOString();
     const id = nanoid();
+    const engine = input.engine ?? "postgres";
 
     this.#db
       .query<unknown, (string | number | null)[]>(
         `INSERT INTO connections (
            id, name, color, engine, host, port, database, username, password_enc,
            ssl_mode, write_enabled, statement_timeout_ms, timezone,
+           write_username, write_password_enc, auth_source, file_path,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         input.name,
         input.color ?? null,
         // Ausente significa Postgres: é o que um cliente que não conhece o
-        // campo quis dizer, e é a única engine que o DBee fala. O resolvido
-        // fica aqui e não como `default` no schema — ADR 004.
-        input.engine ?? "postgres",
-        input.host,
-        input.port ?? 5432,
-        input.database,
-        input.username,
-        encrypt(this.#key, id, input.password),
+        // campo quis dizer, e era a única engine que o DBee falava quando o
+        // campo nasceu. O resolvido fica aqui e não como `default` no schema —
+        // ADR 004.
+        engine,
+        // Host vazio quando a engine não o tem (SQLite é arquivo).
+        input.host ?? "",
+        // A porta convencional é da engine, não do Postgres: 3306 no MySQL,
+        // 8080 no `sqld`. O `?? 5432` de antes dava a porta errada para as
+        // outras duas e obrigava o formulário a mandar sempre.
+        input.port ?? capacidadesDe(engine)?.portaPadrao ?? 5432,
+        /*
+         * Vazio, e não um nome inventado. Numa engine que não tem o campo
+         * (libSQL: a URL aponta para um banco só, e a credencial é o token) o
+         * formulário não o manda, e guardar um placeholder faria a tela
+         * afirmar um database que ninguém escolheu. Quem resolve o rótulo é o
+         * driver, que sabe o que "o banco desta URL" se chama.
+         */
+        input.database ?? "",
+        input.username ?? "",
+        encrypt(this.#key, id, input.password ?? ""),
         input.sslMode ?? "disable",
         input.writeEnabled === true ? 1 : 0,
         input.statementTimeoutMs ?? 30000,
         input.timezone ?? "UTC",
+        /*
+         * A credencial de escrita, cifrada com o AAD distinto. Vazia ou ausente
+         * significa "sem credencial de escrita": guarda `null` nas duas colunas,
+         * e a conexão segue somente-leitura. `write_username` é `null` quando
+         * vem vazio (libSQL não o usa).
+         */
+        input.writePassword === undefined || input.writePassword === ""
+          ? null
+          : input.writeUsername === undefined || input.writeUsername === ""
+            ? null
+            : input.writeUsername,
+        input.writePassword === undefined || input.writePassword === ""
+          ? null
+          : encrypt(this.#key, aadEscrita(id), input.writePassword),
+        // `authSource` só existe no Mongo; vazio ou ausente vira null.
+        input.authSource === undefined || input.authSource === "" ? null : input.authSource,
+        // `filePath` só existe no SQLite.
+        input.filePath === undefined || input.filePath === "" ? null : input.filePath,
         now,
         now,
       );
 
     const created = this.#linhaCrua(id);
     if (created === null) throw new Error("conexão sumiu logo após ser criada");
-    return created;
+    // Devolve o `writeEnabled` efetivo, igual ao que a listagem mostra: create
+    // e update são operações de admin, e admin grava por definição. Sem isto, a
+    // resposta do POST diria `writeEnabled: false` numa conexão de credencial
+    // com credencial de escrita, divergindo do que o GET seguinte mostra.
+    return { ...created, writeEnabled: writeEnabledEfetivo(created, true) };
   }
 
   /** `password` ausente no patch significa "não mexe na senha". */
@@ -272,6 +407,33 @@ export class ConnectionsRepository {
       put("statement_timeout_ms", patch.statementTimeoutMs);
     }
     if (patch.timezone !== undefined) put("timezone", patch.timezone);
+    if (patch.authSource !== undefined) {
+      put("auth_source", patch.authSource === "" ? null : patch.authSource);
+    }
+    if (patch.filePath !== undefined) {
+      put("file_path", patch.filePath === "" ? null : patch.filePath);
+    }
+
+    /*
+     * A credencial de escrita. Espelha a semântica da senha de leitura, com um
+     * caso a mais: string **vazia** apaga a credencial (a conexão volta a ser
+     * somente-leitura), enquanto ausência do campo não mexe. É a única forma de
+     * a tela oferecer "remover a credencial de escrita" — a senha de leitura
+     * não tem esse caso porque não pode ser removida.
+     */
+    if (patch.writeUsername !== undefined) {
+      put("write_username", patch.writeUsername === "" ? null : patch.writeUsername);
+    }
+    if (patch.writePassword !== undefined) {
+      if (patch.writePassword === "") {
+        // Apaga a credencial inteira: sem senha não há o que autenticar, e um
+        // username órfão só confundiria.
+        put("write_password_enc", null);
+        put("write_username", null);
+      } else {
+        put("write_password_enc", encrypt(this.#key, aadEscrita(id), patch.writePassword));
+      }
+    }
 
     if (sets.length > 0) {
       put("updated_at", new Date().toISOString());
@@ -282,7 +444,10 @@ export class ConnectionsRepository {
         .run(...values, id);
     }
 
-    return this.#linhaCrua(id);
+    const atualizada = this.#linhaCrua(id);
+    return atualizada === null
+      ? null
+      : { ...atualizada, writeEnabled: writeEnabledEfetivo(atualizada, true) };
   }
 
   delete(id: string): boolean {

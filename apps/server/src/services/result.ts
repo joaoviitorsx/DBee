@@ -7,7 +7,17 @@ export type ServiceFailure =
   | "decryption_failed"
   | "upstream_error"
   /** Entrada que o schema não pega — coluna inexistente, cursor incompatível. */
-  | "bad_request";
+  | "bad_request"
+  /**
+   * Engine que o schema aceita mas o DBee ainda não fala.
+   *
+   * A união `Engine` declara sete; `ENGINES_IMPLEMENTADAS` diz quais existem de
+   * fato. O schema não tem como separar as duas coisas — ele valida a forma, e
+   * "redis" tem a forma certa. Sem esta falha, `POST /connections` com uma
+   * engine planejada é aceito e guardado, e depois o app tenta falar Postgres
+   * com um Redis.
+   */
+  | "engine_not_implemented";
 
 /**
  * Falhas da edição de linha, num tipo à parte — mesma razão de `AuthFailure`.

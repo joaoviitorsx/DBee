@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "bun:test";
 
-import type { Connection } from "@dbee/shared";
+import type { Connection, Engine } from "@dbee/shared";
+import { capacidadesDe, ENGINES, engineImplementada } from "@dbee/shared/puro";
 
 import { createApp } from "./app";
 import { openTestStore } from "./db/client";
@@ -49,6 +50,61 @@ describe("GET /api/health", () => {
 });
 
 describe("CRUD de conexões", () => {
+  /*
+   * O seletor da tela só ESCONDE as engines que o DBee não fala, e esconder não
+   * é impedir: `POST /api/connections` continua alcançável por quem chama a API
+   * direto. Sem esta recusa a conexão é guardada e só quebra muito depois,
+   * quando o driver tenta conversar com o servidor errado.
+   *
+   * O schema não pega isso: a união `Engine` declara o alvo do plano, e
+   * `"redis"` tem a forma certa. Quem sabe o que está pronto é
+   * `ENGINES_IMPLEMENTADAS`.
+   *
+   * Os dois casos derivam **da mesma lista** que o código usa. A primeira
+   * versão repetia as seis engines à mão, e quebrou no dia em que MySQL e
+   * MariaDB foram implementadas — o teste estava certo em falhar, e errado em
+   * exigir manutenção para uma mudança que ele deveria acompanhar sozinho.
+   */
+  it("aceita as engines implementadas e recusa com 400 as que o DBee ainda não fala", async () => {
+    /*
+     * O corpo é montado **a partir das capacidades da engine**, não copiado do
+     * `NOVA`. Mandar `database` e `username` para uma engine que não os tem é
+     * recusado de propósito (atribuição em massa), e o teste que os mandasse
+     * estaria medindo essa recusa em vez de medir a aceitação da engine.
+     */
+    const corpoPara = (engine: Engine): Record<string, unknown> => {
+      const campos = capacidadesDe(engine)?.campos ?? ["host", "database", "username"];
+      const base: Record<string, unknown> = { name: `x-${engine}`, engine };
+      if (campos.includes("password")) base["password"] = NOVA.password;
+      if (campos.includes("host")) base["host"] = NOVA.host;
+      if (campos.includes("database")) base["database"] = NOVA.database;
+      if (campos.includes("username")) base["username"] = NOVA.username;
+      if (campos.includes("authSource")) base["authSource"] = "admin";
+      // SQLite: só `filePath`. Sem host/database/username.
+      if (campos.includes("filePath")) base["filePath"] = "loja.db";
+      return base;
+    };
+
+    for (const engine of ENGINES) {
+      const res = await call("/api/connections", json(corpoPara(engine)));
+      if (engineImplementada(engine)) {
+        expect(res.status, `${engine} está implementada`).toBe(201);
+        expect(((await res.json()) as Connection).engine).toBe(engine);
+      } else {
+        expect(res.status, `${engine} não está implementada`).toBe(400);
+        expect((await res.json()) as { code: string }).toMatchObject({
+          code: "engine_not_implemented",
+        });
+      }
+    }
+  });
+
+  it("aceita postgres explícito, e a conexão nasce com essa engine", async () => {
+    const res = await call("/api/connections", json({ ...NOVA, name: "pg-explicito", engine: "postgres" }));
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as Connection).engine).toBe("postgres");
+  });
+
   it("cria com 201 e aplica os defaults", async () => {
     const res = await call("/api/connections", json(NOVA));
     expect(res.status).toBe(201);
@@ -124,8 +180,18 @@ describe("CRUD de conexões", () => {
     expect(res.status).toBe(422);
   });
 
-  it("recusa payload sem campo obrigatório", async () => {
+  it("recusa payload sem os campos que a engine exige", async () => {
+    // A obrigatoriedade migrou do schema (que agora deixa host/database/etc
+    // opcionais, porque nem toda engine os tem) para o guard por engine. Um
+    // payload só com o nome nasce Postgres e é recusado por faltar host/
+    // database/username — 400 do guard, não mais 422 do TypeBox.
     const res = await call("/api/connections", json({ name: "só o nome" }));
+    expect(res.status).toBe(400);
+  });
+
+  it("recusa payload com tipo errado — validação de schema (422)", async () => {
+    // O 422 do TypeBox ainda protege contra tipo errado (o que o guard não vê).
+    const res = await call("/api/connections", json({ name: 123, engine: "postgres" }));
     expect(res.status).toBe(422);
   });
 });

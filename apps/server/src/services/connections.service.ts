@@ -1,16 +1,29 @@
 import type { Connection, CreateConnection, TestConnectionResult, UpdateConnection } from "@dbee/shared";
+import { engineImplementada } from "@dbee/shared";
 
 import type { ConnectionGrant } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
-import { testConnection } from "../pg/test-connection";
+import type { Drivers } from "../driver/registro";
+import {
+  exigirCamposDaEngine,
+  recusarCamposDaOutraEngine,
+  recusarCredencialDeEscritaIgual,
+} from "./engine.guarda";
 
 import { type ServiceResult, fail, ok } from "./result";
 
 export interface ConnectionsServiceDeps {
   readonly repository: ConnectionsRepository;
   readonly caCert: string | undefined;
+  /**
+   * Quem sabe falar com cada engine.
+   *
+   * Opcional para os testes que só exercitam o repositório não precisarem
+   * montar driver nenhum; sem ele, `test` recusa em vez de conectar às cegas.
+   */
+  readonly drivers?: Drivers;
   /** Avisa quem mantém cache ou pool que aquela conexão mudou de forma. */
   readonly onConnectionChanged?: (id: string) => void;
 }
@@ -23,12 +36,12 @@ export interface ConnectionsServiceDeps {
  */
 export class ConnectionsService {
   readonly #repository: ConnectionsRepository;
-  readonly #caCert: string | undefined;
+  readonly #drivers: Drivers | undefined;
   readonly #onChanged: (id: string) => void;
 
-  constructor({ repository, caCert, onConnectionChanged }: ConnectionsServiceDeps) {
+  constructor({ repository, onConnectionChanged, drivers }: ConnectionsServiceDeps) {
     this.#repository = repository;
-    this.#caCert = caCert;
+    this.#drivers = drivers;
     this.#onChanged = onConnectionChanged ?? ((): void => undefined);
   }
 
@@ -63,11 +76,72 @@ export class ConnectionsService {
     this.#onChanged(connectionId);
   }
 
-  create(input: CreateConnection): Connection {
-    return this.#repository.create(input);
+  /**
+   * Cria a conexão, recusando engine que o DBee ainda não fala.
+   *
+   * O schema valida a **forma** — `"redis"` é um valor legítimo da união
+   * `Engine`, porque a união declara o alvo do plano e não o que está pronto.
+   * Quem sabe o que está pronto é `ENGINES_IMPLEMENTADAS`, e essa checagem
+   * precisa morar aqui e não no formulário: o seletor da tela só esconde a
+   * opção, e esconder não é impedir — `POST /connections` continua alcançável.
+   *
+   * Sem isto a conexão é guardada e só falha muito depois, quando o driver de
+   * Postgres tenta conversar com um Redis, com erro que não explica nada.
+   *
+   * `?? "postgres"` porque `engine` é opcional na criação (ADR 004 proíbe
+   * `default` em schema de entrada), e o repositório resolve o mesmo padrão.
+   */
+  create(input: CreateConnection): ServiceResult<Connection> {
+    const engine = input.engine ?? "postgres";
+    if (!engineImplementada(engine)) return fail("engine_not_implemented");
+
+    // Campo que a engine não tem é recusado, não guardado: uma conexão que o
+    // carrega aparece na tela afirmando algo que a engine não faz.
+    const intruso = recusarCamposDaOutraEngine<Connection>(engine, input);
+    if (intruso !== null) return intruso;
+
+    /*
+     * E o campo que **falta**. O schema deixou `database` e `username`
+     * opcionais porque o libSQL não os tem; sem esta linha, uma conexão
+     * Postgres nasceria sem database e só quebraria na primeira consulta.
+     */
+    const faltando = exigirCamposDaEngine<Connection>(engine, input);
+    if (faltando !== null) return faltando;
+
+    const colisao = recusarCredencialDeEscritaIgual<Connection>(engine, input);
+    if (colisao !== null) return colisao;
+
+    return ok(this.#repository.create(input));
   }
 
-  update(id: string, patch: UpdateConnection): ServiceResult<Connection> {
+  /**
+   * O `ator` é **obrigatório**, pelo mesmo motivo que ele é obrigatório em
+   * `find` e `resolve`: nenhum caminho de leitura de conexão pode escapar da
+   * verificação de acesso. A primeira versão desta checagem fabricava um ator
+   * admin aqui dentro para poder ler a engine — o que derrota exatamente o
+   * desenho que o repositório documenta.
+   */
+  update(id: string, patch: UpdateConnection, ator: Ator): ServiceResult<Connection> {
+    /*
+     * A engine é imutável (ADR 005), então a de agora é a de sempre — e é ela
+     * que decide quais campos este PATCH pode tocar. Sem isto, a checagem da
+     * criação seria contornável por um PATCH.
+     */
+    const atual = this.#repository.find(id, ator);
+    if (atual === null) return fail("not_found");
+    const intruso = recusarCamposDaOutraEngine<Connection>(atual.engine, patch);
+    if (intruso !== null) return intruso;
+
+    /*
+     * A colisão de usuário é checada com os valores **efetivos**: um PATCH pode
+     * mandar só `writeUsername`, e ele colide com o `username` já guardado.
+     */
+    const colisao = recusarCredencialDeEscritaIgual<Connection>(atual.engine, {
+      username: patch.username ?? atual.username,
+      writeUsername: patch.writeUsername,
+    });
+    if (colisao !== null) return colisao;
+
     const updated = this.#repository.update(id, patch);
     if (updated === null) return fail("not_found");
     this.#onChanged(id);
@@ -93,6 +167,16 @@ export class ConnectionsService {
     }
     if (resolved === null) return fail("not_found");
 
-    return ok(await testConnection(resolved, this.#caCert));
+    /*
+     * O driver da engine da conexão, e não `pg/` fixo.
+     *
+     * O que o teste de conexão faz é diferente em cada uma: no Postgres ele
+     * abre `BEGIN READ ONLY` e detecta papel privilegiado; no MySQL não há modo
+     * de transação para exercitar, e ele olha os privilégios da credencial
+     * (`docs/papeis-mysql.md`). Chamar o de Postgres num MySQL falharia no
+     * `BEGIN READ ONLY` com erro de sintaxe, escondendo o que importa.
+     */
+    if (this.#drivers === undefined) return fail("bad_request");
+    return ok(await this.#drivers.para(resolved.engine).testarConexao(resolved));
   }
 }

@@ -44,6 +44,20 @@ export interface SchemaCompletion {
   readonly defaultSchema: string;
 }
 
+/**
+ * Ganho de relevância das sugestões vindas do schema.
+ *
+ * O CodeMirror ordena por qualidade de casamento e desempata por `boost`
+ * (padrão 0, que é o das palavras-chave do dialeto). Dar ganho às **coisas do
+ * banco** faz a sugestão ser sobre *o que a pessoa está pesquisando*: digitar
+ * `use` mostra a tabela `users` antes do `USER` genérico; digitar `stat` mostra
+ * a coluna `status` antes de uma palavra-chave de mesmo prefixo. A coluna pesa
+ * mais que a tabela porque a maior parte da digitação num `SELECT`/`WHERE`
+ * procura coluna, e a chave primária lidera entre as colunas (é a que mais
+ * aparece em junção e filtro).
+ */
+const GANHO = { pk: 3, coluna: 2, relacao: 1 } as const;
+
 /** As colunas de uma relação viram a lista de completions daquele nível. */
 function colunasDe(
   colunas: readonly { name: string; dataType: string; isPrimaryKey: boolean }[],
@@ -54,6 +68,7 @@ function colunasDe(
     // O tipo real vira a legenda da sugestão — é o que separa `valor numeric`
     // de `valor text` quando os dois existem em tabelas diferentes.
     detail: c.isPrimaryKey ? `${c.dataType} · PK` : c.dataType,
+    boost: c.isPrimaryKey ? GANHO.pk : GANHO.coluna,
   }));
 }
 
@@ -87,6 +102,8 @@ export function construirCompletion(schema: DatabaseSchema): SchemaCompletion {
         type: TIPO_RELACAO[rel.kind] ?? "type",
         // Qual schema, para desambiguar nomes iguais em schemas diferentes.
         detail: s.name,
+        // Acima das palavras-chave do dialeto, abaixo das colunas.
+        boost: GANHO.relacao,
       };
 
       // `schema.relacao` — o caminho sempre válido.

@@ -40,6 +40,21 @@ export const Connection = t.Object({
   writeEnabled: t.Boolean(),
   statementTimeoutMs: t.Integer(),
   timezone: t.String(),
+  /*
+   * Existe uma credencial de escrita nesta conexão? **A credencial em si nunca
+   * sai** — como a senha, ela fica fora da lista de colunas públicas. Só o fato
+   * de existir viaja, e é o que a tela usa para saber se pode oferecer escrita
+   * numa engine de credencial.
+   */
+  hasWriteCredential: t.Boolean(),
+  /**
+   * `authSource` do MongoDB: o database onde a credencial autentica. `null` nas
+   * outras engines. Não é segredo — só diz onde a credencial mora —, então
+   * viaja na resposta, ao contrário da senha.
+   */
+  authSource: t.Union([t.String(), t.Null()]),
+  /** Caminho do arquivo SQLite. `null` nas outras engines. */
+  filePath: t.Union([t.String(), t.Null()]),
   createdAt: t.String(),
   updatedAt: t.String(),
 });
@@ -70,6 +85,29 @@ const FIELDS = {
   database: t.String({ minLength: 1, maxLength: 100 }),
   username: t.String({ minLength: 1, maxLength: 100 }),
   password: t.String({ maxLength: 1000 }),
+  /**
+   * A credencial de escrita — opcional, só nas engines cuja garantia é a
+   * credencial. `writeUsername` é vazio no libSQL (a credencial é o token, que
+   * vai em `writePassword`); no MySQL/MariaDB os dois são usados.
+   *
+   * `writePassword` vazio numa engine que aceita o campo significa "sem
+   * credencial de escrita" — a conexão segue somente-leitura. Não é `null`
+   * porque o schema de entrada não tem `null`; a ausência é o vazio.
+   */
+  writeUsername: t.String({ maxLength: 100 }),
+  writePassword: t.String({ maxLength: 1000 }),
+  /**
+   * `authSource` do MongoDB — o database da credencial, quase sempre `admin`.
+   * Campo próprio e obrigatório nessa engine: reaproveitar `database` produz
+   * falha de autenticação indiagnosticável (medido).
+   */
+  authSource: t.String({ minLength: 1, maxLength: 100 }),
+  /**
+   * Caminho do arquivo SQLite no servidor. Validado no driver contra uma raiz
+   * permitida — um caminho fora dela é recusado (não se abre arquivo arbitrário
+   * do sistema por pedido de conexão).
+   */
+  filePath: t.String({ minLength: 1, maxLength: 4096 }),
   color: t.Union([t.String({ maxLength: 32 }), t.Null()]),
   sslMode: SslMode,
   writeEnabled: t.Boolean(),
@@ -102,16 +140,35 @@ export const CreateConnection = t.Object({
    * ele quis dizer. Sem `default` no schema — ADR 004.
    */
   engine: t.Optional(Engine),
-  host: FIELDS.host,
-  database: FIELDS.database,
-  username: FIELDS.username,
-  password: FIELDS.password,
+  // `host` é opcional no schema e obrigatório por engine (o SQLite não tem host
+  // — é um arquivo). `exigirCamposDaEngine` cobra quem precisa.
+  host: t.Optional(FIELDS.host),
+  /*
+   * `database` e `username` são **opcionais no schema e obrigatórios por
+   * engine**. O libSQL não tem nem um nem outro: a URL aponta para um banco só,
+   * e a credencial é o token (que vai em `password`). Exigi-los aqui obrigaria
+   * o formulário a mandar texto inventado para passar na validação, e texto
+   * inventado guardado é a tela afirmando o que não existe.
+   *
+   * Quem exige é `exigirCamposDaEngine`, lendo `capacidadesDe(engine).campos` —
+   * a mesma tabela que decide o que o formulário mostra. Assim a regra é uma
+   * só, e não uma no schema e outra na tela.
+   */
+  database: t.Optional(FIELDS.database),
+  username: t.Optional(FIELDS.username),
+  // `password` opcional: o SQLite não tem credencial, e um Redis/libSQL sem
+  // senha manda vazio. Quem exige senha é a engine (via `exigirCamposDaEngine`).
+  password: t.Optional(FIELDS.password),
   color: t.Optional(FIELDS.color),
   port: t.Optional(FIELDS.port),
   sslMode: t.Optional(FIELDS.sslMode),
   writeEnabled: t.Optional(FIELDS.writeEnabled),
   statementTimeoutMs: t.Optional(FIELDS.statementTimeoutMs),
   timezone: t.Optional(FIELDS.timezone),
+  writeUsername: t.Optional(FIELDS.writeUsername),
+  writePassword: t.Optional(FIELDS.writePassword),
+  authSource: t.Optional(FIELDS.authSource),
+  filePath: t.Optional(FIELDS.filePath),
 });
 export type CreateConnection = Static<typeof CreateConnection>;
 
@@ -141,7 +198,21 @@ export const UPDATE_SCHEMAS = { UpdateConnection } as const;
  * que do ponto de vista da transação não modifica linhas. Ver §11.
  */
 export const ConnectionWarning = t.Object({
-  code: t.Literal("privileged_role"),
+  /**
+   * O que o teste de conexão descobriu, e que muda o que "modo leitura"
+   * significa naquela conexão.
+   *
+   * - `privileged_role` — Postgres: o papel é superusuário ou pode
+   *   `COPY … TO PROGRAM`, então `BEGIN READ ONLY` não contém a sessão.
+   * - `credential_can_write` — MySQL/MariaDB: a garantia de somente-leitura
+   *   mora na **credencial** (`docs/papeis-mysql.md`), e esta credencial tem
+   *   privilégio de escrita. Não há transação somente-leitura que resista ali,
+   *   então o aviso é a única coisa entre o usuário e um `DELETE` sem `WHERE`.
+   *
+   * A UI trata a lista de forma genérica, pelo `message` — código novo não
+   * exige mudança de tela.
+   */
+  code: t.Union([t.Literal("privileged_role"), t.Literal("credential_can_write")]),
   message: t.String(),
 });
 export type ConnectionWarning = Static<typeof ConnectionWarning>;

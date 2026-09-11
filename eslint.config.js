@@ -66,4 +66,15 @@ export default tseslint.config(
     files: ["**/*.js"],
     extends: [tseslint.configs.disableTypeChecked],
   },
+
+  // A landing (`site/`) é JS de navegador servido como está — sem bundler, sem
+  // módulo, sem tsconfig. Precisa dos globais do browser, e fica fora das
+  // regras type-aware, que exigem um programa TypeScript que ali não existe.
+  {
+    files: ["site/**/*.js"],
+    languageOptions: {
+      globals: globals.browser,
+      sourceType: "script",
+    },
+  },
 );

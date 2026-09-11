@@ -8,7 +8,9 @@ import type {
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
-import { introspect, introspectTree, listActivity, listDatabases, overviewDatabases } from "../pg/introspect";
+import type { Drivers } from "../driver/registro";
+import { exigirPostgres } from "./engine.guarda";
+import { listActivity, overviewDatabases } from "../pg/introspect";
 import type { PoolManager } from "../pg/pool";
 import { type ServiceResult, fail, ok } from "./result";
 
@@ -21,6 +23,15 @@ interface CacheEntry {
 }
 
 export interface SchemaServiceDeps {
+  /**
+   * Quem sabe falar com cada engine.
+   *
+   * A **árvore** e a **lista de databases** existem nas duas, e vão pelo
+   * driver. O `get` completo, a atividade e a visão geral seguem em `pg/`:
+   * eles leem catálogo que o MySQL não tem no mesmo formato, e fingir que têm
+   * seria devolver campo vazio como se fosse dado.
+   */
+  readonly drivers?: Drivers;
   readonly repository: ConnectionsRepository;
   readonly pools: PoolManager;
 }
@@ -56,9 +67,12 @@ export class SchemaService {
   readonly #cacheTree = new Map<string, Map<string, { value: DatabaseTree; expiresAt: number }>>();
   readonly #emVooTree = new Map<string, Promise<DatabaseTree>>();
 
-  constructor({ repository, pools }: SchemaServiceDeps) {
+  readonly #drivers: Drivers | undefined;
+
+  constructor({ repository, pools, drivers }: SchemaServiceDeps) {
     this.#repository = repository;
     this.#pools = pools;
+    this.#drivers = drivers;
   }
 
   async get(
@@ -75,6 +89,10 @@ export class SchemaService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
+    // Sem driver não há catálogo. Só acontece em teste que monta o serviço sem
+    // eles; a aplicação sempre passa.
+    const drivers = this.#drivers;
+    if (drivers === undefined) return fail("bad_request");
 
     // Sem `?database`, usa o database da própria conexão.
     const target = database ?? connection.database;
@@ -142,6 +160,10 @@ export class SchemaService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
+    // Sem driver não há árvore. Só acontece em teste que monta o serviço sem
+    // eles; a aplicação sempre passa.
+    const drivers = this.#drivers;
+    if (drivers === undefined) return fail("bad_request");
 
     const target = database ?? connection.database;
     const emVooKey = `${connectionId}\u001f${target}`;
@@ -157,8 +179,9 @@ export class SchemaService {
     try {
       let voo = this.#emVooTree.get(emVooKey);
       if (voo === undefined) {
-        voo = this.#pools
-          .withReadOnly(connection, target, (client) => introspectTree(client, target), "repeatable-read")
+        voo = drivers
+          .para(connection.engine)
+          .arvore(connection, target)
           .then((arvore) => {
             let byDatabase = this.#cacheTree.get(connectionId);
             if (byDatabase === undefined) {
@@ -188,11 +211,12 @@ export class SchemaService {
   ): Promise<DatabaseSchema> {
     let voo = this.#emVoo.get(emVooKey);
     if (voo === undefined) {
-      voo = this.#pools
-        // repeatable-read: as quatro consultas de catalogo precisam ver o mesmo
-        // instante, senao um DDL no meio produz relacao sem coluna.
-        .withReadOnly(connection, target, (client) => introspect(client, target), "repeatable-read")
-        .then((fresh) => {
+      const drivers = this.#drivers;
+      if (drivers === undefined) throw new Error("sem driver para esta engine");
+      voo = drivers
+        .para(connection.engine)
+        .esquema(connection, target)
+        .then((fresh: DatabaseSchema) => {
           let byDatabase = this.#cache.get(connectionId);
           if (byDatabase === undefined) {
             byDatabase = new Map();
@@ -226,11 +250,8 @@ export class SchemaService {
     if (connection === null) return fail("not_found");
 
     try {
-      return ok(
-        await this.#pools.withReadOnly(connection, connection.database, (client) =>
-          listDatabases(client, connection.database),
-        ),
-      );
+      if (this.#drivers === undefined) return fail("bad_request");
+      return ok(await this.#drivers.para(connection.engine).listarDatabases(connection, connection.database));
     } catch (err: unknown) {
       return fail("upstream_error", err instanceof Error ? err.message : "erro desconhecido");
     }
@@ -249,6 +270,15 @@ export class SchemaService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
+
+    /*
+     * Só o Postgres tem isto: `pg_stat_activity` e `pg_database_size` não
+     * existem nas outras. Sem a guarda, uma conexão MySQL faria o
+     * `PoolManager` do Postgres discar protocolo de Postgres na 3306, e o
+     * erro seria de handshake — sem relação com a verdade.
+     */
+    const semSuporte = exigirPostgres<never>(connection.engine, "a visão geral dos databases");
+    if (semSuporte !== null) return semSuporte;
 
     try {
       return ok(
@@ -275,6 +305,15 @@ export class SchemaService {
       return fail("decryption_failed");
     }
     if (connection === null) return fail("not_found");
+
+    /*
+     * Só o Postgres tem isto: `pg_stat_activity` e `pg_database_size` não
+     * existem nas outras. Sem a guarda, uma conexão MySQL faria o
+     * `PoolManager` do Postgres discar protocolo de Postgres na 3306, e o
+     * erro seria de handshake — sem relação com a verdade.
+     */
+    const semSuporte = exigirPostgres<never>(connection.engine, "a lista de atividade");
+    if (semSuporte !== null) return semSuporte;
 
     try {
       return ok(

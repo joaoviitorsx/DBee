@@ -4,7 +4,804 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.4.0] — 2026-09-10
+
+### Segurança
+
+Um **red-team** posterior, contra o código já corrigido, encontrou um bypass do
+conserto de SSRF (o achado #11): `[::ffff:169.254.169.254]` — o serviço de
+metadado da nuvem escrito como IPv6 IPv4-mapeado. O `URL` normaliza para
+`[::ffff:a9fe:a9fe]`, que não começava com `169.254.`, e o `fetch` do Bun
+roteia o mapeado para o IPv4 real. As formas octal, hex e decimal o `URL` já
+desfazia; esta ele não desfaz. **Corrigido**: `ehLinkLocal` desembrulha o IPv4
+mapeado antes de decidir, e `rede.test.ts` trava as duas escritas e o caminho
+ponta a ponta (provado revertendo: 2 testes falham sem o conserto). Todo o
+resto que o red-team varreu — IDOR/BOLA, injeção, args da auditoria, mass
+assignment, portão de escrita, vazamento de credencial, CORS/CSP — resistiu.
+
+Uma auditoria adversarial (`auditor-seguranca`) varreu a fatia multi-engine e
+devolveu onze achados. Todos foram reproduzidos antes de consertar, e cada
+conserto foi provado desligando-o de novo — teste que não falha quando o
+conserto sai não é prova de nada.
+
+- **🔴 Injeção de SQL na grade do MySQL quando o servidor roda com
+  `NO_BACKSLASH_ESCAPES`.** Reproduzido: com esse modo ligado, o filtro
+  `x' OR 1=1 -- ` devolvia as três linhas da tabela, e um valor legítimo como
+  `O'Brien` quebrava com erro de sintaxe. O `mysql2` escapa com barra invertida;
+  nesse modo o servidor lê a barra como literal, e a aspa fecha a string. A
+  sessão agora **desliga `NO_BACKSLASH_ESCAPES` ao abrir**, antes de qualquer
+  outra coisa — a única forma de o cliente e o servidor lerem a mesma string do
+  mesmo jeito. `mysql/injecao.integration.test.ts` sobe um MySQL nesse modo e
+  falha em quatro testes se o conserto sair.
+
+- **🟠 Um `member` sem permissão de escrita executava `INSERT` e `DROP TABLE`
+  numa conexão MySQL.** A garantia ali é a credencial, não a transação, e nada
+  no caminho conferia se aquela pessoa podia escrever. Agora existe portão:
+  `podeEscrever()` no repositório, `credencialGrava` no contrato de driver, e o
+  serviço recusa SQL livre para quem não tem a permissão quando a credencial do
+  banco grava. `services/portao-escrita.integration.test.ts` prova.
+
+- **🟠 A auditoria dizia `read_only: true` para um `DROP TABLE` que executou.**
+  O campo registrava a *intenção*, não o que era verdade. Agora ele diz o que
+  aconteceu: `readOnly && protegida` na execução, e nas linhas ele reflete se a
+  engine protege por transação de fato.
+
+- **🟡 `writeEnabled: true` era aceito e guardado numa conexão MySQL** — campo
+  que não existe naquela engine (atribuição em massa). O `POST` e o `PATCH`
+  agora recusam campo que não pertence à engine, com a lista de campos vinda das
+  capacidades.
+
+- **🟡 Não havia cabeçalho de segurança nenhum**, e o `docs/DBee.md` §7 afirmava
+  um middleware que não existia — documentação afirmando controle inexistente é
+  pior que a ausência dele. Agora existe (`routes/cabecalhos.ts`), com CSP
+  restritiva (`connect-src 'self'` é a peça: transforma "o dado vazou do
+  navegador" em "o navegador recusou o envio"), `nosniff`, `no-referrer`,
+  `X-Frame-Options` e COOP. É `onRequest`, não `onAfterHandle`, porque com este
+  último **o 401 saía sem cabeçalho nenhum** — e o caminho de erro é justamente
+  onde este projeto já vazou uma senha.
+
+- **🟡 A auditoria da grade guardava `$1` e nunca o valor**, então "quem
+  consultou o CPF de fulano" não era respondível. O SQL registrado agora leva os
+  valores num comentário `-- args: [...]`, com aspas e quebras de linha
+  escapadas (a linha do log não pode virar comando ao ser copiada) e truncagem
+  por valor.
+
+- **🟢 O separador de statements era o do Postgres e rodava sobre o SQL do
+  MySQL.** Ele não conhece `\'`, `#`, crase, e acha que comentário de bloco
+  aninha — sete formas de pôr o `;` do lado errado da fronteira, e a que
+  importa põe **dois comandos passando por um**. Agora tem dialeto, e a tela
+  usa o da engine da conexão para o editor e o servidor concordarem sobre onde
+  cada statement começa.
+
+- **🟢 A URL do servidor libSQL chegava ao `fetch` sem passar por nada** —
+  `http://169.254.169.254/` entregaria o serviço de metadado da nuvem
+  renderizado na grade. Diferente do webhook de deploy, aqui **o corpo da
+  resposta é o resultado**. Agora a URL é validada (protocolo, link-local,
+  metadado de nuvem por nome) e o redirecionamento **não é seguido**: sem isso
+  um host permitido responde `302` para o metadado e o `fetch` refaz a
+  requisição lá levando o `Authorization` junto. Faixa privada e tailnet
+  continuam liberadas de propósito — é onde o banco self-hosted vive.
+
+- **🟢 Senha decifrada ficava retida no mapa de execuções no caminho de erro.**
+  O `delete` mudou para `finally`.
+
+- **🟢 `/activity` e `/databases/overview` não recusavam engine sem driver.**
+
+- **🟢 A `definition` do índice do libSQL montava aspas à mão.** Ali é texto de
+  exibição, mas o hábito é o problema: a mesma linha copiada para onde o texto
+  é executado vira injeção por nome de coluna. Agora existe `citar()`, como no
+  MySQL.
+
+Fora do diff, o auditor apontou três coisas que não são código deste repo e
+ficaram registradas: a exposição na rede não é impedida por nada versionado
+(a config do Traefik não está aqui), o comprometimento da VM entrega todas as
+senhas de banco (o `APP_SECRET` está no `docker inspect`) e não há "derrubar
+todas as sessões", e a UI não avisa quando a tailnet cai.
+
+### Mudado
+
+- **Autocomplete do editor SQL segue a engine da conexão e prioriza o que é do
+  banco.** O editor fixava o dialeto `PostgreSQL` para todas as engines: um
+  usuário de MySQL via `AUTO_INCREMENT`/`LIMIT … OFFSET` sumir da lista e a
+  crase não ser reconhecida como identificador — sugeria e destacava uma
+  sintaxe que não é a do banco conectado. Agora o dialeto do CodeMirror
+  acompanha o `dialeto` da conexão (MySQL para MySQL/MariaDB, SQLite para
+  SQLite/libSQL, PostgreSQL para Postgres), trocado no mesmo compartimento de
+  linguagem quando a aba muda de engine — sem remontar o editor.
+
+  E as sugestões do próprio banco ganham relevância: tabela, coluna e,
+  liderando, a chave primária passam à frente das palavras-chave genéricas de
+  mesmo prefixo (`boost`). Digitar `use` mostra a tabela `users` antes do `USER`
+  do dialeto; digitar `stat` mostra a coluna `status` primeiro.
+
+### Corrigido
+
+- **A edição de célula das engines de credencial (MySQL, MariaDB, libSQL, Mongo,
+  Redis) agora acende na grade.** A tela decidia "pode escrever aqui" só por
+  `writeEnabled`, campo que essas engines não têm — a escrita delas é a
+  credencial de escrita (`hasWriteCredential`). Resultado: a edição existia na
+  API e nos testes, mas **nunca aparecia** na grade dessas engines. A tela passa
+  a usar a mesma regra do servidor (`writeEnabledEfetivo`): credencial →
+  `hasWriteCredential`, transação/handle → `writeEnabled`.
+
 ### Adicionado
+
+- **Edição de campo aninhado no MongoDB.** A edição de documento passou a
+  aceitar um path pontuado (`endereco.cidade`) na coluna do update/delete, e não
+  só campo de topo: vira `$set: {"endereco.cidade": …}` por dot-notation, que
+  grava só o campo aninhado e **preserva o resto do documento e os tipos BSON**
+  (nunca reescreve o documento inteiro). A guarda otimista casa pelo mesmo path.
+  O coração da fatia é o validador de path: recusa, por segmento e sem parser
+  (§8), path/segmento vazio e todo `$` ou espaço — o que barra `$where`,
+  `endereco.$gt` e qualquer operador —, exige que o primeiro segmento seja campo
+  de topo conhecido (a tranca de sempre) e que cada segmento seguinte seja um
+  campo que a amostra revelou em profundidade ou um índice de array; `__proto__`
+  e campo nunca amostrado são recusados. O catálogo aninhado é amostrado pela
+  credencial de leitura (a de escrita pode não poder), como os tipos já eram.
+- **Dump de várias tabelas (bundle) nas engines SQL não-Postgres (MySQL,
+  MariaDB, libSQL, SQLite).** O `POST /:id/export/bundle` deixou de ser só do
+  Postgres: `exportBundle` ramifica por engine como o export de uma tabela já
+  fazia. Fora do Postgres, cada tabela é paginada pela grade de keyset do driver
+  (regra 7 — não há o cursor do `pg`) e as páginas são costuradas num stream só.
+  No formato `.sql`, o `CREATE TABLE` de referência sai no **dialeto da engine**
+  (crase no MySQL, aspas duplas no SQLite/libSQL, via `montarCreateTableGenerico`)
+  seguido dos `INSERT`s; os formatos não-`.sql` (csv/csv-comma/tsv/json/ndjson)
+  saem como um arquivo por tabela dentro de um `.zip`, o mesmo container do
+  Postgres. Mongo e Redis seguem recusados (capacidade `exportar: false`).
+
+  O que este caminho **não** tem, por honestidade e não por esquecimento:
+  índices, triggers e rotinas (são `pg_get_*` do catálogo do Postgres — as
+  opções `indexes`/`triggers`/`routines` são ignoradas nessas engines); `COPY`
+  e `ON CONFLICT` (do Postgres / de dialeto divergente — os dados saem sempre
+  como `INSERT` simples); e o **snapshot transacional entre tabelas** — sem a
+  transação `REPEATABLE READ`, tabelas diferentes podem refletir instantes
+  ligeiramente diferentes, e o cabeçalho do `.sql` registra isso.
+
+  Provado recarregando o `.sql` gerado: num segundo `bun:sqlite` limpo
+  (autocontido, sem Docker) e num MySQL vazio via `mysql2` — a tabela é criada e
+  os valores voltam idênticos (aspa simples, acento, NULL, decimal, DEFAULT do
+  SQLite). O `nomeDeEntrada`/`linhaTabular` do zip foram extraídos para
+  `lib/bundle-formato.ts` e são compartilhados pelos dois caminhos, para a regra
+  de segurança do nome da entrada viver num lugar só.
+
+- **DDL por formulário nas engines SQL não-Postgres (MySQL, MariaDB, libSQL,
+  SQLite).** Criar tabela deixou de ser só do Postgres: o montador de `CREATE
+  TABLE` agora gera no **dialeto da engine** — crase no MySQL, aspas duplas no
+  SQLite/libSQL; `serial` vira `AUTO_INCREMENT` no MySQL (quando é PK) e
+  `INTEGER PRIMARY KEY AUTOINCREMENT` no SQLite; `jsonb`/`uuid`/`bytea`/`inet` e
+  companhia viram o tipo mais próximo que existe lá. O comando roda pelo caminho
+  de escrita do driver (a mesma credencial/handle da edição de linha), com o
+  portão de escrita e a auditoria de sempre. `CREATE DATABASE` vale onde existe
+  (Postgres, MySQL/MariaDB); no SQLite (arquivo) e no libSQL (banco único) é
+  recusado com mensagem clara. Os defaults de expressão sem equivalente portável
+  (`gen_random_uuid()`, `current_date` no MySQL) são recusados em vez de gerar
+  DDL que não recarrega; `now()`/`current_timestamp` viram `CURRENT_TIMESTAMP`.
+
+  Provado recarregando o DDL gerado num MySQL e num SQLite reais (a tabela é
+  criada, o auto-incremento de fato incrementa, os tipos batem no
+  `information_schema`/`PRAGMA`). O preview do formulário usa o mesmo montador, no
+  dialeto da conexão — o que se lê é o que roda.
+
+- **Edição estruturada de coleção no Redis (hash/list/set/zset).** Até aqui a
+  grade só editava a chave `string`; um `hash`/`list`/`set`/`zset` era recusado.
+  Agora, clicar na coluna `value` de uma chave de coleção abre um **editor
+  estruturado** (modal no padrão do editor de linha): lista os membros, cada um
+  com edição e exclusão inline, e uma linha para adicionar. Cada ação vira o
+  comando nativo do tipo (`HSET`/`HDEL`, `SADD`/`SREM`, `ZADD`/`ZREM`,
+  `LSET`/`LPUSH`/`LREM`), com a guarda otimista do valor anterior onde ela cabe,
+  pela credencial de escrita e com auditoria — o mesmo portão das outras
+  edições. Coleção grande que a grade mostrou só em amostra avisa que a lista
+  pode estar incompleta; adicionar e excluir por nome seguem valendo.
+
+- **Cancelamento de consulta no SQLite local.** A consulta do `bun:sqlite` é
+  síncrona e não para por sinal; o gerente de workers agora a interrompe
+  **terminando o worker e rejeitando a promessa em voo** — antes, matar o worker
+  deixaria o chamador pendurado até o timeout de 30 s. O mesmo mecanismo serve ao
+  timeout e ao botão "Cancelar". A capacidade `cancelarQuery` do SQLite virou
+  `true`; o cancelamento volta com código `query_cancelled`, gravado como
+  `cancelled` no `query_log` (não `error`). Provado por teste: uma consulta que
+  giraria "para sempre" volta em milissegundos, não em 30 s.
+
+  No editor, o botão "Cancelar" agora só aparece nas engines que **de fato**
+  cancelam (Postgres, MySQL, MariaDB, SQLite). No libSQL — cujo protocolo HTTP
+  não oferece cancelamento — ele some, em vez de ser um botão morto
+  (design-system §5).
+
+- **Exportação nas engines SQL não-Postgres (MySQL, MariaDB, libSQL, SQLite).**
+  Antes a exportação era só do Postgres (gate `exigirPostgres`); o resto recusava
+  no servidor e o botão sumia da tela. Agora toda engine SQL exporta
+  CSV/JSON/NDJSON e, na origem tabela, `.sql` (CREATE TABLE de referência +
+  INSERTs).
+
+  Estas engines não têm o cursor do `pg` (regra 7), então o caminho é outro: a
+  origem **tabela** pagina pela grade de **keyset** do driver (uma página por
+  vez, memória limitada ao lote — a contrapressão do `pull` do stream faz o
+  resto), caindo para `OFFSET` nas tabelas sem PK; a origem **consulta** roda o
+  `executar` uma vez, limitado por `maxRows` como qualquer consulta nelas. O
+  Postgres segue no seu `DECLARE CURSOR`.
+
+  O `.sql` cita o identificador pelo **dialeto**: crase no MySQL, aspas duplas no
+  SQLite/libSQL. No MySQL o valor ainda escapa a contrabarra — ela é caractere de
+  escape por padrão (`NO_BACKSLASH_ESCAPES` desligado) e o `sqlValue` sozinho
+  recarregaria o dado errado. Mongo e Redis continuam sem exportar (capacidade
+  `exportar: false`): documento e chave não viram linha de tabela sem inventar um
+  formato, e isso é fatia própria deles. O gate virou a capacidade
+  `exportar`, lida pela mesma tabela que decide o botão da tela.
+
+- **SQLite local aceso em leitura — a última engine.** Com ela, as **sete**
+  engines declaradas estão implementadas. Era a fase adiada, por um motivo real:
+  o `bun:sqlite` é síncrono e travaria o processo inteiro num app multiusuário
+  (medido: consulta de 47s, zero tiques num timer de 10ms).
+
+  A saída foi rodar o SQLite **num Worker** — o bloqueio fica na thread do
+  worker, o event loop principal segue livre (provado por teste: uma consulta
+  pesada roda e o timer da thread principal continua tiquetaqueando). Timeout e
+  cancelamento por **terminação do worker**, a única forma de interromper uma
+  chamada nativa síncrona.
+
+  A garantia de leitura é o **handle** (arquivo aberto `readonly`), não um
+  PRAGMA que o SQL possa desligar. O caminho do arquivo é validado contra uma
+  raiz permitida (`DBEE_SQLITE_ROOT`) — travessia de diretório barrada. Campo
+  `filePath` (migração 010); catálogo pelo mesmo `sqlite_master`/`pragma_*` do
+  libSQL. Só leitura no v1.
+
+  Efeito colateral no schema: `host` e `password` viraram opcionais (o SQLite
+  não tem nenhum), com a obrigatoriedade agora **por engine**.
+
+
+- **MongoDB e Redis acesos — leitura e escrita.** As duas últimas engines
+  entraram, e com elas todas as seis que o DBee implementa são navegáveis e
+  editáveis. A escrita segue o modelo das engines de credencial: segunda
+  credencial opcional, portão de concessão do ator, guarda otimista.
+
+  **MongoDB** (`mongodb@6` — JS puro, compila; o `@7` quebra no Bun). Árvore
+  cluster → database → coleção; grade de documentos com colunas **inferidas por
+  amostragem**; keyset por `_id`; toda célula em texto (ObjectId hex, data ISO,
+  aninhado em JSON). `authSource` é campo próprio (o database da credencial não
+  é o dos dados — medido). Escrita: célula → `updateOne({_id,...guarda},{$set})`,
+  exclusão → `deleteOne`, inserção → `insertOne`, com coerção de tipo (o Mongo
+  casa por tipo, e o valor da grade é texto).
+
+  **Redis** (primitiva `Bun.RedisClient`, zero dependência). Árvore conexão → db
+  numerado; grade de chaves navegada por **SCAN, nunca KEYS**; os seis tipos de
+  valor renderizados em texto (string cru, hash/list/set/zset em JSON, stream
+  resumido); `MATCH` filtra por nome de chave. A sonda de teste é `DBSIZE`, não
+  `PING` (medido: `+@read` recebe NOPERM em PING). Escrita: `SET`/`DEL`/`EXPIRE`
+  de chave string (a edição estruturada dos tipos coleção é fatia futura).
+
+  A UI esconde o que a engine não faz — sem "Consultar" (não há SQL), sem
+  "Diagrama" (sem schema/FK), derivado das capacidades. Cada engine verificada
+  end-to-end na tela e por teste de integração contra servidor real.
+
+
+- **Escrita nas engines de credencial (MySQL, MariaDB, libSQL), por uma segunda
+  credencial.** Essas engines não têm transação somente-leitura que resista, e
+  até aqui eram só leitura. A escrita entrou sem afrouxar a garantia: uma
+  **credencial de escrita opcional**, separada da de leitura. A leitura segue
+  com a de sempre; a escrita só acontece com a segunda credencial presente, o
+  ator concedido, e o pedido explícito (`readOnly: false`) — as três coisas, ou
+  a escrita é recusada com mensagem clara. É "nada muda por acidente" trazido
+  para as engines de credencial.
+
+  - **Migração 008**, aditiva (`write_username`, `write_password_enc`, nulas;
+    EXPECTED_SCHEMA 7 → 8). A credencial de escrita cifra com AAD distinto do da
+    leitura (`v2:<id>#write`) — sem isso, quem tem escrita no volume trocaria a
+    senha de leitura pela coluna de escrita dentro da mesma linha.
+  - **No MySQL/MariaDB** a credencial de escrita é usuário + senha; **no libSQL**
+    é só o token gravável (sem o claim `"a":"ro"`). O pool do MySQL passou a
+    chavear por `username`, então leitura e escrita nunca compartilham conexão.
+  - **`writeEnabled` efetivo unificado**: "este usuário pode gravar aqui?" virou
+    um campo só nas duas famílias de engine, dobrado pela concessão. O selo de
+    escrita e o interruptor da consulta valem para as quatro engines sem mudar
+    uma linha neles.
+  - **A credencial nunca sai** (como a senha): só `hasWriteCredential` viaja. O
+    formulário ganhou a seção "Credencial de escrita (opcional)".
+
+  Provado ponta a ponta contra MySQL real e por testes de integração: admin
+  grava pela credencial de escrita; leitura não a usa; member sem concessão é
+  barrado mesmo com a credencial presente; member com concessão grava.
+
+
+- **libSQL aceso em leitura — fase 3 do multi-engine fechada.** Criar conexão,
+  navegar a árvore, abrir o catálogo, ler a grade e executar SQL, contra um
+  `sqld` de verdade. O teste de contrato de driver agora roda as mesmas
+  asserções contra **quatro** engines.
+
+  **Nenhuma migration.** A migração 007 já registrava que tornar
+  `host`/`database`/`username` anuláveis exige reconstruir a tabela com três
+  chaves estrangeiras apontando para ela — e que esse dia merece ADR próprio.
+  Ele não chegou: `host` + `port` são o endereço do `sqld`, `sslMode` escolhe
+  `http` ou `https`, e **`password` guarda o token JWT**, cifrado como qualquer
+  credencial. O que mudou foi `database` e `username` virarem opcionais no
+  schema, com a obrigatoriedade passando a ser **por engine** — a mesma tabela
+  de capacidades que decide o que o formulário mostra.
+
+  **A permissão de escrita é lida do token, não sondada.** Sondar exigiria
+  tentar escrever no banco de alguém. O claim `"a":"ro"` está no próprio JWT, e
+  qualquer coisa que não seja ele vira aviso: na dúvida, avisa. Um aviso a mais
+  custa uma linha na tela; um a menos custa a confiança num modo leitura que não
+  existe.
+
+  **Sem streaming, e está escrito em vez de escondido.** O protocolo é
+  requisição-resposta: o resultado vem inteiro num JSON e não há ponto em que
+  parar de ler, então o corte de `maxRows` acontece depois de a resposta chegar.
+  Injetar `LIMIT` no SQL do usuário está fora de questão (regra 8).
+
+  **`cancelarQuery: false`**, e o teste de contrato afirma os dois lados: onde a
+  capacidade diz `true`, o driver tem que entregar o token de cancelamento; onde
+  diz `false`, tem que **não** entregar — um token ali prometeria um
+  cancelamento que não acontece.
+
+- **A porta padrão agora é a da engine** — 5432, 3306, 8080 —, e trocar o motor
+  no formulário troca a porta **só enquanto ela ainda for a padrão do motor
+  anterior**. Porta digitada fica.
+
+- **O formulário manda só os campos da engine.** O rascunho continua guardando
+  todos (trocar de motor não pode apagar o que a pessoa digitou), mas o envio é
+  filtrado pelas capacidades — mandar `database: ""` para um libSQL guardaria um
+  database que ninguém escolheu, e o servidor recusa o campo que sobra.
+
+- **libSQL: protocolo, cliente e catálogo** — primeiras peças da fase 3 do
+  multi-engine. Ainda não conecta pela interface.
+
+  **O DBee fala o protocolo com `fetch`, sem cliente.** O `sqld` expõe
+  `POST /v2/pipeline` em JSON puro. O cliente oficial (`@libsql/client`) foi
+  medido e reprovou em duas frentes: **traz módulo nativo** (23 MB), o que a
+  regra 4 proíbe porque quebra o `bun build --compile`; e **quebra numa tabela
+  que o DBee precisa conseguir ler** — uma coluna `REAL` com infinito faz ele
+  lançar `HRANA_PROTO_ERROR` e a consulta inteira falha.
+
+  **A regra 10 vem quase de graça.** O protocolo manda cada célula com o tipo
+  explícito e o valor **já em string**, então um inteiro de 64 bits chega
+  inteiro sem passar por `number` — o que no Postgres exigiu `TUDO_TEXTO` e no
+  MySQL exigiu `typeCast` com bytes crus. Três exceções: `float` vem como número
+  JSON, `blob` vem em base64 (vira hexadecimal, como o `bytea`), e o infinito
+  **perde o sinal**. Mas ele **não se confunde com `NULL`**: o campo `type`
+  ainda os separa, e devolver `null` ali diria que a célula é vazia quando ela
+  não é.
+
+  **Sem pool, e não por economia:** a engine não tem sessão. Cada requisição é
+  independente, então somem o contrato de descarte, a configuração de sessão e a
+  fila de vagas que o MySQL precisou. Em troca, não há limite de tempo por
+  statement nem cancelamento — o protocolo não os oferece, e isso vira
+  capacidade em vez de um botão que não faz nada.
+
+  **A garantia de somente-leitura é a mais forte depois do Postgres.** O claim
+  `"a":"ro"` do JWT é aplicado pelo **servidor** e cobre até DDL: `INSERT`,
+  `UPDATE`, `DELETE`, `DROP` e `CREATE` todos bloqueados, e as duas saídas
+  clássicas do SQLite — `PRAGMA query_only = OFF` e `ATTACH` — recusadas como
+  statement não suportado. Não depende de montar `GRANT` certo como no MySQL.
+
+  **O catálogo** sai de `sqlite_master` e das funções `pragma_*`, em lote. Dois
+  casos travados por teste porque quebrariam o keyset em silêncio: a chave
+  primária composta vem na ordem do campo `pk` e **não** na das colunas da
+  tabela (o teste cria `comp(a, b, v)` com `PRIMARY KEY (b, a)`), e a chave
+  estrangeira composta é pareada pelo `seq`.
+
+- **A fase 2 fechada: introspecção completa e grade de linhas no
+  MySQL/MariaDB.**
+
+  O catálogo inteiro — colunas com tipo canônico (`varchar(120)`, não
+  `varchar`), chave primária, índices e chaves estrangeiras — e a grade com
+  filtro, ordenação e paginação por cursor. `diagramaErd` virou `true` **quando
+  as FKs passaram a ser lidas**, e não antes: capacidade é o que a engine faz,
+  não o que se pretende que ela faça.
+
+  Três defeitos meus que a medição pegou:
+
+  1. **O `dataTypeId` do catálogo não casava com o da consulta.** O protocolo
+     tem dois números para varchar — `VARCHAR` (15) e `VAR_STRING` (253) — e o
+     servidor manda 253; o mesmo vale para `decimal` (0 contra **246**). O mapa
+     inverso caía nos antigos por ordem de iteração, e a tela não conseguia
+     ligar a coluna do catálogo à do resultado. Sem erro nenhum. Há teste
+     comparando as duas pontas contra servidor real.
+  2. **O erro de coluna inexistente virava `502 upstream_error`.** O planejador
+     de MySQL definiu uma classe de erro própria, e o serviço só reconhecia a do
+     Postgres — um erro do usuário, com mensagem pronta, aparecia como se o
+     servidor tivesse caído. A classe mudou para `driver/erros.ts`: o conceito é
+     da grade, não de uma engine.
+  3. **A introspecção lia a linha por nome** enquanto as conexões do driver vêm
+     com `rowsAsArray` — o mesmo descompasso que o teste de contrato já tinha
+     pegado uma vez, repetido por mim ao escrever um teste novo.
+
+  Divergências medidas que entram no registro:
+
+  - `TABLE_COMMENT` de uma **view** vem literalmente `"VIEW"` — não é comentário
+    de ninguém. Sem filtrar, toda view mostraria um comentário falso.
+  - MariaDB reporta `year(4)`; MySQL, `year`.
+  - MariaDB devolve o default de literal **com** aspas (`'BR'`); MySQL, **sem**.
+    A forma do MariaDB é a mesma convenção do Postgres. Nada é normalizado:
+    tirar aspas às cegas quebraria `CURRENT_TIMESTAMP`.
+  - A busca por trecho **casa mais coisas aqui**: a collation padrão do MySQL 8
+    é insensível a acento, então procurar `ö` traz `Milton`. O `ILIKE` do
+    Postgres respeita acento. É a collation do banco decidindo o que "igual"
+    significa, e é a resposta que qualquer cliente daria naquele servidor.
+  - O `information_schema` do MySQL **não entra no snapshot da transação**,
+    então as quatro consultas de catálogo não têm o `repeatable-read` que o
+    Postgres usa. A janela existe, é de milissegundos, e está registrada em vez
+    de escondida.
+
+  Verificado de ponta a ponta contra um MySQL real, pela API de verdade: criar
+  conexão, testar, árvore, catálogo completo, consulta e grade paginada. E por
+  screenshot em 1440 e 1024, nos dois temas — a árvore mostra as tabelas
+  **direto sob o database**, sem o nível de schema que o MySQL não tem.
+
+- **MySQL e MariaDB acesos no seletor — a fase 2 do multi-engine, em leitura.**
+
+  Os serviços passaram a despachar por engine: teste de conexão, árvore, lista
+  de databases, execução de consulta e cancelamento. O `QueryService` deixou de
+  receber o `PoolManager` do Postgres — quem faz pool agora é o driver.
+
+  **Capacidades de MySQL e MariaDB, medidas e não deduzidas.** A que mais muda a
+  tela: `campos` **não tem `writeEnabled`**. O interruptor "permitir escrita
+  nesta execução" pressupõe que exista algo por execução para ligar, e ali não
+  existe — a garantia mora na credencial. Um interruptor que não liga nada é a
+  tela mentindo. `diagramaErd: false` pelo mesmo motivo: a introspecção desta
+  fase lê a árvore, não as chaves estrangeiras, e a aba abriria vazia.
+
+  **A árvore pula o nível de schema** quando a capacidade diz que ele não
+  existe. No MySQL `SCHEMA` e `DATABASE` são a mesma coisa; o driver devolve um
+  nó com o nome do database para a resposta manter a forma do fio, e a tela
+  deixa de desenhá-lo. `catalogo > catalogo > tabela` seria a tela inventando
+  hierarquia que o servidor não tem. Sai da capacidade e não de um
+  `if (engine === "mysql")`, então a próxima engine sem schema já vem certa.
+
+  **Guarda explícita nos recursos que só o Postgres tem** — exportação, DDL,
+  edição de linhas e a grade com filtro. Sem ela, uma conexão MySQL faria o
+  `PoolManager` do Postgres falar protocolo de Postgres com a porta 3306, e o
+  erro seria de handshake: sem relação com a verdade, que é "isto não existe
+  aqui". DDL e mutação recusam com `write_forbidden`, que é exato — escrita é
+  proibida ali, e pelo motivo mais forte.
+
+  Um defeito da própria mensagem foi corrigido no caminho: ela prometia "esta
+  conexão suporta leitura" **até para engine que o DBee não fala**. Uma conexão
+  `sqlite` não lê nada. Viraram dois casos, com teste travando que engine sem
+  driver não ganha essa frase.
+
+  As invariantes de capacidade foram reescritas para dizer o que importa. A
+  antiga era "capacidade declarada **se e somente se** implementada", verdade
+  por acidente enquanto só existia o Postgres — as duas coisas acontecem em
+  momentos diferentes. E o caso "só o Postgres tem garantia por transação"
+  afirmava que **todas** eram `transacao`, o que passava por haver uma entrada
+  só; agora ele afirma a diferença.
+
+- **A fronteira do driver de leitura**, extraída **depois** de dois drivers
+  existirem — e um teste de contrato único que roda contra as três engines.
+
+  O plano previa extrair esta interface antes da segunda engine. Foi adiada de
+  propósito: a forma certa de uma abstração aparece com o segundo caso, não com
+  o primeiro imaginado. O que está em `DriverLeitura` é o que PostgreSQL e
+  MySQL de fato fazem hoje.
+
+  É só **leitura** porque só a leitura é comum. Exportação, DDL e mutação
+  existem no Postgres e não existem no MySQL desta fase — sem uma segunda
+  credencial por conexão não há modo de escrita para oferecer. Um `Driver` único
+  obrigaria o MySQL a declarar oito métodos que não implementa, cada um uma
+  promessa falsa esperando ser chamada.
+
+  `contrato.integration.test.ts` escreve as asserções **uma vez** e as roda
+  contra PostgreSQL 16, MySQL 8.4 e MariaDB 11 reais. Ele já pagou por si: pegou
+  um defeito que **todos** os testes por engine deixavam passar. As conexões do
+  driver são abertas com `rowsAsArray`, e `linhasDeTexto` indexava a linha por
+  nome — a árvore de MySQL vinha com relações de nome vazio. Cada teste por
+  engine abria a própria conexão sem `rowsAsArray`, então nenhum via o
+  descompasso; só o driver montado como em produção vê. A assinatura agora
+  exige array, e os testes por engine passaram a abrir a conexão como o driver
+  abre.
+
+- **A condição de keyset do MySQL/MariaDB** — que é o **oposto** da do
+  Postgres.
+
+  `(c, pk) > (v, p)` e `c > v OR (c = v AND pk > p)` selecionam as mesmas
+  linhas, e as duas engines discordam sobre qual forma é a boa. Medido na página
+  100 000 de uma tabela de 131 072 linhas, coluna indexada:
+
+  | | comparação de linha | disjunção com `OR` |
+  |---|---|---|
+  | PostgreSQL | `Index Cond`, **0,25 ms** | `Filter`, 76,4 ms |
+  | MySQL 8.4 | `type=index`, 24 ms | `type=range`, **1 ms** |
+  | MariaDB 11.8 | `type=index`, 21 ms | `type=range`, **0 ms** |
+
+  Reusar o planejador do Postgres aqui daria uma paginação vinte vezes mais
+  lenta **sem erro nenhum** — o resultado continua certo, só o plano é ruim. E o
+  `EXPLAIN` mente na direção contrária: para a comparação de linha ele estimou
+  **50** linhas, e para a disjunção, **63 253**. Quem decidir pelo `EXPLAIN`
+  escolhe a forma lenta.
+
+  Os NULL também ficam do outro lado: no MySQL e no MariaDB `ORDER BY v ASC`
+  põe **NULL primeiro**, no Postgres por último, e `NULLS LAST` **não existe**
+  aqui (erro de sintaxe nos dois). A ordem nativa é respeitada em vez de
+  forçada, porque forçá-la exigiria `ORDER BY (v IS NULL), v`, que o índice não
+  cobre.
+
+  Provado revertendo, nos dois pontos: sem o desempate da chave primária a
+  paginação diverge, e com a forma compacta o plano cai para `index`.
+
+- **Cancelamento de consulta no MySQL/MariaDB**, por `KILL QUERY`.
+
+  É o equivalente do `pg_cancel_backend`: mata **a consulta**, não a sessão, e
+  vai por uma conexão à parte. Medido em `docs/papeis-mysql.md`: funciona com a
+  credencial restrita, **sem** privilégio `PROCESS`, desde que a thread seja do
+  mesmo usuário — é o que torna o cancelamento viável numa engine cuja garantia
+  é a credencial.
+
+  Cancelar uma thread que já terminou devolve `false` em vez de lançar: clicar
+  em cancelar enquanto a consulta responde é o caso comum, não um erro.
+
+  E fica travado por teste o silêncio do MySQL: **`SELECT SLEEP` cancelado volta
+  sem erro**, com o valor `1`. A primeira versão do caso usava `SLEEP` como
+  vítima e lia "terminou sozinha" mesmo com o cancelamento tendo funcionado —
+  voltou em 355 ms de um `SLEEP` de 20 s. É a mesma armadilha que o limite de
+  tempo já tinha, e agora está registrada nos dois lugares.
+
+- **O pool de conexões MySQL/MariaDB**, próprio em vez do que o `mysql2`
+  oferece — e a razão está no fonte deles.
+
+  A configuração de sessão do DBee é assíncrona: descobrir o sabor por
+  `VERSION()`, aplicar o limite de tempo com o nome de variável certo, aplicar o
+  fuso com queda para deslocamento. O pool do `mysql2` avisa a conexão nova pelo
+  evento `connection` e **não espera** o ouvinte — em `lib/base/pool.js` o
+  `emit('connection', …)` é seguido na linha seguinte por
+  `cb(null, connection)`. A primeira consulta do usuário correria com o `SET` de
+  fuso e às vezes ganharia: datas erradas de forma intermitente.
+
+  Aqui a conexão só entra em circulação depois que a sessão está pronta, e o
+  pool decide entre devolver e fechar a partir do que a tarefa devolve — o mesmo
+  `descartarConexao` que o executor produz, para quem chama não poder esquecer.
+
+  Escrevi o pool errado duas vezes, e as duas estão travadas por teste:
+
+  1. O fechamento não acordava quem esperava vaga. Com o teto ocupado por
+     tarefas que descartam, o pedido seguinte **travava para sempre** — o teste
+     que reintroduz isso estoura por tempo limite nos dois servidores.
+  2. A devolução recriava o grupo apagado pelo `evict`, e uma conexão em uso
+     durante o descarte voltava ao pool falando com o servidor antigo. A
+     primeira versão do teste olhava a contabilidade do pool e **não pegava** o
+     defeito, porque a conexão vaza para um grupo que ninguém mais lê. O que
+     acontece de verdade é uma conexão **aberta no servidor** que nunca fecha, e
+     é isso que o teste passou a medir, pelo `information_schema.PROCESSLIST`.
+
+- **O fuso da sessão no MySQL/MariaDB**, com plano B para servidor sem tabelas
+  de fuso.
+
+  A conexão do DBee guarda um fuso IANA (`America/Bahia`), e o MySQL só entende
+  nome se as tabelas `mysql.time_zone*` estiverem carregadas. Nas imagens
+  oficiais estão (medido: 1795 nomes no MySQL 8.4, 498 no MariaDB 11), mas num
+  servidor instalado à mão é comum não estarem, e aí o `SET SESSION time_zone`
+  falha com **1298** nos dois.
+
+  Falhar a conexão inteira por isso seria desproporcional; ignorar o erro seria
+  pior, porque a sessão ficaria no fuso do servidor e as datas apareceriam
+  **silenciosamente erradas**. O plano B é o deslocamento numérico do mesmo
+  fuso, que os dois aceitam sempre.
+
+  O limite do plano B fica dito por teste, não só por comentário: ele é o
+  deslocamento de **um instante**, então uma sessão que atravesse a virada do
+  horário de verão continua na antiga. Por isso o nome vem primeiro. O próprio
+  teste caiu nessa armadilha uma vez — eu afirmei que `Pacific/Chatham` é
+  `+12:45`, medido em setembro, quando em janeiro é `+13:45`.
+
+- **O executor de statements do MySQL/MariaDB**, que não traz o resultado
+  inteiro — e o contrato que impede o pool de passar fome.
+
+  O Postgres embrulha o SQL num `DECLARE … CURSOR` e busca `maxRows + 1`. O
+  MySQL **não tem cursor** fora de procedure, e a regra 8 proíbe reescrever o
+  SQL do usuário — injetar `LIMIT` seria isso, e mudaria o resultado de quem já
+  tem `LIMIT` ou `UNION`. O equivalente é streaming com parada antecipada:
+  medido, 262 144 linhas custam **+75 MB** em modo buffered e **6 ms** parando
+  em 101.
+
+  **Parar cedo custa a conexão**, e isso foi medido em cadeia. Só `destroy`
+  deixa a conexão bloqueada **15,2 s** drenando um `JOIN` de 67 milhões de
+  linhas — num pool, um `SELECT` sem `WHERE` faria o pool passar fome.
+  `KILL QUERY` mata o dreno mas deixa a conexão em `closed state`. O que resolve
+  os dois é **fechar a conexão**: a thread some do `PROCESSLIST` 1,5 s depois,
+  com ou sem `KILL`. Por isso o resultado carrega `descartarConexao` — no tipo,
+  não num comentário, para o pool não poder esquecer.
+
+  São três coisas distintas, e confundi-las seria repetir o erro do `FETCH n`:
+  streaming limita **memória**, o `max_execution_time` limita **tempo**, e o
+  `KILL QUERY` atende à **vontade do usuário**.
+
+  Duas coisas que o executor se recusa a inventar, porque o protocolo do MySQL
+  não as carrega: a **posição** do erro (destacar um lugar chutado no editor é
+  pior que não destacar) e o **rótulo do comando** (`command` fica `null`).
+
+- **Os nomes de tipo das colunas de resultado no MySQL/MariaDB**, conferidos
+  contra a resposta do próprio servidor.
+
+  O `mysql2` expõe o número do tipo do **protocolo** — `LONG`, `VAR_STRING`,
+  `BLOB` — e ninguém escreve `LONG` num `CREATE TABLE`. A tela usa
+  `dataTypeName` para decidir alinhamento e formatação, então precisa do nome
+  do SQL: `int`, `varchar`, `text`.
+
+  O mapa não é uma tabela escrita de memória: o teste pergunta ao MySQL e ao
+  MariaDB, por `information_schema.COLUMNS.DATA_TYPE`, como cada coluna se
+  chama, e exige que o mapa concorde — 216 asserções, quem tem razão é o
+  servidor.
+
+  Três coisas que a medição decidiu: `ENUM` e `SET` chegam como `STRING` e só os
+  flags 256/2048 os separam de um `CHAR`; `BLOB` e `TEXT` compartilham o tipo e
+  só o charset os separa; e `BINARY_FLAG` continua inútil para isso, porque vem
+  ligado em `DATE`, `DATETIME`, `TIMESTAMP` e `TIME`.
+
+  Um limite fica dito em voz alta em vez de escondido: **`TEXT` e `LONGTEXT`
+  chegam idênticos no fio** — o tamanho não viaja no metadado do resultado. Os
+  dois viram `text`, que é a informação que de fato existe; chutar `longtext`
+  acertaria metade das vezes. Há teste travando o limite, para o dia em que o
+  protocolo mudar.
+
+- **O limite de tempo por consulta em MySQL e MariaDB**, com as três
+  divergências medidas concentradas num arquivo só.
+
+  | | variável | unidade | ao cortar |
+  |---|---|---|---|
+  | MySQL 8.4 | `max_execution_time` | milissegundos inteiros | `ER_QUERY_TIMEOUT`, errno 3024 |
+  | MariaDB 11.8 | `max_statement_time` | segundos, float | errno 1969, **sem `code`** |
+
+  `@@max_execution_time` não existe no MariaDB, então não dá para setar as duas
+  e deixar a que valer vencer — há teste provando que cada servidor recusa a
+  variável do outro.
+
+  Duas armadilhas, uma em cada, e a segunda era um defeito meu que a medição
+  pegou: a primeira versão reconhecia o corte pelo **nome** do código de erro, o
+  que funciona no MySQL e falha calado no MariaDB, que não manda nome nenhum. A
+  chave passou a ser o `errno`, que os dois preenchem.
+
+  A outra é do MySQL: `SELECT SLEEP(5)` cortado por tempo volta **sem erro**, em
+  1502 ms, com o valor `1`. Um executor que decida "deu certo" pela ausência de
+  erro relataria sucesso numa consulta que não terminou. Fica travado por teste,
+  para o dia em que o servidor mudar de comportamento.
+
+- **O teste de conexão do MySQL/MariaDB diz o que a conexão _não_ garante.**
+
+  No Postgres o teste abre `BEGIN READ ONLY` e com isso já exercita a proteção.
+  Aqui não há proteção para exercitar: medido, dentro de
+  `START TRANSACTION READ ONLY` o `TRUNCATE` esvazia a tabela e o `CREATE USER`
+  cria usuário. A garantia mora na credencial — então o teste olha **os
+  privilégios da credencial**, e o aviso é o produto.
+
+  Dois avisos, independentes. `credential_can_write` quando a credencial pode
+  mudar dado ou esquema: sem ele a tela diria "modo leitura" sobre uma conexão
+  que apaga tabela, e a pessoa acreditaria. `privileged_role` quando ela tem
+  `FILE` ou `SUPER`, que alcançam o host do banco — o análogo do aviso de
+  superusuário do Postgres.
+
+  A checagem soma as quatro tabelas de privilégio (global, database, tabela e
+  **coluna**), porque basta um `UPDATE` numa única coluna para a conexão não ser
+  somente leitura. Provado revertendo: sem `COLUMN_PRIVILEGES` esse caso passa
+  despercebido. A comparação de `GRANTEE` é por igualdade com a forma canônica
+  `'user'@'host'`, nunca `LIKE '%nome%'` — `ana` casaria as linhas de `mariana`,
+  e uma checagem de segurança que erra para o lado permissivo é pior que não
+  existir.
+
+  Travado também: senha errada falha **sem devolver a senha** em lugar nenhum da
+  resposta. Este projeto já devolveu a senha do banco em claro num 422, e nenhum
+  teste unitário pegou.
+
+- **A introspecção de MySQL/MariaDB** — a árvore de três níveis, contra
+  `information_schema`.
+
+  O Postgres tem conexão → database → **schema** → tabela; o MySQL tem
+  conexão → database → tabela, porque `SCHEMA` e `DATABASE` são a mesma coisa
+  lá. A resposta da API mantém a forma de sempre e a engine devolve **um** nó de
+  schema com o nome do próprio database — mudar o formato do fio quebraria o
+  Eden e todas as rotas por causa de uma engine, e quem esconde o nível é a
+  tela, que já sabe disso pela capacidade.
+
+  Medido: `information_schema` **já filtra por grant**. Um usuário com
+  `GRANT SELECT ON loja.clientes` vê exatamente `clientes`, e o database que não
+  lhe foi concedido não aparece — o equivalente do `has_table_privilege` que a
+  introspecção do Postgres precisa pedir à mão. Há teste provando isso contra
+  servidor real, em vez de o comentário afirmar e ninguém conferir.
+
+  Quinta divergência medida entre as duas: `TABLE_TYPE = 'SEQUENCE'` só existe
+  no MariaDB. Vira `table`, porque é o que ela é ali — um objeto que se lê com
+  `SELECT` — e inventar um `RelationKind` que uma só engine produz seria pior.
+
+  Os databases internos (`information_schema`, `performance_schema`, `mysql`,
+  `sys`) somem da árvore, como os templates somem no Postgres. Provado
+  revertendo, nos dois pontos.
+
+- **Os três modos de TLS do MySQL/MariaDB**, com o único que não dá para
+  entregar por IP recusado em voz alta em vez de fingido.
+
+  `disable` e `require` funcionam por IP. `verify-full` só por hostname DNS: o
+  `mysql2` descarta o nome do servidor quando o host é numérico, e a conferência
+  de identidade passa a comparar contra `localhost` — recusaria até um
+  certificado com `IP:<host>` entre os SANs. A saída que o `pg/ssl.ts` usa (um
+  `checkServerIdentity` próprio) está fechada aqui, porque o driver a
+  sobrescreve.
+
+  Conectar sem conferir identidade e chamar de `verify-full` seria mentira com
+  consequência: qualquer certificado da mesma CA se faria passar pelo servidor,
+  e a senha do banco vai no fio **depois** do TLS subir. Então a combinação é
+  recusada, com o motivo escrito — incluindo as duas saídas, e o aviso de que
+  `require` criptografa sem autenticar.
+
+  `verify-full` **não** foi tirado da engine: por hostname ele funciona de
+  verdade, medido. Um teste de integração contra MySQL com TLS real trava as
+  três situações, e o terceiro caso é um alarme — no dia em que o `mysql2`
+  passar a validar SAN de IP, ele falha e avisa que a recusa pode cair.
+
+- **A camada de tipos do MySQL/MariaDB, medida** — primeira peça da fase 2 do
+  multi-engine. Ainda não conecta banco nenhum pela interface; é a trava que a
+  regra 10 (todo valor de célula trafega como string) exige antes do driver.
+
+  O `Bun.SQL` foi medido primeiro, porque a regra 3 manda preferir a primitiva
+  do Bun. **Reprovou**: converte tipos sem opção de desligar, e a conversão de
+  `DATE` depende de qual API se chama — a mesma coluna guardada como
+  `2026-03-01` volta meia-noite local pelo template tag e meia-noite UTC pelo
+  `unsafe()`, que em `America/Bahia` **aparece como 28 de fevereiro**. E
+  `unsafe()` é o caminho do editor de SQL. Entrou o `mysql2` (JS puro, sem
+  módulo nativo, então `bun build --compile` segue de pé).
+
+  A trava: o `typeCast` devolve bytes crus e a decisão texto/hexadecimal sai
+  dos metadados de coluna, porque o objeto do `typeCast` não expõe charset —
+  ali `TEXT` e `BLOB` são os dois `BLOB`. A regra é `charset === 63` **e** o
+  tipo estar na lista dos que carregam bytes; as duas condições vieram de erro
+  medido, porque o MariaDB liga o `BINARY_FLAG` no JSON e porque número e data
+  também dizem charset 63 (só ele fazia o inteiro `1` virar `"0x31"`).
+
+  Teste de integração contra MySQL 8.4 e MariaDB 11 reais, 24 tipos, conferindo
+  o texto exato de cada célula. Provado revertendo: com a regra só-charset,
+  `id` volta `"0x31"` e a suíte falha.
+
+  Medido junto, e resolve uma decisão que estava em aberto no plano: **no
+  MySQL, `verify-full` funciona por nome de host e é impossível por IP.** O
+  `mysql2` zera o `servername` quando o host é IP, a conferência de identidade
+  cai no padrão `localhost` e recusa até o certificado legítimo; sem
+  `verifyIdentity` não há conferência nenhuma, e um `checkServerIdentity`
+  próprio é sobrescrito. Igual sob Bun e Node. Como a produção é alcançada pelo
+  IP da tailnet, a validação vai recusar a combinação `verify-full` + IP em vez
+  de tirar o modo de quem usa nome — detalhe em `docs/multi-engine.md` §3c.
+
+- **Cada motor tem a sua marca na tela.** O formulário de conexão passou a
+  abrir com um seletor de motor, e a linha da conexão na árvore mostra de qual
+  banco ela é.
+
+  Os sete glifos são desenhados aqui (`components/IconeEngine.tsx`), de uma cor
+  só, herdando `currentColor`. Não são as logos coloridas de propósito: a tela
+  já gasta cor em **estado** — âmbar é o acento e é o que significa modo
+  escrita — e trazer sete paletas de marca colocaria sete cores novas
+  competindo com as que já querem dizer alguma coisa. A divisão é **a forma diz
+  qual motor é, a cor diz em que estado ele está**.
+
+  Na árvore, a marca ocupa o lugar da tomada genérica que estava ali. Um ícone
+  entra e um sai, então a densidade da linha não muda — e a tomada dizia "isto é
+  uma conexão", que a árvore de conexões já dizia, enquanto a marca diz qual
+  banco está do outro lado, que não estava escrito em lugar nenhum.
+
+  Os motores ainda não implementados **aparecem apagados e não selecionáveis**.
+  Sete opções iguais prometeriam sete conexões que funcionam, e hoje só uma
+  funciona; o `disabled` do rádio nativo também os tira da navegação por setas.
+  Quando uma engine entra, ela acende sozinha — a fonte é
+  `ENGINES_IMPLEMENTADAS`.
+
+  Em edição o seletor vira um selo fixo: `engine` é imutável por causa do
+  ADR 005, e um seletor que não seleciona seria a tela mentindo.
+
+  Há teste travando que **toda** engine da união aparece no seletor. É o furo
+  que o typecheck não fecha: `GLIFOS` e `NOME_ENGINE` são `Record<Engine, …>` e
+  quebram sozinhos, mas a lista de ordem é um array e uma lista incompleta é um
+  array válido — dava para somar uma engine à união e a tela simplesmente não a
+  desenhar, sem erro em lugar nenhum.
+
+  Bundle: 312,40 → 314,25 kB gzip. TypeBox segue ausente (0 ocorrências).
+
+- **`POST /connections` recusa engine que o DBee ainda não fala** (400
+  `engine_not_implemented`).
+
+  Achado ao revisar o seletor: a tela esconde as engines não implementadas, e
+  esconder não é impedir — a rota continua alcançável por quem chama a API
+  direto. O schema também não pega, porque a união `Engine` declara o alvo do
+  plano e `"redis"` tem a forma certa. Sem a recusa a conexão era guardada e só
+  quebrava muito depois, quando o driver de Postgres tentasse conversar com um
+  Redis, com um erro que não explica nada.
+
+  A checagem mora no serviço, não na rota nem no formulário, que é onde ela vale
+  para qualquer chamador.
+
 - **A conexão passou a saber qual banco está do outro lado** (`engine`), ainda
   com uma engine só. É a primeira fatia do multi-engine, e ela deliberadamente
   **não** adiciona engine nenhuma: o campo, a migration, a tabela de capacidades
