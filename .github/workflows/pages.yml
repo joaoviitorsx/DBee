@@ -10,11 +10,13 @@
 # num artefato e o Pages serve aquele artefato. A pasta aqui é `site/`, e ela
 # não tem build: é HTML, CSS, JS, fonte e imagem, prontos.
 #
-# ANTES DO PRIMEIRO DEPLOY — três cliques, uma vez só:
+# ANTES DO PRIMEIRO DEPLOY:
 #
-#   1. Settings → Pages → "Build and deployment" → Source: **GitHub Actions**.
-#      Sem isso o deploy falha com "Pages site not found" e a mensagem não diz
-#      que o problema é este seletor.
+#   1. Ligar o Pages. O passo "Preparar o Pages" usa `enablement: true`, então
+#      ele **cria** o site do Pages (modo GitHub Actions) na primeira execução,
+#      sem clique manual — foi o que resolveu o "Get Pages site failed: Not
+#      Found" que aparecia antes. Se a política da org bloquear a API de
+#      habilitar, aí sim: Settings → Pages → Source: **GitHub Actions**, uma vez.
 #
 #   2. Settings → Actions → General → Workflow permissions: deixe em
 #      "Read repository contents" (o padrão). Este workflow NÃO precisa de
@@ -69,7 +71,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Baixar o repositório
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # -----------------------------------------------------------------------
       # CNAME — o domínio próprio.
@@ -166,8 +168,16 @@ jobs:
           du -ah site | sort -rh | head -15 >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
+      # `enablement: true`: se o Pages ainda não foi ligado no repo, esta ação
+      # **cria** o site do Pages (modo GitHub Actions) via API, usando o
+      # `pages: write` declarado acima. É o que evita o "Get Pages site failed:
+      # Not Found" no primeiro deploy sem precisar do clique manual em
+      # Settings → Pages → Source: GitHub Actions. Idempotente: se já existe,
+      # não faz nada.
       - name: Preparar o Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       # Empacota a pasta como artefato do Pages. `path: site` é o que faz o
       # site ser servido na RAIZ do domínio — se fosse o repositório inteiro,
