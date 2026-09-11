@@ -5,14 +5,15 @@
 <h1 align="center">DBee</h1>
 
 <p align="center">
-  <strong>Cliente PostgreSQL web, self-hosted.</strong><br>
+  <strong>Cliente de banco de dados web, self-hosted — um cliente, várias engines.</strong><br>
+  PostgreSQL · MySQL · MariaDB · MongoDB · Redis · libSQL · SQLite.<br>
   Um container, sem agente, sem SaaS — e read-only até você dizer o contrário.
 </p>
 
 <p align="center">
   <a href="https://github.com/joaoviitorsx/DBee/releases/latest"><img alt="Release" src="https://img.shields.io/github/v/release/joaoviitorsx/DBee?style=flat-square&color=E9A319&labelColor=2a251f"></a>
   <img alt="Bun" src="https://img.shields.io/badge/Bun-1.3-E9A319?style=flat-square&labelColor=2a251f">
-  <img alt="PostgreSQL" src="https://img.shields.io/badge/PostgreSQL-16-E9A319?style=flat-square&labelColor=2a251f">
+  <img alt="Engines" src="https://img.shields.io/badge/engines-7-E9A319?style=flat-square&labelColor=2a251f">
   <img alt="Self-hosted" src="https://img.shields.io/badge/self--hosted-um%20container-E9A319?style=flat-square&labelColor=2a251f">
 </p>
 
@@ -21,9 +22,16 @@
 O DBee nasceu porque abrir um cliente pesado para responder "quantas notas essa
 empresa emitiu em março?" é caro demais, e mandar o banco do cliente para uma
 ferramenta SaaS não é uma opção. Ele roda na sua infraestrutura, o time acessa
-pelo navegador, e **nenhuma escrita acontece por acidente**: toda transação
-nasce `BEGIN READ ONLY`, e escrever exige ligar a conexão *e* a permissão da
-pessoa.
+pelo navegador, e **nenhuma escrita acontece por acidente**: a conexão nasce em
+modo leitura — no Postgres é `BEGIN READ ONLY`, no MySQL/MariaDB/libSQL/Mongo/
+Redis é uma credencial só-leitura, no SQLite é o arquivo aberto readonly — e
+escrever exige ligar a conexão *e* a permissão da pessoa.
+
+**Um cliente, sete engines.** O que começou como cliente PostgreSQL hoje fala
+PostgreSQL, MySQL, MariaDB, MongoDB, Redis, libSQL e SQLite — cada uma
+oferecendo o que de fato suporta (SQL livre, export, DDL por formulário, edição
+de linha/documento/chave, cancelamento, diagrama), e escondendo o que a engine
+não faz em vez de fingir. Ver o `CHANGELOG.md`.
 
 Está em produção diária num escritório contábil desde a v0.1.
 
