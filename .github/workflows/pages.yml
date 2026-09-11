@@ -10,13 +10,14 @@
 # num artefato e o Pages serve aquele artefato. A pasta aqui é `site/`, e ela
 # não tem build: é HTML, CSS, JS, fonte e imagem, prontos.
 #
-# ANTES DO PRIMEIRO DEPLOY:
+# LIGAR O PAGES (uma vez):
 #
-#   1. Ligar o Pages. O passo "Preparar o Pages" usa `enablement: true`, então
-#      ele **cria** o site do Pages (modo GitHub Actions) na primeira execução,
-#      sem clique manual — foi o que resolveu o "Get Pages site failed: Not
-#      Found" que aparecia antes. Se a política da org bloquear a API de
-#      habilitar, aí sim: Settings → Pages → Source: **GitHub Actions**, uma vez.
+#   1. Settings → Pages → Build and deployment → Source: **GitHub Actions**.
+#      Já feito neste repo. O passo "Preparar o Pages" ainda declara
+#      `enablement: true`, mas com o site já existindo ele é no-op — o
+#      `GITHUB_TOKEN` do workflow **não** tem permissão para CRIAR o site (dá 403
+#      "Resource not accessible by integration"), só para publicar num que já
+#      existe; por isso o clique acima é o que destrava o primeiro deploy.
 #
 #   2. Settings → Actions → General → Workflow permissions: deixe em
 #      "Read repository contents" (o padrão). Este workflow NÃO precisa de
