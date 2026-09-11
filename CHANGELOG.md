@@ -4,6 +4,8 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.4.0] — 2026-09-10
+
 ### Segurança
 
 Um **red-team** posterior, contra o código já corrigido, encontrou um bypass do
