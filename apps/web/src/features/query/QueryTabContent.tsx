@@ -13,7 +13,7 @@ import { Mascote } from "../mascote";
 import { Trabalhando } from "../motion/Trabalhando";
 import { ResultGrid } from "../grid/ResultGrid";
 import { cn } from "../../lib/cn";
-import { useT } from "../../i18n";
+import { mensagemDoCodigo, useT } from "../../i18n";
 import { useConnections, useSchema } from "../tree/useTree";
 import type { QueryTab, TableTarget } from "../../app/workspace";
 import type { RowFilter } from "@dbee/shared";
@@ -108,7 +108,7 @@ export function QueryTabContent({
         // o servidor trata assim de propósito.
         ...(writeEnabled && pedirEscrita ? { readOnly: false } : {}),
       });
-      if (error !== null) throw new Error("o servidor não respondeu à consulta");
+      if (error !== null) throw erroDaConsulta(error);
       return data;
     },
     // Executou: o olho quer o resultado, não os dados da tabela.
@@ -289,7 +289,7 @@ export function QueryTabContent({
           // Sem o cronômetro, "rodando" e "travado" têm a mesma aparência.
           <Trabalhando rotulo={t("query.executandoConsulta")} cronometro />
         ) : executar.isError ? (
-          <p className="px-4 py-6 text-xs text-danger">{executar.error.message}</p>
+          <ErroExecucao erro={executar.error} onRetry={() => { executar.mutate(sqlExecutado); }} />
         ) : resposta === undefined ? (
           <p className="px-4 py-6 text-xs text-subtle">
             {t("query.vazio")}
@@ -426,6 +426,67 @@ function ErroPostgres({
         <p className="mt-1.5 text-2xs text-muted">{erro.detail}</p>
       ) : null}
       {erro.hint !== null ? <p className="mt-1 text-2xs text-muted">{erro.hint}</p> : null}
+    </div>
+  );
+}
+
+/**
+ * Erro da **execução** da consulta, tratado para a UI — o irmão do
+ * `ErroPostgres`. Aquele é o SQL que rodou e o banco recusou (`resposta.error`,
+ * com `position`); este é a execução que nem chegou a devolver um resultado:
+ * servidor fora do ar, credencial não decifrável, escrita não permitida,
+ * rate-limit. Preserva o `code` do servidor — o que `mensagemDoCodigo` traduz —
+ * e, quando não há corpo estruturado (falha de transporte, resposta sem JSON),
+ * marca `rede`: a falha é do caminho, não do SQL.
+ */
+function erroDaConsulta(error: unknown): Error & { code?: string } {
+  let message = "falhou";
+  let code: string | undefined;
+  if (typeof error === "object" && error !== null && "value" in error) {
+    const { value } = error;
+    if (typeof value === "object" && value !== null) {
+      if ("code" in value && typeof value.code === "string") code = value.code;
+      if ("message" in value && typeof value.message === "string") message = value.message;
+    }
+  }
+  // Sem código do servidor = não veio corpo estruturado: transporte, não SQL.
+  code ??= "rede";
+  const e: Error & { code?: string } = new Error(message);
+  e.code = code;
+  return e;
+}
+
+/**
+ * A caixa de erro da execução. Mostra a mensagem **traduzida pelo código**
+ * (uma frase que o usuário entende, não o texto cru do driver) e oferece rodar
+ * de novo.
+ *
+ * Um erro sem `code` só chega aqui se algo do lado do cliente estourou antes do
+ * request — o caso do `crypto.randomUUID` fora de contexto seguro. Aí a frase
+ * amigável entra na frente e o texto técnico vai para uma linha discreta, para
+ * quem for depurar, em vez de a tela cuspir "is not a function" no rosto de
+ * quem só queria rodar um SELECT.
+ */
+function ErroExecucao({
+  erro,
+  onRetry,
+}: {
+  readonly erro: Error & { code?: string };
+  readonly onRetry: () => void;
+}) {
+  const t = useT();
+  const code = erro.code;
+  const tecnico = code === undefined && erro.message !== "" && erro.message !== "falhou";
+  return (
+    <div className="px-4 py-6">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge tone="danger">{code ?? t("query.erroLabel")}</Badge>
+        <span className="text-xs text-ink">{mensagemDoCodigo(t, code, t("query.erroExecucao"))}</span>
+      </div>
+      {tecnico ? <p className="mt-1.5 font-mono text-2xs text-muted">{erro.message}</p> : null}
+      <Button size="sm" className="mt-2" onClick={onRetry}>
+        {t("comum.tentarDeNovo")}
+      </Button>
     </div>
   );
 }

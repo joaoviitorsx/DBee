@@ -13,7 +13,7 @@ import { RowEditModal, type Pendente, type PkValor } from "../grid/RowEditModal"
 import { RedisValueModal, type RedisAlvo, type TipoColecao } from "../grid/RedisValueModal";
 import { MongoDocModal, type MongoAlvo } from "../grid/MongoDocModal";
 import { InsertModal } from "../grid/InsertModal";
-import { useT } from "../../i18n";
+import { mensagemDoCodigo, useT } from "../../i18n";
 
 /**
  * Linhas por página.
@@ -109,7 +109,7 @@ export function DataTab({
           ...(filtros.length > 0 ? { filters: filtros } : {}),
           ...(pageParam === null ? {} : { after: pageParam }),
         });
-      if (error !== null) throw new Error(mensagem(error));
+      if (error !== null) throw erroDaConsulta(error);
       return data;
     },
     getNextPageParam: (ultima) => (ultima.hasMore ? ultima.nextCursor : null),
@@ -459,7 +459,18 @@ export function DataTab({
           <Trabalhando rotulo={t("dados.lendoLinhas")} cronometro />
         ) : consulta.isError ? (
           <div className="px-4 py-6">
-            <p className="text-xs text-danger">{consulta.error.message}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone="danger">
+                {(consulta.error as { code?: string }).code ?? t("query.erroLabel")}
+              </Badge>
+              <span className="text-xs text-ink">
+                {mensagemDoCodigo(
+                  t,
+                  (consulta.error as { code?: string }).code,
+                  t("dados.erroLeitura"),
+                )}
+              </span>
+            </div>
             <Button size="sm" className="mt-2" onClick={() => void consulta.refetch()}>
               {t("comum.tentarDeNovo")}
             </Button>
@@ -529,13 +540,24 @@ export function DataTab({
   );
 }
 
-/** O erro do Postgres vai inteiro para a UI (CLAUDE.md). */
-function mensagem(error: unknown): string {
+/**
+ * Erro da leitura de linhas, tratado para a UI. Preserva o `code` do servidor
+ * — o que `mensagemDoCodigo` traduz — e, sem corpo estruturado (transporte,
+ * resposta sem JSON), marca `rede`. A `message` do banco segue de fallback,
+ * inteira (CLAUDE.md), para quando não houver tradução do código.
+ */
+function erroDaConsulta(error: unknown): Error & { code?: string } {
+  let message = "não foi possível carregar as linhas";
+  let code: string | undefined;
   if (typeof error === "object" && error !== null && "value" in error) {
     const { value } = error;
-    if (typeof value === "object" && value !== null && "message" in value) {
-      if (typeof value.message === "string") return value.message;
+    if (typeof value === "object" && value !== null) {
+      if ("code" in value && typeof value.code === "string") code = value.code;
+      if ("message" in value && typeof value.message === "string") message = value.message;
     }
   }
-  return "não foi possível carregar as linhas";
+  code ??= "rede";
+  const e: Error & { code?: string } = new Error(message);
+  e.code = code;
+  return e;
 }

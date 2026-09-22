@@ -450,8 +450,7 @@
       if (op <= 0.01) return; /* dorme; acorda no scroll de volta ao topo */
 
       ctx.clearRect(0, 0, W, H);
-      for (var i = 0; i < parts.length; i++) {
-        var p = parts[i];
+      for (const p of parts) {
         p.y += p.vy;
         p.x += p.vx;
         p.rot += p.spin;

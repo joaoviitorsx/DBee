@@ -4,6 +4,29 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.4.1] — 2026-09-21
+
+### Corrigido
+
+- **Consulta quebrava em produção com `crypto.randomUUID is not a function`.**
+  `crypto.randomUUID` só existe em contexto seguro (HTTPS ou `localhost`); o
+  DBee acessado por IP da tailnet sobre HTTP não o tem, e a geração do id da
+  execução estourava antes do request. A correção (`uuidV4` com fallback por
+  `getRandomValues`) já estava no código desde a 0.4.0 — esta release a leva à
+  imagem de produção. Coberto por `navegador.test.ts` (o caminho sem contexto
+  seguro).
+
+### Alterado
+
+- **Todo erro de consulta agora chega tratado à tela.** A execução que falhava
+  antes de devolver resultado (servidor fora do ar, credencial não decifrável,
+  escrita não permitida, rate-limit) mostrava uma frase genérica ou o texto cru
+  do erro — inclusive o `crypto.randomUUID is not a function` no rosto de quem
+  só rodava um `SELECT`. Agora a mensagem é traduzida pelo código do servidor
+  (`mensagemDoCodigo`), com um selo de erro e um botão "tentar de novo"; um erro
+  inesperado do cliente cai numa frase amigável e manda o texto técnico para uma
+  linha discreta. Mesmo tratamento na leitura de linhas da grade (`DataTab`).
+
 ## [0.4.0] — 2026-09-10
 
 ### Segurança

@@ -10,6 +10,9 @@ export default tseslint.config(
       "**/node_modules/**",
       // spike do dia 1: script de validação, tem o próprio tsconfig e deps
       "scratch/**",
+      // Vendored minificado (ex.: anime.min.js da landing) — código de
+      // terceiro servido como está, não é fonte nossa para lintar.
+      "**/*.min.js",
     ],
   },
 
