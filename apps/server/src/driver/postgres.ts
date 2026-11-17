@@ -98,7 +98,7 @@ export class DriverPostgres implements DriverLeitura {
         // O PID do backend está disponível assim que o cliente conecta, e é o
         // que o `pg_cancel_backend` endereça.
         opcoes.aoIniciar?.((client as unknown as { processID: number }).processID);
-        return await execute(client, opcoes.sql, opcoes.maxRows);
+        return await execute(client, opcoes.sql, opcoes.maxRows, opcoes.parametros);
       },
     );
   }

@@ -1,3 +1,5 @@
+import type { RowFilter } from "@dbee/shared";
+
 /**
  * Erros que qualquer engine produz ao montar a grade de linhas.
  *
@@ -12,12 +14,24 @@
  */
 export class RowsError extends Error {
   constructor(
-    readonly code: "unknown_column" | "invalid_cursor",
+    readonly code: "unknown_column" | "invalid_cursor" | "invalid_filter",
     message: string,
   ) {
     super(message);
     this.name = "RowsError";
   }
+}
+
+/**
+ * Os valores de um filtro `in`. Lista vazia é erro do usuário, não "casa nada":
+ * `IN ()` nem é SQL válido, e devolver zero linhas esconderia o engano.
+ */
+export function valoresDoIn(filtro: RowFilter): readonly string[] {
+  const valores = filtro.values ?? [];
+  if (valores.length === 0) {
+    throw new RowsError("invalid_filter", `o filtro "in" em "${filtro.column}" precisa de ao menos um valor`);
+  }
+  return valores;
 }
 
 /**
@@ -31,5 +45,20 @@ export class MutacaoError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "MutacaoError";
+  }
+}
+
+/**
+ * A edição mandou colunas que não são a chave primária completa (ou a tabela
+ * não tem PK). O serviço a traduz em `not_primary_key` (ideias-comunidade I7).
+ */
+export class NaoEhChavePrimaria extends MutacaoError {
+  constructor(readonly pkReal: readonly string[]) {
+    super(
+      pkReal.length === 0
+        ? "esta tabela não tem chave primária: a edição de linha não tem como identificar uma linha só — use o editor de SQL"
+        : `a edição de linha exige a chave primária completa (${pkReal.join(", ")}) — recarregue a grade`,
+    );
+    this.name = "NaoEhChavePrimaria";
   }
 }

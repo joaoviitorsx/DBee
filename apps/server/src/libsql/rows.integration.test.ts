@@ -159,6 +159,17 @@ describe.skipIf(pular)("grade do libSQL", () => {
     expect(r.rows[0]?.[1]).toBe("Caio");
   });
 
+  it("in casa a lista e o valor malicioso é só valor", async () => {
+    const r = await lerLinhas(alvo, pessoa, {
+      limit: 10,
+      filters: [{ column: "apelido", operator: "in", values: ["a'; DROP TABLE pessoa; --", "nao-existe"] }],
+    });
+    expect(r.rows).toHaveLength(1);
+    expect(r.rows[0]?.[1]).toBe("Ana");
+    expect(() => planejarLinhas(pessoa, { filters: [{ column: "apelido", operator: "in", values: [] }] }))
+      .toThrow(RowsError);
+  });
+
   it("coluna que não existe é erro nosso, com o nome dela", () => {
     expect(() => planejarLinhas(pessoa, { filters: [{ column: "cpf", operator: "isNull" }] }))
       .toThrow(RowsError);

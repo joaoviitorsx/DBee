@@ -2,7 +2,7 @@ import type { VpnList, VpnTuneisAtivos } from "@dbee/shared";
 
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { UsersRepository } from "../db/users.repo";
-import type { VpnProfilesRepository } from "../db/vpnProfiles.repo";
+import type { CredencialLembrada, VpnProfilesRepository } from "../db/vpnProfiles.repo";
 import type { Ator } from "../lib/ator";
 import type { ConfigVpn } from "../lib/config";
 import type { ControleVpn, Destino, FalhaControle, TunelRemoto } from "../vpn/cliente";
@@ -13,11 +13,21 @@ export type VpnFailure =
   | "perfil_desconhecido"
   | "sem_arquivo"
   | "arquivo_ilegivel"
+  /** Conectar sem usuário/senha e sem nada lembrado. */
+  | "sem_credencial"
   | FalhaControle;
 
 export type VpnResult<T> =
   | { readonly ok: true; readonly value: T }
   | { readonly ok: false; readonly failure: VpnFailure; readonly detail?: string };
+
+/** O que chega da rota para conectar (ver `VpnConectarRequest`). */
+export interface PedidoConexao {
+  readonly codigo: string;
+  readonly usuario?: string | undefined;
+  readonly senha?: string | undefined;
+  readonly lembrar?: boolean | undefined;
+}
 
 const ok = <T>(value: T): VpnResult<T> => ({ ok: true, value });
 const falha = <T>(failure: VpnFailure, detail?: string): VpnResult<T> =>
@@ -136,6 +146,7 @@ export class VpnService {
   listar(ator: Ator): VpnList {
     if (this.#config === null) return [];
     const comArquivo = this.#perfis.perfisComArquivo(ator.id);
+    const lembrados = this.#perfis.usuariosLembrados(ator.id);
     return this.#config.perfis.map((perfil) => {
       const t = this.#tuneis.get(idDe(ator.id, perfil));
       return {
@@ -143,8 +154,18 @@ export class VpnService {
         temArquivo: comArquivo.has(perfil),
         estado: t?.estado ?? "desconectada",
         ipLocal: t?.ipLocal ?? null,
+        usuarioLembrado: lembrados.get(perfil) ?? null,
       };
     });
+  }
+
+  /** Esquece usuário e senha lembrados do perfil. O .ovpn fica. */
+  esquecerCredencial(ator: Ator, perfil: string): VpnResult<VpnList> {
+    if (this.#config === null) return falha("vpn_desligada");
+    if (!this.perfilValido(perfil)) return falha("perfil_desconhecido");
+    this.#perfis.esquecer(ator.id, perfil);
+    registrar("credencial", ator.id, perfil, "esquecida");
+    return ok(this.listar(ator));
   }
 
   ativos(): VpnTuneisAtivos {
@@ -194,7 +215,7 @@ export class VpnService {
     return [...vistos.values()];
   }
 
-  async conectar(ator: Ator, perfil: string, usuario: string, senha: string): Promise<VpnResult<VpnList>> {
+  async conectar(ator: Ator, perfil: string, pedido: PedidoConexao): Promise<VpnResult<VpnList>> {
     if (this.#config === null || this.#controle === null) return falha("vpn_desligada");
     if (!this.perfilValido(perfil)) return falha("perfil_desconhecido");
     let ovpn: string | null;
@@ -204,6 +225,21 @@ export class VpnService {
       return falha("arquivo_ilegivel");
     }
     if (ovpn === null) return falha("sem_arquivo");
+
+    // Credencial: a digitada agora, ou a lembrada. O código entra sempre.
+    let base: CredencialLembrada | null;
+    if (pedido.usuario !== undefined) {
+      base = { usuario: pedido.usuario, senha: pedido.senha ?? "" };
+    } else {
+      try {
+        base = this.#perfis.credencial(ator.id, perfil);
+      } catch {
+        return falha("arquivo_ilegivel");
+      }
+    }
+    if (base === null) return falha("sem_credencial");
+    const usuario = base.usuario;
+    const senha = `${base.senha}${pedido.codigo}`;
 
     const id = idDe(ator.id, perfil);
     this.#tuneis.set(id, {
@@ -216,6 +252,11 @@ export class VpnService {
       return falha(r.falha);
     }
     this.#espelhar(ator.id, perfil, r.tunel);
+    // Só guarda o que a VPN ACEITOU — nunca um PIN digitado errado.
+    if (pedido.usuario !== undefined && pedido.lembrar === true) {
+      this.#perfis.lembrar(ator.id, perfil, base);
+      registrar("credencial", ator.id, perfil, "lembrada");
+    }
     registrar("conectar", ator.id, perfil, "ok");
     return ok(this.listar(ator));
   }

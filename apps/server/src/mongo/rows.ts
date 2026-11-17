@@ -3,7 +3,7 @@ import type { Filter, MongoClient, Document, Sort } from "mongodb";
 
 import type { Relation, RowCursor, RowFilter, RowsRequest, RowsResponse } from "@dbee/shared";
 
-import { RowsError } from "../driver/erros";
+import { RowsError, valoresDoIn } from "../driver/erros";
 import { documentoEmLinha, paraTexto } from "./tipos";
 import { coagir } from "./valores";
 
@@ -63,6 +63,8 @@ function clausula(filtro: RowFilter, tipos: ReadonlyMap<string, string>): Docume
       return { [campo]: { $regex: escaparRegex(filtro.value ?? ""), $options: "i" } };
     case "startsWith":
       return { [campo]: { $regex: `^${escaparRegex(filtro.value ?? "")}`, $options: "i" } };
+    case "in":
+      return { [campo]: { $in: valoresDoIn(filtro).map((v) => coagir(v, tipo)) } };
     default: {
       const op = OPERADOR[filtro.operator];
       if (op === undefined) throw new RowsError("unknown_column", `operador desconhecido: ${filtro.operator}`);

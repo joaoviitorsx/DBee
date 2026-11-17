@@ -2,56 +2,78 @@ import { Elysia, t } from "elysia";
 
 import {
   ErrorResponse,
-  RenameQueryRequest,
   SaveQueryRequest,
   SavedQuery,
   SavedQueryList,
+  UpdateSavedQueryRequest,
 } from "@dbee/shared";
 
-import type { SavedQueriesRepository } from "../db/savedQueries.repo";
+import type { UsersRepository } from "../db/users.repo";
+import type { SavedQueriesService } from "../services/savedQueries.service";
+import { SAVED_QUERY_FAILURES } from "./failures";
+import { exigirAtor, sessionContext } from "./guard";
 
 /**
- * Queries salvas (DBee.md §5). CRUD simples sobre `saved_queries`.
- *
- * A sessão é exigida pelo guard global (não está em `ROTAS_ABERTAS`). Lista
- * global — sem `actor`, sem dono: a fatia é "ligar a tabela que já existe", não
- * introduzir compartilhamento entre usuários.
+ * Queries salvas (DBee.md §5, ADR 016). Dono e visibilidade são regra do
+ * serviço; a rota só lê o ator da sessão e traduz a falha.
  */
-export const savedQueriesRoutes = (repo: SavedQueriesRepository) =>
+export const savedQueriesRoutes = (service: SavedQueriesService, users: UsersRepository) =>
   new Elysia({ prefix: "/saved-queries" })
-    .get("/", ({ query }) => repo.listar(query.q ?? null), {
+    .use(sessionContext(users))
+    .get("/", ({ query, sessao }) => service.listar(exigirAtor(sessao), query.q ?? null), {
       query: t.Object({ q: t.Optional(t.String({ maxLength: 200 })) }),
       response: { 200: SavedQueryList, 401: ErrorResponse, 403: ErrorResponse },
     })
-    .post("/", ({ body }) => repo.criar(body.name, body.sql, body.connectionId ?? null), {
-      body: SaveQueryRequest,
-      response: { 200: SavedQuery, 401: ErrorResponse, 403: ErrorResponse },
-    })
-    .patch(
+    .get(
       "/:id",
-      ({ params, body, status }) => {
-        const atualizado = repo.renomear(params.id, body.name);
-        if (atualizado === null) {
-          return status(404, { code: "not_found", message: "query salva não encontrada" });
-        }
-        return atualizado;
+      ({ params, sessao, status }) => {
+        const r = service.obter(params.id, exigirAtor(sessao));
+        if (r.ok) return r.value;
+        const f = SAVED_QUERY_FAILURES[r.failure];
+        return status(f.status, f.body);
       },
       {
-        params: t.Object({ id: t.String() }),
-        body: RenameQueryRequest,
+        params: t.Object({ id: t.String({ maxLength: 64 }) }),
+        response: { 200: SavedQuery, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse },
+      },
+    )
+    .post(
+      "/",
+      ({ body, sessao, status }) => {
+        const r = service.criar(body, exigirAtor(sessao));
+        if (r.ok) return r.value;
+        const f = SAVED_QUERY_FAILURES[r.failure];
+        return status(f.status, f.body);
+      },
+      {
+        body: SaveQueryRequest,
+        response: { 200: SavedQuery, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse },
+      },
+    )
+    .patch(
+      "/:id",
+      ({ params, body, sessao, status }) => {
+        const r = service.atualizar(params.id, body, exigirAtor(sessao));
+        if (r.ok) return r.value;
+        const f = SAVED_QUERY_FAILURES[r.failure];
+        return status(f.status, f.body);
+      },
+      {
+        params: t.Object({ id: t.String({ maxLength: 64 }) }),
+        body: UpdateSavedQueryRequest,
         response: { 200: SavedQuery, 401: ErrorResponse, 403: ErrorResponse, 404: ErrorResponse },
       },
     )
     .delete(
       "/:id",
-      ({ params, status }) => {
-        if (!repo.excluir(params.id)) {
-          return status(404, { code: "not_found", message: "query salva não encontrada" });
-        }
-        return { ok: true } as const;
+      ({ params, sessao, status }) => {
+        const r = service.excluir(params.id, exigirAtor(sessao));
+        if (r.ok) return { ok: true } as const;
+        const f = SAVED_QUERY_FAILURES[r.failure];
+        return status(f.status, f.body);
       },
       {
-        params: t.Object({ id: t.String() }),
+        params: t.Object({ id: t.String({ maxLength: 64 }) }),
         response: {
           200: t.Object({ ok: t.Literal(true) }),
           401: ErrorResponse,

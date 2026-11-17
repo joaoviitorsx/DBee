@@ -44,3 +44,22 @@ export type AuditPage = Static<typeof AuditPage>;
 
 /** Teto de linhas por página — o mesmo espírito do `maxRows` do executor. */
 export const AUDIT_PAGE_SIZE = 50;
+
+/**
+ * `GET /connections/:id/history` — o painel de histórico do editor
+ * (roadmap-dbeaver item 2). A resposta é a lista de `QueryLogEntry`, mais nova
+ * primeiro; para a próxima página, o cliente manda em `cursor` o
+ * `executedAt|id` da última linha recebida. Acabou quando vier menos que `limit`.
+ */
+export const HistoryScope = t.Union([t.Literal("mine"), t.Literal("team")]);
+export type HistoryScope = Static<typeof HistoryScope>;
+
+export const HistoryQuery = t.Object({
+  limit: t.Optional(t.Integer({ minimum: 1, maximum: 1000 })),
+  /** Ausente = `team` (o comportamento anterior da rota). */
+  scope: t.Optional(HistoryScope),
+  q: t.Optional(t.String({ maxLength: 200 })),
+  status: t.Optional(AuditStatus),
+  cursor: t.Optional(t.String({ maxLength: 200 })),
+});
+export type HistoryQuery = Static<typeof HistoryQuery>;

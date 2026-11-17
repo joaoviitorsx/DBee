@@ -30,7 +30,7 @@ const conexao: ResolvedConnection = {
   host: "127.0.0.1", port: PORTA, database: "db0",
   username: "", password: "", sslMode: "disable", timezone: "UTC",
   statementTimeoutMs: 30_000, writeEnabled: false, hasWriteCredential: true,
-  authSource: null, filePath: null, vpn: null, createdAt: "", updatedAt: "",
+  authSource: null, filePath: null, vpn: null, environment: null, createdAt: "", updatedAt: "",
   writeCredential: { username: "", password: "" },
 };
 

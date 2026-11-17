@@ -23,6 +23,8 @@ export interface NewLogEntry {
   readonly durationMs: number | null;
   readonly readOnly: boolean;
   readonly actor: string;
+  /** Ensaio de escrita (ADR 021): rodou e foi revertido. Ausente = execução real. */
+  readonly dryRun?: boolean;
 }
 
 interface Row {
@@ -35,6 +37,7 @@ interface Row {
   rowCount: number | null;
   durationMs: number | null;
   readOnly: number;
+  dryRun: number;
   actor: string;
   executedAt: string;
 }
@@ -42,7 +45,7 @@ interface Row {
 const COLUNAS = `
   id, connection_id AS connectionId, database, sql, status, error,
   row_count AS rowCount, duration_ms AS durationMs,
-  read_only AS readOnly, actor, executed_at AS executedAt
+  read_only AS readOnly, dry_run AS dryRun, actor, executed_at AS executedAt
 `;
 
 /** Filtros da busca de auditoria — todos opcionais, combinam com AND. */
@@ -60,6 +63,12 @@ export interface AuditFiltros {
    * é vazamento de dado, mesmo que ele não consiga executá-la.
    */
   readonly visivelPara?: string | undefined;
+  /**
+   * Só o que **esta pessoa** rodou, por qualquer porta: `actor = id` (UI) ou
+   * `id#origem` (MCP — ver `atorDoLog`). Comparação por prefixo com `substr`,
+   * não `LIKE`, para nenhum caractere do id virar curinga.
+   */
+  readonly doUsuario?: string | undefined;
   readonly limit: number;
   /** `executedAt|id` da última linha da página anterior. */
   readonly cursor?: string | undefined;
@@ -76,8 +85,8 @@ export class QueryLogRepository {
     this.#inserir = db.query(
       `INSERT INTO query_log
          (id, connection_id, database, sql, status, error, row_count,
-          duration_ms, read_only, actor, executed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          duration_ms, read_only, actor, executed_at, dry_run)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
     this.#recentes = db.query<Row, [number]>(
       `SELECT ${COLUNAS} FROM query_log ORDER BY executed_at DESC LIMIT ?`,
@@ -102,6 +111,7 @@ export class QueryLogRepository {
       entry.readOnly ? 1 : 0,
       entry.actor,
       new Date().toISOString(),
+      entry.dryRun === true ? 1 : 0,
     );
     return id;
   }
@@ -112,7 +122,7 @@ export class QueryLogRepository {
         ? this.#recentes.all(limit)
         : this.#porConexao.all(connectionId, limit);
 
-    return linhas.map((r) => ({ ...r, readOnly: r.readOnly === 1 }));
+    return linhas.map((r) => ({ ...r, readOnly: r.readOnly === 1, dryRun: r.dryRun === 1 }));
   }
 
   /**
@@ -132,7 +142,7 @@ export class QueryLogRepository {
       temMais && ultima !== undefined ? `${ultima.executedAt}|${ultima.id}` : null;
 
     return {
-      entries: pagina.map((r) => ({ ...r, readOnly: r.readOnly === 1 })),
+      entries: pagina.map((r) => ({ ...r, readOnly: r.readOnly === 1, dryRun: r.dryRun === 1 })),
       nextCursor,
     };
   }
@@ -174,6 +184,10 @@ export function montarBusca(filtros: AuditFiltros): {
   if (filtros.actor !== undefined && filtros.actor !== "") {
     clausulas.push("actor = ?");
     params.push(filtros.actor);
+  }
+  if (filtros.doUsuario !== undefined) {
+    clausulas.push("(actor = ? OR substr(actor, 1, ?) = ?)");
+    params.push(filtros.doUsuario, filtros.doUsuario.length + 1, `${filtros.doUsuario}#`);
   }
   if (filtros.visivelPara !== undefined) {
     // Subconsulta, não JOIN: o `connection_access` tem no máximo uma linha por

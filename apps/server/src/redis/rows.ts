@@ -2,7 +2,7 @@ import type { RedisClient } from "bun";
 
 import type { RowCursor, RowFilter, RowsRequest, RowsResponse } from "@dbee/shared";
 
-import { RowsError } from "../driver/erros";
+import { RowsError, valoresDoIn } from "../driver/erros";
 import { lerValor, type ChaveRedis, type TipoRedis } from "./tipos";
 
 /**
@@ -79,13 +79,21 @@ export function planejarLinhas(request: RowsRequest): PlanoRedis {
     // O cursor do Redis vem na chave primária do RowCursor; "0" inicia.
     cursorScan: request.after?.primaryKey[0] ?? "0",
     limite: request.limit ?? LIMITE_PADRAO,
-    posFiltros: filtros.filter((f) => f.column !== "key"),
+    // `in` sobre a `key` não vira glob: fica para o pós-filtro da página.
+    posFiltros: filtros.filter((f) => f.column !== "key" || f.operator === "in"),
   };
 }
 
 /** Um filtro de pós-página casa contra a linha já lida. */
 function casaPosFiltro(chave: ChaveRedis, f: RowFilter): boolean {
-  const alvo = f.column === "type" ? chave.type : f.column === "ttl" ? String(chave.ttl) : (chave.value ?? "");
+  const alvo =
+    f.column === "key"
+      ? chave.key
+      : f.column === "type"
+        ? chave.type
+        : f.column === "ttl"
+          ? String(chave.ttl)
+          : (chave.value ?? "");
   const v = f.value ?? "";
   switch (f.operator) {
     case "eq":
@@ -100,6 +108,8 @@ function casaPosFiltro(chave: ChaveRedis, f: RowFilter): boolean {
       return chave.value === null;
     case "isNotNull":
       return chave.value !== null;
+    case "in":
+      return valoresDoIn(f).includes(alvo);
     default:
       return true;
   }

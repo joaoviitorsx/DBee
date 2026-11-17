@@ -1,5 +1,17 @@
-import type { CancelResponse, QueryLogEntry, QueryRequest, QueryResponse } from "@dbee/shared";
-import { capacidadesDe, gravaPorCredencialSeparada } from "@dbee/shared/puro";
+import type {
+  CancelResponse,
+  HistoryQuery,
+  QueryLogEntry,
+  QueryRequest,
+  QueryResponse,
+} from "@dbee/shared";
+
+/** O filtro do histórico já normalizado pela rota (limite numérico, escopo resolvido). */
+export type HistoryFilter = Omit<HistoryQuery, "limit" | "scope"> & {
+  readonly limit: number;
+  readonly scope: "mine" | "team";
+};
+import { capacidadesDe, gravaPorCredencialSeparada, splitStatements } from "@dbee/shared/puro";
 
 import { type Ator, atorDoLog } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
@@ -39,7 +51,13 @@ export class QueryService {
    */
   readonly #emExecucao = new Map<
     string,
-    { readonly pid: number; readonly connection: ResolvedConnection; readonly database: string }
+    {
+      readonly pid: number;
+      readonly connection: ResolvedConnection;
+      readonly database: string;
+      /** Quem iniciou: só ele cancela (revisão de segurança v0.7). */
+      readonly atorId: string;
+    }
   >();
 
   readonly #drivers: Drivers | undefined;
@@ -87,6 +105,15 @@ export class QueryService {
     const database = request.database ?? connection.database;
     const maxRows = request.maxRows ?? MAX_ROWS_PADRAO;
 
+    // Snippet com variáveis (ADR 019): bind só no Postgres, e um statement só
+    // — os `$n` são por statement. Recusa clara em vez de mandar o bind a quem
+    // não o entende.
+    const params = request.params ?? [];
+    if (params.length > 0) {
+      const recusa = recusaDeParametros(connection.engine, request.sql);
+      if (recusa !== null) return fail("bad_request", recusa);
+    }
+
     /*
      * Gravável só quando a conexão permite **e** a requisição pede escrita — e
      * "a conexão permite" muda por engine:
@@ -102,6 +129,15 @@ export class QueryService {
       ? connection.hasWriteCredential && this.#repository.podeEscrever(connectionId, ator)
       : connection.writeEnabled;
     const readOnly = !(podeGravar && request.readOnly === false);
+
+    /*
+     * Escrita em conexão `production` exige o nome digitado (ADR 022 §5) também
+     * no /query — antes só a tela pedia, e um "Tentar de novo" gravava sem
+     * confirmação (revisão de segurança v0.7). Mesma regra do ensaio/aplicar.
+     */
+    if (!readOnly && connection.environment === "production" && request.confirmName !== connection.name) {
+      return fail("bad_request", "confirmation_required: digite o nome da conexão para gravar em produção");
+    }
 
     /*
      * Pedido de escrita explícito numa engine de credencial que **não** pode
@@ -214,9 +250,10 @@ export class QueryService {
           database,
           maxRows,
           somenteLeitura: readOnly,
+          ...(params.length > 0 ? { parametros: params } : {}),
           aoIniciar: (token) => {
             if (request.queryId !== undefined) {
-              this.#emExecucao.set(request.queryId, { pid: token, connection, database });
+              this.#emExecucao.set(request.queryId, { pid: token, connection, database, atorId: ator.id });
             }
           },
         });
@@ -324,6 +361,27 @@ export class QueryService {
     );
   }
 
+  /**
+   * Registra uma execução cancelável vinda de outro serviço (o ensaio, ADR 021)
+   * no mesmo mapa que `cancelar` consulta. Devolve quem a esquece — chamar no
+   * `finally`, pela mesma razão de segurança do `run` (a entrada retém a senha).
+   */
+  registrarExecucao(
+    queryId: string | undefined,
+    pid: number,
+    connection: ResolvedConnection,
+    database: string,
+    atorId: string,
+  ): (() => void) | null {
+    if (queryId === undefined) return () => undefined;
+    // Id em uso: sobrescrever tiraria de outra execução o poder de se cancelar.
+    if (this.#emExecucao.has(queryId)) return null;
+    this.#emExecucao.set(queryId, { pid, connection, database, atorId });
+    return () => {
+      this.#emExecucao.delete(queryId);
+    };
+  }
+
   async cancelar(
     connectionId: string,
     queryId: string,
@@ -346,7 +404,9 @@ export class QueryService {
     const reg = this.#emExecucao.get(queryId);
     // `undefined` (já terminou) e conexão diferente caem no mesmo lugar: nada a
     // cancelar sob este id nesta conexão.
-    if (reg?.connection.id !== connectionId) return ok({ cancelled: false });
+    // Outro ator com acesso à mesma conexão não cancela a consulta alheia,
+    // mesmo de posse do id — o mesmo `false` para não revelar que ela existe.
+    if (reg?.connection.id !== connectionId || reg.atorId !== ator.id) return ok({ cancelled: false });
     try {
       if (this.#drivers === undefined) return ok({ cancelled: false });
       const cancelled = await this.#drivers
@@ -371,8 +431,36 @@ export class QueryService {
    * fora justamente a rota que lê dado sensível **sem** abrir conexão: aqui a
    * leitura é no SQLite.
    */
-  history(connectionId: string, limit: number, ator: Ator): ServiceResult<QueryLogEntry[]> {
+  history(connectionId: string, filtro: HistoryFilter, ator: Ator): ServiceResult<QueryLogEntry[]> {
     if (this.#repository.find(connectionId, ator) === null) return fail("not_found");
-    return ok(this.#log.list(limit, connectionId));
+    /*
+     * Painel de histórico (roadmap-dbeaver item 2). `scope: "mine"` recorta ao
+     * que o ator rodou (UI ou MCP); `"team"` é tudo daquela conexão — o mesmo
+     * que a Auditoria já mostra a quem enxerga a conexão, então não abre dado
+     * novo. Paginação por keyset: o cliente devolve `executedAt|id` da última
+     * linha que recebeu.
+     */
+    return ok(
+      this.#log.search({
+        connectionId,
+        limit: filtro.limit,
+        q: filtro.q,
+        status: filtro.status,
+        cursor: filtro.cursor,
+        doUsuario: filtro.scope === "mine" ? ator.id : undefined,
+      }).entries,
+    );
   }
+
+}
+
+/** Por que o bind de parâmetros não pode ir adiante, ou `null`. */
+export function recusaDeParametros(engine: string, sql: string): string | null {
+  if (engine !== "postgres") {
+    return `engine_not_supported: variáveis de snippet só rodam no Postgres por enquanto (${engine})`;
+  }
+  if (splitStatements(sql).length !== 1) {
+    return "variáveis de snippet exigem um único statement: os $n valem por statement";
+  }
+  return null;
 }

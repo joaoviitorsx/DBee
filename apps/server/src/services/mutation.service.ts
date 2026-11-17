@@ -20,7 +20,7 @@ import type { PoolClient } from "pg";
 import type { PoolManager } from "../pg/pool";
 import type { Drivers } from "../driver/registro";
 import type { MutacaoLinha } from "../driver/tipos";
-import { MutacaoError } from "../driver/erros";
+import { MutacaoError, NaoEhChavePrimaria } from "../driver/erros";
 import { gravaPorCredencialSeparada } from "@dbee/shared/puro";
 import { exigirPostgres } from "./engine.guarda";
 import { type MutationResult, mutFail, mutOk } from "./result";
@@ -162,6 +162,38 @@ export class MutationService {
    * `has_schema_privilege` deixa a coluna de fora do mapa e ela cai na forma
    * antiga: menos exata, e funcionando.
    */
+  /**
+   * As colunas de `pk` têm de ser **exatamente** a chave primária da tabela.
+   *
+   * Antes, qualquer conjunto de colunas era aceito, e a prova de cardinalidade
+   * era a única barreira: PK parcial (`a` numa PK `(a, b)`) mais o `from` da
+   * guarda bastava para casar uma linha só e gravar — editar por aproximação
+   * numa tabela sem PK, ou por coluna avulsa. Medido em
+   * `mutation-tipos.integration.test.ts` (ideias-comunidade I7). Lido do
+   * catálogo dentro da transação, como os tipos.
+   */
+  static async #exigirPk(
+    client: PoolClient,
+    schema: string,
+    table: string,
+    pk: readonly { readonly column: string }[],
+  ): Promise<void> {
+    const res = await client.query<{ nome: string }>(
+      `SELECT a.attname AS nome
+         FROM pg_index i
+         JOIN pg_class c ON c.oid = i.indrelid
+         JOIN pg_namespace n ON n.oid = c.relnamespace
+         JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum = ANY (i.indkey)
+        WHERE n.nspname = $1 AND c.relname = $2 AND i.indisprimary`,
+      [schema, table],
+    );
+    const real = res.rows.map((r) => r.nome).sort();
+    const pedida = [...new Set(pk.map((p) => p.column))].sort();
+    const igual =
+      real.length > 0 && real.length === pedida.length && real.every((c, i) => c === pedida[i]);
+    if (!igual) throw new NaoEhChavePrimaria(real);
+  }
+
   static async #tiposDaTabela(
     client: PoolClient,
     schema: string,
@@ -201,7 +233,11 @@ export class MutationService {
     connectionId: string,
     database: string,
     ator: Ator,
-    alvo: { readonly schema: string; readonly table: string } | null,
+    alvo: {
+      readonly schema: string;
+      readonly table: string;
+      readonly pk: readonly { readonly column: string }[];
+    } | null,
     montar: (tipos: TiposDeColuna) => SqlConstruido,
   ): Promise<MutationResult<RowMutationResult>> {
     const inicio = performance.now();
@@ -264,6 +300,7 @@ export class MutationService {
         false,
         async (client) => {
           if (alvo !== null) {
+            await MutationService.#exigirPk(client, alvo.schema, alvo.table, alvo.pk);
             construido = montar(await MutationService.#tiposDaTabela(client, alvo.schema, alvo.table));
           }
           const res = await client.query(construido.text, construido.params);
@@ -276,6 +313,10 @@ export class MutationService {
       this.#registrar(connectionId, database, construido.literal, "ok", null, rowCount, inicio, ator);
       return mutOk({ rowCount, sql: construido.literal });
     } catch (err: unknown) {
+      if (err instanceof NaoEhChavePrimaria) {
+        this.#registrar(connectionId, database, construido.literal, "error", err.message, null, inicio, ator);
+        return mutFail("not_primary_key", err.message);
+      }
       if (err instanceof CardinalidadeError) {
         // 0 linhas: a linha mudou (guarda otimista) ou sumiu. >1: o WHERE casaria
         // mais de uma — a transação já reverteu, nada foi gravado.
@@ -381,6 +422,7 @@ export class MutationService {
       const message =
         err instanceof MutacaoError ? err.message : err instanceof Error ? err.message : String(err);
       this.#registrar(connectionId, database, `-- ${mut.tipo}`, "error", message, null, inicio, ator);
+      if (err instanceof NaoEhChavePrimaria) return mutFail("not_primary_key", message);
       return mutFail("upstream_error", message);
     }
   }

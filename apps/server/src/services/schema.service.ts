@@ -18,6 +18,13 @@ import { type ServiceResult, fail, ok } from "./result";
 /** TTL do cache em memória (DBee.md §5). */
 const TTL_MS = 5 * 60_000;
 
+/** Um database cujo catálogo está em memória (completo, ou só a árvore). */
+export interface CatalogoEmCache {
+  readonly connectionId: string;
+  readonly database: string;
+  readonly schemas: DatabaseSchema["schemas"] | DatabaseTree["schemas"];
+}
+
 interface CacheEntry {
   readonly value: DatabaseSchema;
   readonly expiresAt: number;
@@ -326,6 +333,27 @@ export class SchemaService {
     } catch (err: unknown) {
       return fail("upstream_error", err instanceof Error ? err.message : "erro desconhecido");
     }
+  }
+
+  /**
+   * O catálogo **já em cache** destas conexões, sem tocar em banco nenhum —
+   * a busca global (roadmap item 9) não consulta servidor por tecla. Vencido
+   * também serve: é só para achar nome, e a aba aberta relê o fresco.
+   * Quem chama já filtrou `ids` pelo ator.
+   */
+  emCache(ids: readonly string[]): CatalogoEmCache[] {
+    const saida: CatalogoEmCache[] = [];
+    for (const connectionId of ids) {
+      const completos = this.#cache.get(connectionId);
+      for (const [database, e] of completos ?? []) {
+        saida.push({ connectionId, database, schemas: e.value.schemas });
+      }
+      for (const [database, e] of this.#cacheTree.get(connectionId) ?? []) {
+        if (completos?.has(database) === true) continue;
+        saida.push({ connectionId, database, schemas: e.value.schemas });
+      }
+    }
+    return saida;
   }
 
   /** Invalida o cache de uma conexão — ao editá-la ou apagá-la. */

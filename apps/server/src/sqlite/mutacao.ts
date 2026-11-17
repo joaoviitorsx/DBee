@@ -6,7 +6,7 @@ import type {
 } from "@dbee/shared";
 
 import { citar } from "../libsql/citar";
-import { MutacaoError } from "../driver/erros";
+import { MutacaoError, NaoEhChavePrimaria } from "../driver/erros";
 import type { GerenteSqlite } from "./gerente";
 import type { ResolvedConnection } from "../db/connections.repo";
 
@@ -39,6 +39,30 @@ function igualdades(
   });
 }
 
+/**
+ * As colunas de `pk` têm de ser exatamente a chave primária declarada. Sem
+ * isso, uma coluna avulsa (ou PK parcial) mais a guarda casava uma linha e
+ * gravava — edição por aproximação em tabela sem PK (ideias-comunidade I7).
+ */
+async function exigirPk(
+  gerente: GerenteSqlite,
+  conexao: ResolvedConnection,
+  tabela: string,
+  pk: readonly { column: string }[],
+): Promise<void> {
+  const info = await gerente.consulta(
+    conexao,
+    "SELECT name FROM pragma_table_info(?) WHERE pk > 0",
+    [tabela],
+    1000,
+  );
+  const real = info.rows.map((r) => r[0] ?? "").sort();
+  const pedida = [...new Set(pk.map((p) => p.column))].sort();
+  if (real.length === 0 || real.length !== pedida.length || real.some((c, i) => c !== pedida[i])) {
+    throw new NaoEhChavePrimaria(real);
+  }
+}
+
 export async function atualizar(
   gerente: GerenteSqlite,
   conexao: ResolvedConnection,
@@ -55,9 +79,11 @@ export async function atualizar(
     ...igualdades(req.changes.map((c) => ({ column: c.column, value: c.from })), params),
   ];
   const sql = `UPDATE ${citar(req.table)} SET ${sets.join(", ")} WHERE ${where.join(" AND ")}`;
-  const r = await gerente.consulta(conexao, sql, params, 0, true);
+  await exigirPk(gerente, conexao, req.table, req.pk);
+  const r = await gerente.consulta(conexao, sql, params, 0, true, 1);
   if (r.changes === 0) return { rowCount: 0, sql };
-  if (r.changes > 1) throw new MutacaoError(`a condição casou ${String(r.changes)} linhas`);
+  // O worker já reverteu (teto 1): nada foi gravado.
+  if (r.changes > 1) throw new MutacaoError(`a condição casaria ${String(r.changes)} linhas — nada foi alterado`);
   return { rowCount: r.changes, sql };
 }
 
@@ -72,9 +98,11 @@ export async function excluir(
     ...igualdades(req.guard, params),
   ];
   const sql = `DELETE FROM ${citar(req.table)} WHERE ${where.join(" AND ")}`;
-  const r = await gerente.consulta(conexao, sql, params, 0, true);
+  await exigirPk(gerente, conexao, req.table, req.pk);
+  const r = await gerente.consulta(conexao, sql, params, 0, true, 1);
   if (r.changes === 0) return { rowCount: 0, sql };
-  if (r.changes > 1) throw new MutacaoError(`a condição casou ${String(r.changes)} linhas`);
+  // O worker já reverteu (teto 1): nada foi gravado.
+  if (r.changes > 1) throw new MutacaoError(`a condição casaria ${String(r.changes)} linhas — nada foi alterado`);
   return { rowCount: r.changes, sql };
 }
 

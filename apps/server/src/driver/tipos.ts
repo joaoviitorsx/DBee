@@ -53,6 +53,11 @@ export interface OpcoesExecucao {
    */
   readonly somenteLeitura: boolean;
   /**
+   * Bind de `$1..$n` (ADR 019). Só o driver de Postgres usa; o serviço recusa
+   * antes de chegar a outra engine.
+   */
+  readonly parametros?: readonly (string | null)[];
+  /**
    * Chamado assim que a execução tem um alvo cancelável.
    *
    * O número é o PID do backend no Postgres e o id da thread no MySQL. Quem

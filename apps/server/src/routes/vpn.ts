@@ -76,8 +76,14 @@ export const vpnRoutes = (service: VpnService, users: UsersRepository) => {
     .post(
       "/:perfil/conectar",
       async ({ sessao, params, body, status }) =>
-        responder(await service.conectar(exigirAtor(sessao), params.perfil, body.usuario, body.senha), status),
+        responder(await service.conectar(exigirAtor(sessao), params.perfil, body), status),
       { params: perfilParam, body: VpnConectarRequest, response: resposta },
+    )
+    .delete(
+      "/:perfil/credencial",
+      ({ sessao, params, status }) =>
+        responder(service.esquecerCredencial(exigirAtor(sessao), params.perfil), status),
+      { params: perfilParam, response: resposta },
     )
     .post(
       "/:perfil/desconectar",

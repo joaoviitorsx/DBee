@@ -17,6 +17,18 @@ export type SslMode = Static<typeof SslMode>;
 export const SSL_MODES = ["disable", "require", "verify-full"] as const;
 
 /**
+ * Selo de ambiente da conexão (ADR 022). Só rótulo: não muda permissão nem modo
+ * de transação. `null` = não declarado — e a tela não inventa um.
+ */
+export const Environment = t.Union(
+  [t.Literal("production"), t.Literal("staging"), t.Literal("development")],
+  { description: "Ambiente declarado pelo admin; a tela pede confirmação extra em production" },
+);
+export type Environment = Static<typeof Environment>;
+
+export const ENVIRONMENTS = ["production", "staging", "development"] as const;
+
+/**
  * Conexão como a API devolve. `password_enc` **nunca** aparece aqui — o tipo é
  * a primeira barreira, a segunda é o repositório não selecionar a coluna
  * (DBee.md §5, §7).
@@ -60,6 +72,8 @@ export const Connection = t.Object({
    * = acesso direto. Só Postgres, MySQL e MariaDB.
    */
   vpn: t.Union([t.String(), t.Null()]),
+  /** Selo de ambiente (ADR 022). `null` = não declarado. */
+  environment: t.Union([Environment, t.Null()]),
   createdAt: t.String(),
   updatedAt: t.String(),
 });
@@ -116,6 +130,8 @@ const FIELDS = {
   /** Perfil de VPN; vazio limpa. Validado contra `DBEE_VPN_PERFIS` no serviço. */
   vpn: t.String({ pattern: "^([a-z0-9][a-z0-9_-]{0,31})?$", maxLength: 32 }),
   color: t.Union([t.String({ maxLength: 32 }), t.Null()]),
+  /** `null` limpa o selo (ADR 022). */
+  environment: t.Union([Environment, t.Null()]),
   sslMode: SslMode,
   writeEnabled: t.Boolean(),
   statementTimeoutMs: t.Integer({ minimum: 1000, maximum: 600000 }),
@@ -177,6 +193,7 @@ export const CreateConnection = t.Object({
   authSource: t.Optional(FIELDS.authSource),
   filePath: t.Optional(FIELDS.filePath),
   vpn: t.Optional(FIELDS.vpn),
+  environment: t.Optional(FIELDS.environment),
 });
 export type CreateConnection = Static<typeof CreateConnection>;
 

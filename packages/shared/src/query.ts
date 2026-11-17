@@ -1,11 +1,34 @@
 import { t, type Static } from "elysia";
 
+/** Uma coluna de tabela, por nome qualificado. */
+export const ColumnRef = t.Object({
+  schema: t.String(),
+  table: t.String(),
+  column: t.String(),
+});
+export type ColumnRef = Static<typeof ColumnRef>;
+
+/**
+ * De onde veio a coluna do resultado (só Postgres, roadmap item 10): o
+ * `tableID`/`columnID` da RowDescription resolvido no catálogo, e a FK de
+ * **uma coluna** que parte dela, se houver. A UI usa para o salto por FK no
+ * resultado de query livre; o salto abre a aba Dados com filtro `eq`
+ * parametrizado, como na aba Dados.
+ */
+export const ColumnOrigin = t.Object({
+  source: ColumnRef,
+  references: t.Union([ColumnRef, t.Null()]),
+});
+export type ColumnOrigin = Static<typeof ColumnOrigin>;
+
 /** Metadado de coluna do resultado (DBee.md §5). */
 export const ResultColumn = t.Object({
   name: t.String(),
   dataTypeId: t.Integer(),
   /** Nome canônico do tipo — a UI decide alinhamento e formatação por ele. */
   dataTypeName: t.String(),
+  /** Ausente fora do executor do Postgres; `null` em coluna calculada. */
+  origin: t.Optional(t.Union([ColumnOrigin, t.Null()])),
 });
 export type ResultColumn = Static<typeof ResultColumn>;
 
@@ -61,6 +84,19 @@ export const QueryRequest = t.Object({
    * a query roda normal, só não dá para cancelar.
    */
   queryId: t.Optional(t.String({ minLength: 1, maxLength: 64 })),
+  /**
+   * Valores para `$1..$n`, como bind no protocolo estendido — nunca colados
+   * no texto (snippets com variáveis, ADR 019). O front converte `:nome` em
+   * `$n` com `nomearParametros` (`@dbee/shared/puro`). Só Postgres, e só com
+   * **um** statement: os `$n` são por statement.
+   */
+  params: t.Optional(t.Array(t.Union([t.String({ maxLength: 1_000_000 }), t.Null()]), { maxItems: 100 })),
+  /**
+   * Nome da conexão digitado na confirmação (ADR 022 §5). Exigido pelo servidor
+   * em escrita (`readOnly: false`) numa conexão `production` — a regra mora
+   * aqui, não só na tela.
+   */
+  confirmName: t.Optional(t.String({ maxLength: 200 })),
 });
 export type QueryRequest = Static<typeof QueryRequest>;
 
@@ -97,6 +133,8 @@ export const QueryLogEntry = t.Object({
   rowCount: t.Union([t.Integer(), t.Null()]),
   durationMs: t.Union([t.Integer(), t.Null()]),
   readOnly: t.Boolean(),
+  /** Ensaio de escrita (ADR 021): executou e foi revertido — nada gravado. */
+  dryRun: t.Boolean(),
   actor: t.String(),
   executedAt: t.String(),
 });

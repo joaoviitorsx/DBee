@@ -14,7 +14,10 @@ import { autenticar } from "../test/sessao";
  * `vpn/sidecar/sidecar.integration.test.ts`.
  */
 const TOKEN = "t".repeat(32);
-const SEGREDO = "PIN999TOTP111";
+const PIN = "PIN999";
+const CODIGO = "111222";
+/** O que o concentrador recebe: parte fixa + código do autenticador. */
+const SEGREDO = `${PIN}${CODIGO}`;
 const OVPN = "client\ndev tun\nremote 192.0.2.1 1194 udp\nauth-user-pass\n<key>\nCHAVE-PRIVADA-SECRETA\n</key>\n";
 
 interface Recebido {
@@ -131,28 +134,28 @@ describe("arquivo .ovpn", () => {
 
 describe("conectar", () => {
   it("sem .ovpn é 409", async () => {
-    const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: SEGREDO });
+    const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: PIN, codigo: CODIGO });
     expect(res.status).toBe(409);
   });
 
   it("manda o .ovpn da PRÓPRIA pessoa, a credencial e os destinos; não ecoa a senha", async () => {
     await conexaoComVpn();
     await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
-    const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "vitor", senha: SEGREDO });
+    const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "fulano", senha: PIN, codigo: CODIGO });
     expect(res.status).toBe(200);
     expect(await res.text()).not.toContain(SEGREDO);
 
     const pedido = recebidos.find((r) => r.metodo === "POST");
     expect(pedido?.caminho).toBe(`/tuneis/${adminId}.cliente-a`);
     expect(pedido?.corpo).toEqual({
-      ovpn: OVPN, usuario: "vitor", senha: SEGREDO, destinos: [{ host: "10.20.0.5", porta: 5432 }],
+      ovpn: OVPN, usuario: "fulano", senha: SEGREDO, destinos: [{ host: "10.20.0.5", porta: 5432 }],
     });
   });
 
   it("credencial recusada pela VPN vira 422 vpn_auth_failed", async () => {
     await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
     respostaConectar = { status: 401, corpo: { code: "credencial_recusada" } };
-    const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: SEGREDO });
+    const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: PIN, codigo: CODIGO });
     expect(res.status).toBe(422);
     expect(((await res.json()) as { code: string }).code).toBe("vpn_auth_failed");
   });
@@ -160,29 +163,84 @@ describe("conectar", () => {
   it("sidecar fora do ar é 502", async () => {
     await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
     await sidecar.stop(true);
-    const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: SEGREDO });
+    const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: PIN, codigo: CODIGO });
     expect(res.status).toBe(502);
   });
 
   it("senha com quebra de linha ou NUL é recusada sem ecoar", async () => {
-    for (const senha of [`${SEGREDO}\nsignal SIGTERM`, `${SEGREDO}\u0000x`]) {
-      const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha });
+    for (const senha of [`${PIN}\nsignal SIGTERM`, `${PIN}\u0000x`]) {
+      const res = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha, codigo: CODIGO });
       expect(res.status).toBe(422);
       expect(await res.text()).not.toContain(SEGREDO);
     }
   });
 });
 
+describe("credencial lembrada", () => {
+  it("lembrar guarda usuário + PIN cifrados SÓ após login aceito; depois basta o código", async () => {
+    await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
+    const r1 = await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "fulano", senha: PIN, codigo: CODIGO, lembrar: true });
+    expect(r1.status).toBe(200);
+    const lista = (await r1.json()) as VpnList;
+    expect(lista[0]?.usuarioLembrado).toBe("fulano");
+    expect(JSON.stringify(lista)).not.toContain(PIN);
+
+    const cru = store.db.query<{ senha_enc: string }, []>("SELECT senha_enc FROM vpn_profiles").get();
+    expect(cru?.senha_enc).not.toContain(PIN);
+
+    await chamar("POST", "/vpn/cliente-a/desconectar", admin);
+    recebidos = [];
+    const r2 = await chamar("POST", "/vpn/cliente-a/conectar", admin, { codigo: "333444" });
+    expect(r2.status).toBe(200);
+    const pedido = recebidos.find((r) => r.metodo === "POST");
+    expect(pedido?.corpo?.["usuario"]).toBe("fulano");
+    expect(pedido?.corpo?.["senha"]).toBe(`${PIN}333444`);
+  });
+
+  it("login recusado não guarda nada", async () => {
+    await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
+    respostaConectar = { status: 401, corpo: { code: "credencial_recusada" } };
+    await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "fulano", senha: "PINERRADO", codigo: CODIGO, lembrar: true });
+    const lista = (await (await chamar("GET", "/vpn", admin)).json()) as VpnList;
+    expect(lista[0]?.usuarioLembrado).toBeNull();
+  });
+
+  it("só código sem nada lembrado é 409; código fora do formato é 422", async () => {
+    await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
+    expect((await chamar("POST", "/vpn/cliente-a/conectar", admin, { codigo: CODIGO })).status).toBe(409);
+    expect((await chamar("POST", "/vpn/cliente-a/conectar", admin, { codigo: "12ab56" })).status).toBe(422);
+  });
+
+  it("esquecer apaga usuário e senha e mantém o .ovpn", async () => {
+    await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
+    await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "fulano", senha: PIN, codigo: CODIGO, lembrar: true });
+    const res = await chamar("DELETE", "/vpn/cliente-a/credencial", admin);
+    const lista = (await res.json()) as VpnList;
+    expect(lista[0]?.usuarioLembrado).toBeNull();
+    expect(lista[0]?.temArquivo).toBe(true);
+    const cru = store.db.query<{ senha_enc: string | null }, []>("SELECT senha_enc FROM vpn_profiles").get();
+    expect(cru?.senha_enc).toBeNull();
+  });
+
+  it("a credencial lembrada de um não serve ao outro", async () => {
+    await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
+    await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "fulano", senha: PIN, codigo: CODIGO, lembrar: true });
+    const m = await membro();
+    await chamar("PUT", "/vpn/cliente-a/arquivo", m.cookie, { ovpn: OVPN });
+    expect((await chamar("POST", "/vpn/cliente-a/conectar", m.cookie, { codigo: CODIGO })).status).toBe(409);
+  });
+});
+
 describe("isolamento entre pessoas", () => {
   it("o túnel e o .ovpn de um não aparecem nem servem para o outro", async () => {
     await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
-    await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: SEGREDO });
+    await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: PIN, codigo: CODIGO });
     const m = await membro();
 
     const lista = (await (await chamar("GET", "/vpn", m.cookie)).json()) as VpnList;
-    expect(lista).toEqual([{ perfil: "cliente-a", temArquivo: false, estado: "desconectada", ipLocal: null }]);
+    expect(lista).toEqual([{ perfil: "cliente-a", temArquivo: false, estado: "desconectada", ipLocal: null, usuarioLembrado: null }]);
     // Sem .ovpn próprio, o membro não conecta — o do admin não é reaproveitado.
-    expect((await chamar("POST", "/vpn/cliente-a/conectar", m.cookie, { usuario: "u", senha: SEGREDO })).status).toBe(409);
+    expect((await chamar("POST", "/vpn/cliente-a/conectar", m.cookie, { usuario: "u", senha: PIN, codigo: CODIGO })).status).toBe(409);
     // Desconectar do membro mira o id DELE, nunca o túnel do admin.
     await chamar("POST", "/vpn/cliente-a/desconectar", m.cookie);
     expect(tuneis.has(`${adminId}.cliente-a`)).toBe(true);
@@ -196,7 +254,7 @@ describe("isolamento entre pessoas", () => {
 
   it("logout derruba os túneis da pessoa", async () => {
     await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
-    await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: SEGREDO });
+    await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: PIN, codigo: CODIGO });
     await chamar("POST", "/auth/logout", admin);
     await Bun.sleep(50);
     expect(tuneis.size).toBe(0);
@@ -219,7 +277,7 @@ describe("conexão com VPN", () => {
 
   it("conexão nova com VPN abre encaminhamento para quem já está conectado", async () => {
     await chamar("PUT", "/vpn/cliente-a/arquivo", admin, { ovpn: OVPN });
-    await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: SEGREDO });
+    await chamar("POST", "/vpn/cliente-a/conectar", admin, { usuario: "u", senha: PIN, codigo: CODIGO });
     await conexaoComVpn();
     await Bun.sleep(50);
     const pedido = recebidos.find((r) => r.caminho.endsWith("/destinos"));

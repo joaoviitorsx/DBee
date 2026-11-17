@@ -7,6 +7,7 @@ import { SettingsRepository } from "./db/settings.repo";
 import { UsersRepository } from "./db/users.repo";
 import { QueryLogRepository } from "./db/queryLog.repo";
 import { SavedQueriesRepository } from "./db/savedQueries.repo";
+import { SavedQueriesService } from "./services/savedQueries.service";
 import { Drivers } from "./driver/registro";
 import { MutationService } from "./services/mutation.service";
 import { AuditService } from "./services/audit.service";
@@ -23,6 +24,8 @@ import { sessionGuard } from "./routes/guard";
 import { metaRoutes } from "./routes/meta";
 import { mutationRoutes } from "./routes/mutation";
 import { queryRoutes } from "./routes/query";
+import { ensaioRoutes } from "./routes/ensaio";
+import { EnsaioService } from "./services/ensaio.service";
 import { rowsRoutes } from "./routes/rows";
 import { savedQueriesRoutes } from "./routes/savedQueries";
 import { usersRoutes } from "./routes/users";
@@ -37,6 +40,20 @@ import { ControleVpn } from "./vpn/cliente";
 import type { ConfigVpn } from "./lib/config";
 import { VpnProfilesRepository } from "./db/vpnProfiles.repo";
 import { schemaRoutes } from "./routes/schema";
+import { buscaRoutes } from "./routes/busca";
+import { buscaValorRoutes } from "./routes/buscaValor";
+import { explainRoutes } from "./routes/explain";
+import { statsRoutes } from "./routes/stats";
+import { insertSqlRoutes } from "./routes/insertSql";
+import { InsertSqlService } from "./services/insertSql.service";
+import { copiaTabelaRoutes } from "./routes/copiaTabela";
+import { CopiaTabelaService } from "./services/copiaTabela.service";
+import { StatsService } from "./services/stats.service";
+import { compareRoutes } from "./routes/compare";
+import { CompareService } from "./services/compare.service";
+import { ExplainService } from "./services/explain.service";
+import { BuscaService } from "./services/busca.service";
+import { BuscaValorService } from "./services/buscaValor.service";
 import { AuthService } from "./services/auth.service";
 import { ConnectionsService } from "./services/connections.service";
 import { ExportService } from "./services/export.service";
@@ -92,7 +109,10 @@ export function createApp({
   const schema = new SchemaService({ repository, pools, drivers });
   const log = new QueryLogRepository(store.db);
   const audit = new AuditService(log);
-  const savedQueries = new SavedQueriesRepository(store.db);
+  const savedQueries = new SavedQueriesService({
+    repo: new SavedQueriesRepository(store.db),
+    conexoes: repository,
+  });
   const query = new QueryService({ repository, log, drivers });
   const mutation = new MutationService({ repository, pools, log, drivers });
   const rows = new RowsService({ repository, schema, log, drivers });
@@ -101,7 +121,8 @@ export function createApp({
   const usuarios = new UsersService(users);
   // MCP (ADR 015): tokens pessoais + fachada sobre os serviços da UI.
   const apiTokens = new ApiTokensService(new ApiTokensRepository(store.db), users);
-  const mcp = new McpService({ repository, schema, query });
+  const explain = new ExplainService({ repository, pools, log });
+  const mcp = new McpService({ repository, schema, query, savedQueries, explain });
   const vpn = new VpnService({
     config: configVpn,
     controle: configVpn === null ? null : new ControleVpn(configVpn),
@@ -163,12 +184,20 @@ export function createApp({
       .use(connectionsRoutes(connections, users))
       .use(schemaRoutes(schema, users))
       .use(queryRoutes(query, users))
+      .use(ensaioRoutes(new EnsaioService({ repository, pools, log, query }), users))
       .use(rowsRoutes(rows, users))
       .use(mutationRoutes(mutation, users))
       .use(exportRoutes(exportar, users))
       .use(auditRoutes(audit, users))
       .use(ddlRoutes(ddl, users))
-      .use(savedQueriesRoutes(savedQueries))
+      .use(savedQueriesRoutes(savedQueries, users))
+      .use(explainRoutes(explain, users))
+      .use(compareRoutes(new CompareService({ rows, schema, conexoes: repository }), users))
+      .use(statsRoutes(new StatsService({ repository, schema, pools, log }), users))
+      .use(insertSqlRoutes(new InsertSqlService({ conexoes: repository, schema }), users))
+      .use(copiaTabelaRoutes(new CopiaTabelaService({ conexoes: repository, schema, rows }), users))
+      .use(buscaRoutes(new BuscaService({ conexoes: repository, schema }), users))
+      .use(buscaValorRoutes(new BuscaValorService({ repository, pools, log }), users))
       .use(usersRoutes(usuarios, users))
       .use(apiTokensRoutes(apiTokens, users))
       .use(mcpRoutes(mcp))

@@ -11,6 +11,14 @@ import { decrypt, encrypt, type EncryptionKey } from "../lib/crypto";
  * serviço na hora de abrir o túnel.
  */
 const aad = (userId: string, perfil: string): string => `vpn:${userId}:${perfil}`;
+/** AAD da senha lembrada: distinto do .ovpn, um não decifra como o outro. */
+const aadSenha = (userId: string, perfil: string): string => `${aad(userId, perfil)}#senha`;
+
+export interface CredencialLembrada {
+  readonly usuario: string;
+  /** Parte fixa da senha (PIN). Pode ser vazia: VPN só com usuário + TOTP. */
+  readonly senha: string;
+}
 
 export class VpnProfilesRepository {
   readonly #key: EncryptionKey;
@@ -18,6 +26,9 @@ export class VpnProfilesRepository {
   readonly #ler: Statement<{ ovpn_enc: string }, [string, string]>;
   readonly #perfis: Statement<{ perfil: string }, [string]>;
   readonly #remover: Statement<unknown, [string, string]>;
+  readonly #lembrar: Statement<unknown, [string | null, string | null, string, string]>;
+  readonly #credencial: Statement<{ usuario: string | null; senha_enc: string | null }, [string, string]>;
+  readonly #comCredencial: Statement<{ perfil: string; usuario: string }, [string]>;
 
   constructor(db: Database, key: EncryptionKey) {
     this.#key = key;
@@ -28,6 +39,36 @@ export class VpnProfilesRepository {
     this.#ler = db.query(`SELECT ovpn_enc FROM vpn_profiles WHERE user_id = ? AND perfil = ?`);
     this.#perfis = db.query(`SELECT perfil FROM vpn_profiles WHERE user_id = ?`);
     this.#remover = db.query(`DELETE FROM vpn_profiles WHERE user_id = ? AND perfil = ?`);
+    this.#lembrar = db.query(
+      `UPDATE vpn_profiles SET usuario = ?, senha_enc = ? WHERE user_id = ? AND perfil = ?`,
+    );
+    this.#credencial = db.query(
+      `SELECT usuario, senha_enc FROM vpn_profiles WHERE user_id = ? AND perfil = ?`,
+    );
+    this.#comCredencial = db.query(
+      `SELECT perfil, usuario FROM vpn_profiles WHERE user_id = ? AND usuario IS NOT NULL`,
+    );
+  }
+
+  /** Grava usuário + parte fixa da senha, cifrada. Só existe se há .ovpn. */
+  lembrar(userId: string, perfil: string, c: CredencialLembrada): void {
+    this.#lembrar.run(c.usuario, encrypt(this.#key, aadSenha(userId, perfil), c.senha), userId, perfil);
+  }
+
+  esquecer(userId: string, perfil: string): void {
+    this.#lembrar.run(null, null, userId, perfil);
+  }
+
+  /** Decifra. Lança se o blob não for desta pessoa/perfil (AAD). */
+  credencial(userId: string, perfil: string): CredencialLembrada | null {
+    const row = this.#credencial.get(userId, perfil);
+    if (row?.usuario == null || row.senha_enc === null) return null;
+    return { usuario: row.usuario, senha: decrypt(this.#key, aadSenha(userId, perfil), row.senha_enc) };
+  }
+
+  /** Perfis com credencial lembrada → usuário (nunca a senha). */
+  usuariosLembrados(userId: string): ReadonlyMap<string, string> {
+    return new Map(this.#comCredencial.all(userId).map((r) => [r.perfil, r.usuario]));
   }
 
   salvar(userId: string, perfil: string, ovpn: string): void {

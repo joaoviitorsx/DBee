@@ -10,6 +10,10 @@ import authSource from "./009_auth_source.sql" with { type: "text" };
 import filePath from "./010_file_path.sql" with { type: "text" };
 import vpn from "./011_vpn.sql" with { type: "text" };
 import apiTokens from "./012_api_tokens.sql" with { type: "text" };
+import vpnCredencial from "./013_vpn_credencial.sql" with { type: "text" };
+import savedQueryOwner from "./014_saved_query_owner.sql" with { type: "text" };
+import connectionEnvironment from "./015_connection_environment.sql" with { type: "text" };
+import queryLogDryRun from "./016_query_log_dry_run.sql" with { type: "text" };
 
 export interface Migration {
   readonly version: number;
@@ -35,6 +39,10 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 10, name: "010_file_path", sql: filePath },
   { version: 11, name: "011_vpn", sql: vpn },
   { version: 12, name: "012_api_tokens", sql: apiTokens },
+  { version: 13, name: "013_vpn_credencial", sql: vpnCredencial },
+  { version: 14, name: "014_saved_query_owner", sql: savedQueryOwner },
+  { version: 15, name: "015_connection_environment", sql: connectionEnvironment },
+  { version: 16, name: "016_query_log_dry_run", sql: queryLogDryRun },
 ];
 
 /**
@@ -46,4 +54,4 @@ export const MIGRATIONS: readonly Migration[] = [
  * duas vezes, e uma se disfarçou de erro de conexão na UI — erro alto no boot é
  * mais barato que diagnóstico errado na tela.
  */
-export const EXPECTED_SCHEMA = 12;
+export const EXPECTED_SCHEMA = 16;

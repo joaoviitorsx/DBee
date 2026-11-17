@@ -157,7 +157,7 @@ describe("guard do MCP", () => {
       result: { tools: { name: string }[] };
     };
     expect(lista.result.tools.map((t) => t.name).sort()).toEqual(
-      ["describe_table", "list_connections", "list_schema", "run_query"],
+      ["describe_schema_compact", "describe_table", "explain_query", "get_saved_query", "list_connections", "list_saved_queries", "list_schema", "run_query"],
     );
   });
 
@@ -199,6 +199,40 @@ describe("permissão por conexão no MCP", () => {
     }))).json()) as { result: { content: { text: string }[]; isError: boolean } };
     expect(r.result.isError).toBe(true);
     expect(r.result.content[0]?.text).toContain("connection_not_found");
+  });
+});
+
+describe("queries salvas no MCP", () => {
+  const chamar = async (token: string, name: string, args: Record<string, unknown>) =>
+    ((await (await req("POST", "/api/mcp", bearer(token), rpc("tools/call", { name, arguments: args }))).json()) as {
+      result: { content: { text: string }[]; isError: boolean };
+    }).result;
+
+  it("mesma visibilidade da UI: time + próprias, conexão sem acesso some", async () => {
+    const conexoes = JSON.parse((await chamar(tokenAdmin, "list_connections", {})).content[0]?.text ?? "[]") as { id: string }[];
+    const prod = conexoes[0]?.id ?? "";
+    const salvar = async (cookie: string, body: object) => {
+      const r = await req("POST", "/api/saved-queries", { cookie }, body);
+      expect(r.status).toBe(200);
+      return ((await r.json()) as { id: string }).id;
+    };
+    await salvar(cookieAdmin, { name: "time-livre", sql: "SELECT 1", visibility: "team" });
+    await salvar(cookieAdmin, { name: "rascunho-admin", sql: "SELECT 2" });
+    const daProd = await salvar(cookieAdmin, { name: "time-prod", sql: "SELECT 3", visibility: "team", connectionId: prod });
+    await salvar(cookieMembro, { name: "meu-rascunho", sql: "SELECT 4" });
+
+    const nomes = (r: { content: { text: string }[] }) =>
+      (JSON.parse(r.content[0]?.text ?? "[]") as { name: string }[]).map((x) => x.name).sort();
+
+    expect(nomes(await chamar(tokenMembro, "list_saved_queries", {}))).toEqual(["meu-rascunho", "time-livre"]);
+    expect(nomes(await chamar(tokenAdmin, "list_saved_queries", {}))).toEqual(["rascunho-admin", "time-livre", "time-prod"]);
+    expect(nomes(await chamar(tokenAdmin, "list_saved_queries", { connectionId: prod }))).toEqual(["time-prod"]);
+
+    const negado = await chamar(tokenMembro, "get_saved_query", { id: daProd });
+    expect(negado.isError).toBe(true);
+    expect(negado.content[0]?.text).toContain("saved_query_not_found");
+    const visto = await chamar(tokenAdmin, "get_saved_query", { id: daProd });
+    expect(visto.content[0]?.text).toContain("SELECT 3");
   });
 });
 

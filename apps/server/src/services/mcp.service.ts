@@ -1,11 +1,24 @@
 import { randomUUID } from "node:crypto";
 
-import { MCP_MAX_ROWS, MCP_TIMEOUT_MS, MCP_PROTOCOL_VERSION, type McpToolResult } from "@dbee/shared";
-import { capacidadesDe } from "@dbee/shared/puro";
+import {
+  MCP_MAX_ROWS,
+  MCP_TIMEOUT_MS,
+  MCP_PROTOCOL_VERSION,
+  type McpToolResult,
+  type SavedQuery,
+} from "@dbee/shared";
+import {
+  SCHEMA_COMPACTO_MAX_CHARS,
+  SCHEMA_COMPACTO_TETO_CHARS,
+  capacidadesDe,
+  formatarSchemaCompacto,
+} from "@dbee/shared/puro";
 
 import type { ConnectionsRepository } from "../db/connections.repo";
 import type { Ator } from "../lib/ator";
+import type { ExplainService } from "./explain.service";
 import type { QueryService } from "./query.service";
+import type { SavedQueriesService } from "./savedQueries.service";
 import type { SchemaService } from "./schema.service";
 import { versaoDoBinario } from "./update.service";
 
@@ -82,6 +95,65 @@ const TOOLS = [
       additionalProperties: false,
     },
   },
+  {
+    name: "explain_query",
+    description:
+      "Plano de execução (EXPLAIN em JSON, SEM ANALYZE: a query não é executada) de um único statement, " +
+      "numa transação READ ONLY. Só Postgres.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: { type: "string" },
+        sql: { type: "string" },
+        database: { type: "string" },
+      },
+      required: ["connectionId", "sql"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "describe_schema_compact",
+    description:
+      "Schema inteiro de um database em texto compacto e estável (uma relação por bloco: colunas com tipo, " +
+      "NOT NULL, default e PK; FKs; índices). Paginado por relação: repita com offset = nextOffset até vir null. " +
+      `Filtro opcional por schema. maxChars padrão ${String(SCHEMA_COMPACTO_MAX_CHARS)}, teto ${String(SCHEMA_COMPACTO_TETO_CHARS)}.`,
+    inputSchema: {
+      type: "object",
+      properties: {
+        connectionId: { type: "string" },
+        database: { type: "string" },
+        schema: { type: "string", description: "Opcional; só este schema." },
+        offset: { type: "integer", minimum: 0, description: "Índice da primeira relação (nextOffset da página anterior)." },
+        maxChars: { type: "integer", minimum: 1000, maximum: SCHEMA_COMPACTO_TETO_CHARS },
+      },
+      required: ["connectionId"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "list_saved_queries",
+    description:
+      "Lista as queries salvas que este usuário vê no DBee (as do time e as próprias), com nome, SQL, conexão de origem e dono. " +
+      "São consultas que o time já validou: prefira reaproveitá-las. Filtro opcional por texto (nome ou SQL) e por conexão.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        q: { type: "string", description: "Opcional; casa trecho do nome ou do SQL." },
+        connectionId: { type: "string", description: "Opcional; só as queries desta conexão." },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "get_saved_query",
+    description: "Uma query salva pelo id (mesma regra de visibilidade de list_saved_queries).",
+    inputSchema: {
+      type: "object",
+      properties: { id: { type: "string" } },
+      required: ["id"],
+      additionalProperties: false,
+    },
+  },
 ] as const;
 
 type Args = Readonly<Record<string, unknown>>;
@@ -117,17 +189,23 @@ export interface McpServiceDeps {
   readonly repository: ConnectionsRepository;
   readonly schema: SchemaService;
   readonly query: QueryService;
+  readonly savedQueries: SavedQueriesService;
+  readonly explain: ExplainService;
 }
 
 export class McpService {
   readonly #repository: ConnectionsRepository;
   readonly #schema: SchemaService;
   readonly #query: QueryService;
+  readonly #savedQueries: SavedQueriesService;
+  readonly #explain: ExplainService;
 
-  constructor({ repository, schema, query }: McpServiceDeps) {
+  constructor({ repository, schema, query, savedQueries, explain }: McpServiceDeps) {
+    this.#explain = explain;
     this.#repository = repository;
     this.#schema = schema;
     this.#query = query;
+    this.#savedQueries = savedQueries;
   }
 
   initialize(): Record<string, unknown> {
@@ -154,6 +232,14 @@ export class McpService {
         return this.#describeTable(args, ator);
       case "run_query":
         return this.#runQuery(args, ator);
+      case "explain_query":
+        return this.#explainQuery(args, ator);
+      case "describe_schema_compact":
+        return this.#describeSchemaCompact(args, ator);
+      case "list_saved_queries":
+        return this.#listSavedQueries(args, ator);
+      case "get_saved_query":
+        return this.#getSavedQuery(args, ator);
       default:
         return null;
     }
@@ -170,6 +256,30 @@ export class McpService {
       database: c.database,
     }));
     return texto(conexoes);
+  }
+
+  /**
+   * Mesmo serviço da UI: a visibilidade (time + próprias, conexão acessível) é
+   * a do humano dono do token. Projeção explícita, sem `canEdit` — o MCP não
+   * altera query salva.
+   */
+  #listSavedQueries(args: Args, ator: Ator): McpToolResult {
+    const q = strOpt(args, "q");
+    const connectionId = strOpt(args, "connectionId");
+    if (q === null || connectionId === null) return erro("invalid_params", "q e connectionId, se vierem, devem ser strings");
+    const lista = this.#savedQueries
+      .listar(ator, q ?? null)
+      .filter((s) => connectionId === undefined || s.connectionId === connectionId)
+      .map(projetarSalva);
+    return texto(lista);
+  }
+
+  #getSavedQuery(args: Args, ator: Ator): McpToolResult {
+    const id = str(args, "id", 64);
+    if (id === null) return erro("invalid_params", "id é obrigatório");
+    const r = this.#savedQueries.obter(id, ator);
+    if (!r.ok) return erro("saved_query_not_found", "query salva não encontrada");
+    return texto(projetarSalva(r.value));
   }
 
   async #listSchema(args: Args, ator: Ator): Promise<McpToolResult> {
@@ -217,6 +327,59 @@ export class McpService {
       foreignKeys: rel.foreignKeys,
       indexes: rel.indexes,
     });
+  }
+
+  /**
+   * EXPLAIN pelo mesmo serviço da UI (permissão, `query_log`), com
+   * `analyze: false` **fixo**: o agente não tem como pedir ANALYZE, que executa
+   * a query (ADR 017). Sem ANALYZE o serviço abre `BEGIN READ ONLY`.
+   */
+  async #explainQuery(args: Args, ator: Ator): Promise<McpToolResult> {
+    const id = str(args, "connectionId");
+    const sql = str(args, "sql", 1_000_000);
+    const database = strOpt(args, "database");
+    if (id === null || sql === null || database === null) {
+      return erro("invalid_params", "connectionId e sql são obrigatórios");
+    }
+    const r = await this.#explain.explicar(
+      id,
+      { sql, analyze: false, ...(database === undefined ? {} : { database }) },
+      ator,
+    );
+    if (!r.ok) return falha(r.failure, r.detail);
+    if (r.value.error !== null) {
+      return erro(r.value.error.code ?? "explain_error", r.value.error.message, r.value.error.position);
+    }
+    // Plano como texto, como o Postgres o devolveu (regra 10).
+    return { content: [{ type: "text", text: r.value.plan ?? "null" }], isError: false };
+  }
+
+  /** Catálogo do mesmo `SchemaService` (cache, permissão pelo ator), em texto compacto. */
+  async #describeSchemaCompact(args: Args, ator: Ator): Promise<McpToolResult> {
+    const id = str(args, "connectionId");
+    const database = strOpt(args, "database");
+    const schema = strOpt(args, "schema");
+    const offset = args["offset"] ?? 0;
+    const maxChars = args["maxChars"] ?? SCHEMA_COMPACTO_MAX_CHARS;
+    if (
+      id === null || database === null || schema === null ||
+      typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 ||
+      typeof maxChars !== "number" || !Number.isInteger(maxChars) || maxChars < 1000 || maxChars > SCHEMA_COMPACTO_TETO_CHARS
+    ) {
+      return erro("invalid_params", `connectionId obrigatório; offset inteiro ≥ 0; maxChars entre 1000 e ${String(SCHEMA_COMPACTO_TETO_CHARS)}`);
+    }
+    const r = await this.#schema.get(id, database, false, ator);
+    if (!r.ok) return falha(r.failure, r.detail);
+    const pagina = formatarSchemaCompacto(r.value.schemas, {
+      offset,
+      maxChars,
+      ...(schema === undefined ? {} : { schema }),
+    });
+    const cabecalho =
+      `# database ${r.value.database}${schema === undefined ? "" : ` schema ${schema}`} · ` +
+      `relações ${String(offset)}..${String(offset + pagina.returnedRelations)} de ${String(pagina.totalRelations)} · ` +
+      `nextOffset ${pagina.nextOffset === null ? "null" : String(pagina.nextOffset)}`;
+    return { content: [{ type: "text", text: `${cabecalho}\n\n${pagina.text}` }], isError: false };
   }
 
   async #runQuery(args: Args, ator: Ator): Promise<McpToolResult> {
@@ -287,4 +450,16 @@ export class McpService {
     }
     return texto({ readOnly, statements });
   }
+}
+
+function projetarSalva(s: SavedQuery): Record<string, unknown> {
+  return {
+    id: s.id,
+    name: s.name,
+    sql: s.sql,
+    connectionId: s.connectionId,
+    owner: s.ownerName,
+    visibility: s.visibility,
+    updatedAt: s.updatedAt,
+  };
 }

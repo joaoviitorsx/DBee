@@ -244,7 +244,7 @@ describe.skipIf(!temDocker)("edição de linha — UPDATE", () => {
       changes: [{ column: "v", from: "a", to: "b" }],
     });
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { code: string }).code).toBe("ambiguous_row");
+    expect(((await res.json()) as { code: string }).code).toBe("not_primary_key"); // barrado antes: `k` não é a PK (I7); a prova de cardinalidade fica de segunda trava
     // Reverteu: as duas linhas continuam 'a'.
     expect(valorDireto("SELECT count(*) FROM dupes WHERE k='same' AND v='a'")).toBe("2");
   });
@@ -350,7 +350,7 @@ describe.skipIf(!temDocker)("edição de linha — DELETE", () => {
       guard: [{ column: "v", value: "a" }],
     });
     expect(res.status).toBe(409);
-    expect(((await res.json()) as { code: string }).code).toBe("ambiguous_row");
+    expect(((await res.json()) as { code: string }).code).toBe("not_primary_key"); // idem: `k` não é a PK
     expect(valorDireto("SELECT count(*) FROM dupes WHERE k='same'")).toBe("2");
   });
 

@@ -21,6 +21,8 @@ export const FilterOperator = t.Union([
   t.Literal("startsWith"),
   t.Literal("isNull"),
   t.Literal("isNotNull"),
+  /** Lista de valores em `values`, cada um parâmetro próprio — nunca uma string partida. */
+  t.Literal("in"),
 ]);
 export type FilterOperator = Static<typeof FilterOperator>;
 
@@ -30,6 +32,8 @@ export const RowFilter = t.Object({
   operator: FilterOperator,
   /** Ausente para `isNull` / `isNotNull`. */
   value: t.Optional(t.String({ maxLength: 10_000 })),
+  /** Só para `in`: um parâmetro ligado por item. Obrigatório (≥1) nesse operador. */
+  values: t.Optional(t.Array(t.String({ maxLength: 10_000 }), { minItems: 1, maxItems: 500 })),
 });
 export type RowFilter = Static<typeof RowFilter>;
 

@@ -167,6 +167,13 @@ for (const s of SERVIDORES) {
         limit: 100, filters: [{ column: "grupo", operator: "startsWith", value: "g0" }],
       });
       for (const l of trecho.rows) expect(l[iGrupo]?.startsWith("g0")).toBe(true);
+
+      const lista = await lerLinhas(c, r, "loja", {
+        limit: 100,
+        filters: [{ column: "grupo", operator: "in", values: ["g03", "g'); DROP TABLE peca; --"] }],
+      });
+      expect(lista.rows.length).toBeGreaterThan(0);
+      for (const l of lista.rows) expect(l[iGrupo]).toBe("g03");
     }, 90_000);
 
     /*

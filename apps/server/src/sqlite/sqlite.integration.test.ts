@@ -29,7 +29,7 @@ const conexao = (fp: string): ResolvedConnection =>
     host: "", port: 0, database: "", username: "", password: "",
     sslMode: "disable", timezone: "UTC", statementTimeoutMs: 30_000,
     writeEnabled: false, hasWriteCredential: false, authSource: null,
-    filePath: fp, vpn: null, createdAt: "", updatedAt: "",
+    filePath: fp, vpn: null, environment: null, createdAt: "", updatedAt: "",
   }) satisfies ResolvedConnection;
 
 beforeAll(() => {

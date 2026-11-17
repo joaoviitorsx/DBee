@@ -30,6 +30,11 @@ export const VpnStatus = t.Object({
   estado: VpnEstado,
   /** IP do túnel quando conectada. */
   ipLocal: t.Union([t.String(), t.Null()]),
+  /**
+   * Usuário da VPN lembrado (opt-in). Com ele, conectar pede só o código do
+   * autenticador. A senha lembrada NUNCA viaja — só o fato de existir.
+   */
+  usuarioLembrado: t.Union([t.String(), t.Null()]),
 });
 export type VpnStatus = Static<typeof VpnStatus>;
 
@@ -42,10 +47,20 @@ export type VpnList = Static<typeof VpnList>;
  */
 const semQuebra = "^[^\\r\\n\\u0000]*$";
 
+/**
+ * Conectar. A senha que o concentrador recebe é `senha + codigo`:
+ *
+ * - `codigo`: os dígitos do autenticador (TOTP). Sempre obrigatório — é o
+ *   segundo fator, e nunca é guardado.
+ * - `usuario` e `senha` (a parte fixa, o PIN; pode ser vazia em VPN só com
+ *   TOTP): ausentes = usar os lembrados. Presentes = usar estes e, se
+ *   `lembrar`, guardá-los cifrados depois que a VPN aceitar o login.
+ */
 export const VpnConectarRequest = t.Object({
-  usuario: t.String({ minLength: 1, maxLength: 128, pattern: semQuebra }),
-  /** Senha completa como o concentrador espera (ex.: PIN + TOTP). */
-  senha: t.String({ minLength: 1, maxLength: 256, pattern: semQuebra }),
+  codigo: t.String({ pattern: "^[0-9]{6,8}$" }),
+  usuario: t.Optional(t.String({ minLength: 1, maxLength: 128, pattern: semQuebra })),
+  senha: t.Optional(t.String({ maxLength: 248, pattern: semQuebra })),
+  lembrar: t.Optional(t.Boolean()),
 });
 export type VpnConectarRequest = Static<typeof VpnConectarRequest>;
 

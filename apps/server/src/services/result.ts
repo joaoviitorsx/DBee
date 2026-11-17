@@ -42,7 +42,13 @@ export type MutationFailure =
    */
   | "row_changed"
   /** O `WHERE` casaria mais de uma linha. A transação reverteu sem commitar. */
-  | "ambiguous_row";
+  | "ambiguous_row"
+  /**
+   * As colunas mandadas como `pk` não são a chave primária da tabela (ou ela
+   * não tem uma). Edição de linha só identifica a linha pela PK inteira —
+   * nunca por coluna avulsa ou "todas as colunas" (ideias-comunidade I7).
+   */
+  | "not_primary_key";
 
 export type MutationResult<T> =
   | { readonly ok: true; readonly value: T }

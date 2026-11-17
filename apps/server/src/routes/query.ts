@@ -4,6 +4,7 @@ import {
   CancelRequest,
   CancelResponse,
   ErrorResponse,
+  HistoryQuery,
   QueryLogEntry,
   QueryRequest,
   QueryResponse,
@@ -81,14 +82,18 @@ export const queryRoutes = (service: QueryService, users: UsersRepository) =>
     .get(
       "/:id/history",
       ({ params, query, sessao, status }) => {
-        const result = service.history(params.id, query.limit ?? 100, exigirAtor(sessao));
+        const result = service.history(
+          params.id,
+          { ...query, limit: query.limit ?? 100, scope: query.scope ?? "team" },
+          exigirAtor(sessao),
+        );
         if (result.ok) return result.value;
         const { status: code, body } = FAILURES[result.failure];
         return status(code, body);
       },
       {
         params: t.Object({ id: t.String() }),
-        query: t.Object({ limit: t.Optional(t.Integer({ minimum: 1, maximum: 1000 })) }),
+        query: HistoryQuery,
         // A rota também não declarava 401/403/404 — §7 da definição de pronto.
         response: {
           200: t.Array(QueryLogEntry),

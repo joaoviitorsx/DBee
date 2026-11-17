@@ -179,6 +179,39 @@ export class PoolManager {
     fn: (client: PoolClient) => Promise<T>,
     isolation: "read-committed" | "repeatable-read" = "read-committed",
   ): Promise<T> {
+    return await this.#transacao(
+      connection,
+      database,
+      readOnly,
+      async (client) => ({ valor: await fn(client), commit: !readOnly }),
+      isolation,
+    );
+  }
+
+  /**
+   * `BEGIN READ WRITE` em que **quem decide o fim é `fn`**: `commit: false`
+   * reverte mesmo sem erro.
+   *
+   * É o ensaio de escrita (ADR 021): o SQL roda de verdade numa transação
+   * gravável e volta com `ROLLBACK`; e o "aplicar", que só commita se o
+   * `rowCount` de cada statement bater com o ensaio. O modo continua declarado
+   * no próprio `BEGIN` (regra 8) — nunca `BEGIN` pelado.
+   */
+  async withWriteDecision<T>(
+    connection: ResolvedConnection,
+    database: string,
+    fn: (client: PoolClient) => Promise<{ readonly valor: T; readonly commit: boolean }>,
+  ): Promise<T> {
+    return await this.#transacao(connection, database, false, fn, "read-committed");
+  }
+
+  async #transacao<T>(
+    connection: ResolvedConnection,
+    database: string,
+    readOnly: boolean,
+    fn: (client: PoolClient) => Promise<{ readonly valor: T; readonly commit: boolean }>,
+    isolation: "read-committed" | "repeatable-read",
+  ): Promise<T> {
     // A Entry é capturada ANTES do await: o empréstimo tem que ser contado no
     // pool que de fato vai emprestar o cliente.
     const entry = this.#acquire(connection, database);
@@ -217,11 +250,12 @@ export class PoolManager {
       // TimeZone fixado por sessão: sem isso o mesmo timestamptz aparece
       // diferente conforme o servidor (DBee.md §6).
       await client.query("SELECT set_config('TimeZone', $1, true)", [connection.timezone]);
-      const result = await fn(client);
+      const { valor, commit } = await fn(client);
       // Escrita commita; leitura reverte, que é mais barato numa transação sem
-      // escrita e deixa explícito que nada foi gravado.
-      await client.query(readOnly ? "ROLLBACK" : "COMMIT");
-      return result;
+      // escrita e deixa explícito que nada foi gravado. Leitura nunca commita,
+      // mesmo que `fn` peça — o `&&` é a trava.
+      await client.query(!readOnly && commit ? "COMMIT" : "ROLLBACK");
+      return valor;
     } catch (err: unknown) {
       // Se o ROLLBACK também falhar, o cliente pode voltar ao pool ainda dentro
       // de uma transação — e um BEGIN aninhado é só um WARNING no Postgres, o
@@ -234,6 +268,19 @@ export class PoolManager {
       sujo = !rollbackOk;
       throw err;
     } finally {
+      /*
+       * Estado de SESSÃO sobrevive ao COMMIT/ROLLBACK e vazaria para quem
+       * pegar o cliente depois: advisory lock de sessão (`pg_advisory_lock`
+       * funciona dentro de READ ONLY), `SET ROLE`, `SET search_path` sem
+       * LOCAL. `DISCARD ALL` zera tudo isso fora da transação. Se falhar, o
+       * cliente é destruído em vez de devolvido (revisão de segurança v0.7).
+       */
+      if (!sujo) {
+        sujo = !(await client
+          .query("DISCARD ALL")
+          .then(() => true)
+          .catch(() => false));
+      }
       // Contabilidade PRIMEIRO: se `release()` lançar (o pg-pool lança em
       // double release), o lease ficaria preso e o pool nunca mais seria
       // varrido.
@@ -362,6 +409,8 @@ export class PoolManager {
         .query("ROLLBACK")
         .then(() => false)
         .catch(() => true)
+        // Mesmo `DISCARD ALL` de `withTransaction`: estado de sessão não volta ao pool.
+        .then((sujo) => (sujo ? true : client.query("DISCARD ALL").then(() => false, () => true)))
         .then((sujo) => {
           // Contabilidade primeiro: release que lança não prende o lease.
           entry.leases--;

@@ -1,7 +1,7 @@
 import type { Database, Statement } from "bun:sqlite";
 
 import { capacidadesDe, gravaPorCredencialSeparada } from "@dbee/shared/puro";
-import type { Connection, CreateConnection, Engine, SslMode, UpdateConnection } from "@dbee/shared";
+import type { Connection, CreateConnection, Engine, Environment, SslMode, UpdateConnection } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
 import { decrypt, encrypt, type EncryptionKey } from "../lib/crypto";
@@ -20,6 +20,7 @@ const PUBLIC_COLUMNS = `
   auth_source AS authSource,
   file_path AS filePath,
   vpn,
+  environment,
   created_at AS createdAt, updated_at AS updatedAt
 `;
 
@@ -38,6 +39,7 @@ const PUBLIC_COLUMNS_C = `
   c.auth_source AS authSource,
   c.file_path AS filePath,
   c.vpn,
+  c.environment,
   c.created_at AS createdAt, c.updated_at AS updatedAt
 `;
 
@@ -59,6 +61,7 @@ interface ConnectionRow {
   authSource: string | null;
   filePath: string | null;
   vpn: string | null;
+  environment: Environment | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -372,9 +375,9 @@ export class ConnectionsRepository {
         `INSERT INTO connections (
            id, name, color, engine, host, port, database, username, password_enc,
            ssl_mode, write_enabled, statement_timeout_ms, timezone,
-           write_username, write_password_enc, auth_source, file_path, vpn,
+           write_username, write_password_enc, auth_source, file_path, vpn, environment,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -424,6 +427,7 @@ export class ConnectionsRepository {
         // `filePath` só existe no SQLite.
         input.filePath === undefined || input.filePath === "" ? null : input.filePath,
         input.vpn === undefined || input.vpn === "" ? null : input.vpn,
+        input.environment ?? null,
         now,
         now,
       );
@@ -469,6 +473,8 @@ export class ConnectionsRepository {
       put("file_path", patch.filePath === "" ? null : patch.filePath);
     }
     if (patch.vpn !== undefined) put("vpn", patch.vpn === "" ? null : patch.vpn);
+    // `null` explícito limpa o selo; ausente não mexe (ADR 022).
+    if (patch.environment !== undefined) put("environment", patch.environment);
 
     /*
      * A credencial de escrita. Espelha a semântica da senha de leitura, com um

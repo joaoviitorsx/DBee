@@ -1,4 +1,4 @@
-import type { DatabaseSchema, RowsResponse } from "@dbee/shared";
+import type { DatabaseSchema, Relation, RowsResponse } from "@dbee/shared";
 import { Client } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 
@@ -358,6 +358,46 @@ describe.if(temDocker)("filtros", () => {
       expect(Number(linha[0])).toBeGreaterThan(100);
       expect(linha[2]).toBe("3.00");
     }
+  });
+
+  it("in casa a lista, com cast numérico e cada item como parâmetro", async () => {
+    const r = await ler("itens", {
+      limit: 1000,
+      filters: [{ column: "id", operator: "in", values: ["3", "10", "250", "9999"] }],
+    });
+    expect(r.rows.map((l) => l[0]).sort()).toEqual(["10", "250", "3"]);
+  });
+
+  it("in com valor malicioso é valor, não sintaxe", async () => {
+    const r = await ler("itens", {
+      limit: 1000,
+      filters: [{ column: "grupo", operator: "in", values: ["g1", "g2'); DROP TABLE itens; --"] }],
+    });
+    expect(r.rows.length).toBeGreaterThan(0);
+    for (const linha of r.rows) expect(linha[1]).toBe("g1");
+    const ainda = await ler("itens", { limit: 1 });
+    expect(ainda.rows).toHaveLength(1);
+  });
+
+  it("in sem valores é 400, não 'zero linhas'", async () => {
+    const res = await call(`/api/connections/${conn}/tables/public/itens/rows`, {
+      filters: [{ column: "id", operator: "in" }],
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it("o plano do in usa $n por item", () => {
+    const rel: Relation = {
+      name: "t", kind: "table", comment: null, estimatedRows: null, foreignKeys: [], indexes: [],
+      primaryKey: ["id"],
+      columns: [{
+        name: "id", dataType: "bigint", dataTypeId: 20, nullable: false, defaultValue: null,
+        position: 1, isPrimaryKey: true, comment: null,
+      }],
+    };
+    const p = planRows(rel, "public", { filters: [{ column: "id", operator: "in", values: ["1", "x'"] }] });
+    expect(p.sql).toContain(`"id" IN ($1::bigint, $2::bigint)`);
+    expect(p.valores).toEqual(["1", "x'"]);
   });
 
   it("filtro sobrevive à paginação", async () => {

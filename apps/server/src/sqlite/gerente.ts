@@ -145,6 +145,8 @@ export class GerenteSqlite {
     params: (string | null)[],
     maxRows: number,
     escrita = false,
+    /** Ver `maxChanges` no worker: prova de cardinalidade antes do commit. */
+    maxChanges?: number,
   ): Promise<LinhasCruas & { changes: number }> {
     const vivo = this.#vivo(conexao, escrita);
     await vivo.aberto;
@@ -193,7 +195,7 @@ export class GerenteSqlite {
 
       vivo.worker.addEventListener("message", aoResponder);
       vivo.worker.addEventListener("error", aoErro);
-      vivo.worker.postMessage({ tipo: "consulta", id, sql, params, maxRows, escrita } satisfies Pedido);
+      vivo.worker.postMessage({ tipo: "consulta", id, sql, params, maxRows, escrita, ...(maxChanges === undefined ? {} : { maxChanges }) } satisfies Pedido);
     });
   }
 

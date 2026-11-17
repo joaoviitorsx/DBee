@@ -2,7 +2,7 @@ import type { Connection, RowDataPacket } from "mysql2/promise";
 
 import type { Relation, RowCursor, RowFilter, RowsRequest, RowsResponse } from "@dbee/shared";
 
-import { RowsError } from "../driver/erros";
+import { RowsError, valoresDoIn } from "../driver/erros";
 import { colunasDoResultado } from "./colunas";
 import { citar, condicaoKeyset, ordenacao, type Direcao } from "./keyset";
 import { paraTexto, type CampoMysql } from "./tipos";
@@ -77,6 +77,11 @@ function condicaoDeFiltro(filtro: RowFilter, valores: (string | null)[]): string
     case "startsWith":
       valores.push(`${filtro.value ?? ""}%`);
       return `CAST(${c} AS CHAR) LIKE ?`;
+    case "in": {
+      const lista = valoresDoIn(filtro);
+      valores.push(...lista);
+      return `${c} IN (${lista.map(() => "?").join(", ")})`;
+    }
     default: {
       const op = { eq: "=", ne: "<>", lt: "<", lte: "<=", gt: ">", gte: ">=" }[filtro.operator];
       valores.push(filtro.value ?? null);

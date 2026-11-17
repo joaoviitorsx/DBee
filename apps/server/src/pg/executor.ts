@@ -106,6 +106,8 @@ export async function execute(
   client: PoolClient,
   sql: string,
   maxRows: number,
+  /** Bind de `$n` (ADR 019). O serviço garante que só chega com um statement. */
+  parametros?: readonly (string | null)[],
 ): Promise<ExecutionOutcome> {
   const statements = splitStatements(sql);
   const results: StatementResult[] = [];
@@ -113,7 +115,7 @@ export async function execute(
   for (const [index, statement] of statements.entries()) {
     const inicio = performance.now();
     try {
-      const parcial = await executeOne(client, statement.sql, maxRows);
+      const parcial = await executeOne(client, statement.sql, maxRows, parametros);
       results.push({
         index,
         sql: statement.sql,
@@ -172,7 +174,13 @@ type Parcial = Omit<StatementResult, "index" | "sql" | "durationMs">;
  * transação em silêncio, então um driver novo que copie esta estrutura **não**
  * herda a proteção. Ver `docs/multi-engine.md`.
  */
-async function executeOne(client: PoolClient, sql: string, maxRows: number): Promise<Parcial> {
+async function executeOne(
+  client: PoolClient,
+  sql: string,
+  maxRows: number,
+  parametros: readonly (string | null)[] | undefined,
+): Promise<Parcial> {
+  const values = parametros === undefined || parametros.length === 0 ? undefined : [...parametros];
   const ponto = `sp_${randomBytes(4).toString("hex")}`;
   await client.query(`SAVEPOINT ${ponto}`);
 
@@ -190,11 +198,12 @@ async function executeOne(client: PoolClient, sql: string, maxRows: number): Pro
     // para o servidor, e o COMMIT embutido escapa do READ ONLY dentro de um
     // único `client.query` — onde o SAVEPOINT abaixo não alcança. Achado na
     // revisão adversarial do MCP; teste em executor.integration.test.ts.
-    await client.query({ text: prefixo + sql, queryMode: "extended" });
+    // Os `$n` do usuário viajam no Bind do DECLARE — mesma mensagem, nunca texto.
+    await client.query({ text: prefixo + sql, queryMode: "extended", ...(values === undefined ? {} : { values }) });
   } catch {
     // Não era cursorável — ou tem erro de sintaxe. A execução direta decide.
     await client.query(`ROLLBACK TO SAVEPOINT ${ponto}`);
-    return await executeDirect(client, sql);
+    return await executeDirect(client, sql, values);
   }
 
   try {
@@ -211,7 +220,7 @@ async function executeOne(client: PoolClient, sql: string, maxRows: number): Pro
     const rows = truncated ? fetched.rows.slice(0, maxRows) : fetched.rows;
 
     return {
-      columns: await resolveColumns(client, fetched.fields),
+      columns: await resolveColumns(client, fetched.fields, { origem: true }),
       rows,
       rowCount: rows.length,
       truncated,
@@ -227,15 +236,25 @@ async function executeOne(client: PoolClient, sql: string, maxRows: number): Pro
 }
 
 /** Statement que não passa por cursor. Sem prefixo, logo sem deslocamento. */
-async function executeDirect(client: PoolClient, sql: string): Promise<Parcial> {
+async function executeDirect(
+  client: PoolClient,
+  sql: string,
+  values: (string | null)[] | undefined,
+): Promise<Parcial> {
   try {
     // Protocolo estendido pelo mesmo motivo do `executeOne`: um comando por
     // mensagem, decidido pelo servidor, não pelo nosso splitter.
-    const res = await client.query<Cell[]>({ text: sql, rowMode: "array", types: TUDO_TEXTO, queryMode: "extended" });
+    const res = await client.query<Cell[]>({
+      text: sql,
+      rowMode: "array",
+      types: TUDO_TEXTO,
+      queryMode: "extended",
+      ...(values === undefined ? {} : { values }),
+    });
     const temLinhas = res.fields.length > 0;
 
     return {
-      columns: temLinhas ? await resolveColumns(client, res.fields) : [],
+      columns: temLinhas ? await resolveColumns(client, res.fields, { origem: true }) : [],
       rows: temLinhas ? res.rows : [],
       rowCount: temLinhas ? res.rows.length : (res.rowCount ?? 0),
       truncated: false,

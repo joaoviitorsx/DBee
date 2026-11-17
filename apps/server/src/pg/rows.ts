@@ -1,4 +1,4 @@
-import { RowsError } from "../driver/erros";
+import { RowsError, valoresDoIn } from "../driver/erros";
 import type { PoolClient } from "pg";
 
 import type {
@@ -45,7 +45,7 @@ const TUDO_TEXTO: TextTypesConfig = { getTypeParser: () => (v) => v };
  * existe porque `"Pedido"` e `Pedido` são coisas diferentes para o Postgres, e
  * sem aspas um identificador com maiúscula não resolve.
  */
-const cite = (nome: string): string => `"${nome.replaceAll('"', '""')}"`;
+export const cite = (nome: string): string => `"${nome.replaceAll('"', '""')}"`;
 
 /**
  * Reexportado de `driver/erros.ts`.
@@ -57,7 +57,7 @@ const cite = (nome: string): string => `"${nome.replaceAll('"', '""')}"`;
 export { RowsError };
 
 /** Acumula os parâmetros e devolve o `$n` de cada um. */
-class Parametros {
+export class Parametros {
   readonly valores: (string | null)[] = [];
 
   push(valor: string | null): string {
@@ -73,7 +73,7 @@ class Parametros {
  * `coluna::text > $1` ordenaria `"10" < "9"` em coluna numérica e quebraria
  * data — o cast tem que ir no parâmetro, nunca na coluna.
  */
-function condicaoFiltro(
+export function condicaoFiltro(
   coluna: string,
   tipo: string,
   filtro: RowFilter,
@@ -92,6 +92,9 @@ function condicaoFiltro(
       return `${c}::text ILIKE ${params.push(`%${filtro.value ?? ""}%`)}`;
     case "startsWith":
       return `${c}::text ILIKE ${params.push(`${filtro.value ?? ""}%`)}`;
+    case "in":
+      // Um `$n` por item, cada um com o cast do tipo da coluna — mesma regra do `=`.
+      return `${c} IN (${valoresDoIn(filtro).map((v) => `${params.push(v)}::${tipo}`).join(", ")})`;
     default: {
       const op = { eq: "=", ne: "<>", lt: "<", lte: "<=", gt: ">", gte: ">=" }[filtro.operator];
       return `${c} ${op} ${params.push(filtro.value ?? "")}::${tipo}`;

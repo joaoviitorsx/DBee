@@ -99,7 +99,15 @@ beforeEach(async () => {
  */
 const CORPO_POR_ROTA: Readonly<Record<string, unknown>> = {
   "POST /api/connections/:id/query": { database: "postgres", sql: "SELECT 1" },
+  "POST /api/connections/:id/explain": { database: "postgres", sql: "SELECT 1" },
+  "POST /api/connections/:id/value-search": { value: "x", scope: { schema: "public" } },
+  "POST /api/connections/:id/value-search/cancel": { queryId: "q" },
+  "POST /api/connections/:id/tables/:schema/:table/stats": { database: "postgres", column: "id" },
+  "POST /api/connections/:id/tables/:schema/:table/insert-sql": { database: "postgres", columns: ["id"], rows: [["1"]] },
   "POST /api/connections/:id/query/cancel": { queryId: "00000000-0000-4000-8000-000000000000" },
+  "POST /api/connections/:id/tables/:schema/:table/copy-script": { targetConnectionId: "x" },
+  "POST /api/connections/:id/query/dry-run": { sql: "SELECT 1" },
+  "POST /api/connections/:id/query/apply": { sql: "SELECT 1", expectedRowCounts: [1] },
   "POST /api/connections/:id/tables/:schema/:table/rows": { database: "postgres", limit: 10 },
   /*
    * Os corpos precisam ser **válidos pelo schema**. Um corpo inválido volta 422

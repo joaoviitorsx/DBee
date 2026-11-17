@@ -44,6 +44,13 @@ interface PedidoConsulta {
   readonly maxRows: number;
   /** `true` é escrita (`.run`, devolve `changes`); `false` é leitura. */
   readonly escrita: boolean;
+  /**
+   * Teto de linhas afetadas, provado **dentro** de uma transação: passou dele,
+   * reverte e devolve o `changes` que teria sido. É a prova de cardinalidade da
+   * edição de linha — conferir depois de um `.run()` solto (como era) deixava
+   * um DELETE que casou duas linhas já gravado quando a recusa chegava.
+   */
+  readonly maxChanges?: number;
 }
 type Pedido = PedidoAbrir | PedidoConsulta;
 
@@ -84,6 +91,26 @@ function paraTexto(v: unknown): string | null {
   return JSON.stringify(v);
 }
 
+class TetoExcedido extends Error {
+  constructor(readonly changes: number) {
+    super("teto de linhas excedido");
+  }
+}
+
+/** `.run()` numa transação que reverte se afetar mais que `teto` linhas. */
+function executarComTeto(banco: Database, sql: string, params: (string | null)[], teto: number): number {
+  try {
+    return banco.transaction(() => {
+      const n = banco.query(sql).run(...params).changes;
+      if (n > teto) throw new TetoExcedido(n);
+      return n;
+    })();
+  } catch (err: unknown) {
+    if (err instanceof TetoExcedido) return err.changes;
+    throw err;
+  }
+}
+
 self.onmessage = (evento: MessageEvent<Pedido>): void => {
   const pedido = evento.data;
 
@@ -114,8 +141,10 @@ self.onmessage = (evento: MessageEvent<Pedido>): void => {
       // Escrita: `.run()` devolve `changes` (a prova de cardinalidade do
       // row-edit). Não materializa linhas — um `INSERT`/`UPDATE`/`DELETE` não
       // as tem, e um `RETURNING` fica para fatia futura.
-      const r = db.query(pedido.sql).run(...pedido.params);
-      const ok: RespostaOk = { tipo: "ok", id: pedido.id, columns: [], rows: [], changes: r.changes };
+      const changes = pedido.maxChanges === undefined
+        ? db.query(pedido.sql).run(...pedido.params).changes
+        : executarComTeto(db, pedido.sql, pedido.params, pedido.maxChanges);
+      const ok: RespostaOk = { tipo: "ok", id: pedido.id, columns: [], rows: [], changes };
       self.postMessage(ok);
       return;
     }

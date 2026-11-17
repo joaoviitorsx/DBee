@@ -149,3 +149,30 @@ describe("writeEnabled efetivo nas engines de credencial", () => {
     expect(atualizada?.writeEnabled).toBe(false);
   });
 });
+
+describe("selo de ambiente (migração 015, ADR 022)", () => {
+  it("nasce null quando não informado e persiste o valor informado", () => {
+    const r = repo();
+    const sem = r.create({ name: "a", host: "h", database: "d", username: "u", password: "p" });
+    expect(sem.environment).toBeNull();
+    const prod = r.create({
+      name: "b", host: "h", database: "d", username: "u", password: "p", environment: "production",
+    });
+    expect(prod.environment).toBe("production");
+    expect(r.find(prod.id, admin)?.environment).toBe("production");
+  });
+
+  it("PATCH sem o campo não mexe; null explícito limpa", () => {
+    const r = repo();
+    const c = r.create({ name: "a", host: "h", database: "d", username: "u", password: "p", environment: "staging" });
+    expect(r.update(c.id, { name: "b" })?.environment).toBe("staging");
+    expect(r.update(c.id, { environment: null })?.environment).toBeNull();
+  });
+
+  it("o CHECK do SQLite recusa valor fora da lista mesmo que o schema falhe", () => {
+    const store = openTestStore();
+    const r = new ConnectionsRepository(store.db, store.key);
+    const c = r.create({ name: "a", host: "h", database: "d", username: "u", password: "p" });
+    expect(() => store.db.run("UPDATE connections SET environment = 'prod' WHERE id = ?", [c.id])).toThrow();
+  });
+});

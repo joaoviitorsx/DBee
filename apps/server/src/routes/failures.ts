@@ -5,6 +5,8 @@ import type {
   UserFailure,
 } from "../services/result";
 import type { VpnFailure } from "../services/vpn.service";
+import type { EnsaioFailure } from "../services/ensaio.service";
+import type { SavedQueryFailure } from "../services/savedQueries.service";
 
 /** Único ponto que traduz falha de domínio em status HTTP. */
 export const FAILURES: Readonly<
@@ -132,6 +134,14 @@ export const MUTATION_FAILURES = {
       message: "a condição casaria mais de uma linha — nada foi alterado",
     },
   },
+  not_primary_key: {
+    status: 409,
+    body: {
+      code: "not_primary_key",
+      message:
+        "a edição de linha exige a chave primária completa da tabela — sem PK, use o editor de SQL",
+    },
+  },
 } as const satisfies Record<
   MutationFailure,
   { status: 403 | 404 | 409 | 500 | 502; body: { code: string; message: string } }
@@ -194,6 +204,10 @@ export const VPN_FAILURES = {
     status: 409,
     body: { code: "vpn_no_file", message: "envie o seu arquivo .ovpn deste perfil antes de conectar" },
   },
+  sem_credencial: {
+    status: 409,
+    body: { code: "vpn_no_credential", message: "informe usuário e senha da VPN — nada está lembrado para este perfil" },
+  },
   arquivo_ilegivel: {
     status: 500,
     body: { code: "vpn_file_unreadable", message: "não foi possível decifrar o .ovpn — envie de novo" },
@@ -217,4 +231,60 @@ export const VPN_FAILURES = {
 } as const satisfies Record<
   "admin_required" | VpnFailure,
   { status: 403 | 404 | 409 | 422 | 500 | 502 | 504; body: { code: string; message: string } }
+>;
+
+/**
+ * Queries salvas (ADR 016). `not_found` cobre "não existe" e "não é visível
+ * para você" — mesma indistinção do `resolve` de conexão. `forbidden` só
+ * aparece para quem **vê** a query (do time) mas não é dono nem admin: aí a
+ * existência já é conhecida, e 403 diz a verdade.
+ */
+export const SAVED_QUERY_FAILURES = {
+  not_found: {
+    status: 404,
+    body: { code: "saved_query_not_found", message: "query salva não encontrada" },
+  },
+  connection_not_found: {
+    status: 404,
+    body: { code: "connection_not_found", message: "conexão não encontrada" },
+  },
+  forbidden: {
+    status: 403,
+    body: { code: "saved_query_forbidden", message: "só o dono da query ou um administrador pode alterá-la" },
+  },
+} as const satisfies Record<
+  SavedQueryFailure,
+  { status: 403 | 404; body: { code: string; message: string } }
+>;
+
+/**
+ * Falhas do ensaio de escrita (ADR 021) → status. Mapa próprio pela mesma razão
+ * dos outros: 403/409 daqui só nascem nas rotas de ensaio e aplicação.
+ */
+export const ENSAIO_FAILURES = {
+  ...FAILURES,
+  write_forbidden: {
+    status: 403,
+    body: {
+      code: "write_forbidden",
+      message: "esta conexão não permite escrita para você — o ensaio só existe onde a escrita existe",
+    },
+  },
+  dry_run_mismatch: {
+    status: 409,
+    body: {
+      code: "dry_run_mismatch",
+      message: "nada foi gravado — o número de linhas afetadas mudou desde o ensaio",
+    },
+  },
+  confirmation_required: {
+    status: 400,
+    body: {
+      code: "confirmation_required",
+      message: "conexão de produção: digite o nome da conexão para confirmar a aplicação",
+    },
+  },
+} as const satisfies Record<
+  EnsaioFailure,
+  { status: 400 | 403 | 404 | 409 | 500 | 502; body: { code: string; message: string } }
 >;
