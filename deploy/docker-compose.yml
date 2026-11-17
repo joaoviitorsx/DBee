@@ -26,9 +26,10 @@ services:
   # alcançaria as portas encaminhadas para o banco do cliente.
   dbee-vpn:
     profiles: [vpn]
-    build:
-      context: ..
-      dockerfile: deploy/vpn/Dockerfile
+    # Imagem publicada pelo release (sem `build:`: o compose "raw" do Dokploy
+    # não tem o repositório). Mesma tag do DBee.
+    image: ghcr.io/joaoviitorsx/dbee-vpn:latest
+    pull_policy: always
     restart: unless-stopped
     cap_add: [NET_ADMIN]
     devices: ["/dev/net/tun:/dev/net/tun"]

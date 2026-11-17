@@ -86,6 +86,29 @@ jobs:
             [ -n "$t" ] && docker push "$t"
           done
 
+      # Sidecar de VPN (ADR 014) como imagem própria: o deploy em compose "raw"
+      # do Dokploy não tem o repositório, então `build:` no compose não
+      # funciona — o sidecar precisa vir do registry, versionado junto.
+      - id: meta_vpn
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-vpn
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build e push do sidecar de VPN
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/vpn/Dockerfile
+          push: true
+          tags: ${{ steps.meta_vpn.outputs.tags }}
+          labels: ${{ steps.meta_vpn.outputs.labels }}
+          cache-from: type=gha,scope=vpn
+          cache-to: type=gha,mode=max,scope=vpn
+
       # A Release é o que o app consulta em `GET /repos/.../releases/latest`
       # (DBee.md §8). Sem ela a API devolve 404 mesmo com a tag publicada — o
       # endpoint ignora tag sem release —, `latest` fica `null` e o badge nunca
