@@ -1,4 +1,5 @@
-# Sidecar de VPN do DBee (ADR 014). Build a partir da RAIZ do repo:
+# Sidecar de VPN do DBee (ADR 014). Sobe pelo deploy/docker-compose.yml com
+# COMPOSE_PROFILES=vpn. Build manual a partir da RAIZ do repo:
 #   docker build -f deploy/vpn/Dockerfile -t dbee-vpn .
 # Um openvpn por (usuário, perfil), cada um com tabela de roteamento própria.
 # O full tunnel de cada VPN fica preso aqui: não toca o host, o Tailscale nem o

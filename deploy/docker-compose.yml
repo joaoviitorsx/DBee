@@ -7,15 +7,43 @@ services:
     # exatamente o que o botão "Atualizar" existe para não fazer (DBee.md §8).
     pull_policy: always
     restart: unless-stopped
+    # Variável do Dokploy só chega ao container se estiver listada aqui: o
+    # painel alimenta a SUBSTITUIÇÃO do compose, não o ambiente do serviço.
+    # `:-` deixa vazio quando ausente — e vazio é "desligado" para o DBee.
     environment:
       APP_SECRET: ${APP_SECRET}
+      DBEE_VPN_CONTROLE: ${DBEE_VPN_CONTROLE:-}
+      DBEE_VPN_TOKEN: ${DBEE_VPN_TOKEN:-}
+      DBEE_VPN_PERFIS: ${DBEE_VPN_PERFIS:-}
     volumes:
       - dbee-data:/data
     networks:
       - dokploy-network
+      - dbee-vpn
+
+  # VPN por pessoa (ADR 014). Opcional: só sobe com COMPOSE_PROFILES=vpn no
+  # Dokploy. Fora da dokploy-network de propósito — lá qualquer outra app
+  # alcançaria as portas encaminhadas para o banco do cliente.
+  dbee-vpn:
+    profiles: [vpn]
+    build:
+      context: ..
+      dockerfile: deploy/vpn/Dockerfile
+    restart: unless-stopped
+    cap_add: [NET_ADMIN]
+    devices: ["/dev/net/tun:/dev/net/tun"]
+    environment:
+      CONTROL_TOKEN: ${DBEE_VPN_TOKEN:-}
+    tmpfs:
+      - /run/dbee-vpn:mode=0700
+    networks:
+      - dbee-vpn
 
 volumes:
   dbee-data:
 networks:
   dokploy-network:
     external: true
+  # Rede exclusiva DBee ⇄ sidecar. Criada por este compose; não ligue outro
+  # serviço nela.
+  dbee-vpn:

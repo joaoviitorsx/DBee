@@ -92,17 +92,20 @@ tailnet, a 3001 não responde; de dentro, sim.
 Cada pessoa usa a própria VPN. O DBee mantém um túnel por (usuário, perfil)
 num container sidecar.
 
-**Subir (uma vez, admin do servidor):**
+**Subir (uma vez, admin do servidor), no mesmo compose do DBee
+(`deploy/docker-compose.yml`), variáveis no Dokploy:**
 
-1. Gere um token longo: `openssl rand -hex 32`.
-2. Suba o sidecar com `deploy/vpn/docker-compose.yml` e
-   `DBEE_VPN_TOKEN=<token>`. Ele cria a rede `dbee-vpn`. **Só o DBee entra
-   nela.**
-3. No serviço do DBee, entre na rede `dbee-vpn` e defina:
-   `DBEE_VPN_CONTROLE=http://dbee-vpn:7600`, `DBEE_VPN_TOKEN=<o mesmo>` e
-   `DBEE_VPN_PERFIS=cliente-a,cliente-b`. Depois, redeploy.
-4. Nas conexões que ficam atrás da VPN, escolha o perfil no campo **VPN** do
-   formulário. Host e porta continuam os reais, do banco.
+```
+COMPOSE_PROFILES=vpn
+DBEE_VPN_CONTROLE=http://dbee-vpn:7600
+DBEE_VPN_TOKEN=<openssl rand -hex 32>
+DBEE_VPN_PERFIS=realize,ldata
+```
+
+`COMPOSE_PROFILES=vpn` sobe o sidecar; o mesmo `DBEE_VPN_TOKEN` vai para os
+dois serviços. Redeploy. Nas conexões atrás da VPN, escolha o perfil no campo
+**VPN** do formulário (host e porta continuam os reais do banco). Sem essas
+variáveis o DBee sobe como antes, com a VPN desligada.
 
 **Uso (cada dev):**
 
