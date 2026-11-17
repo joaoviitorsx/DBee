@@ -4,6 +4,61 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+### Adicionado
+
+- **VPN por pessoa (ADR 014).** Cada dev envia o próprio `.ovpn` (guardado
+  cifrado) e conecta com o próprio usuário e PIN + TOTP. As conexões marcadas
+  com um perfil de VPN saem pelo túnel de quem consulta, com a identidade de VPN
+  dessa pessoa. O túnel roda num sidecar opcional (`deploy/vpn`), isolado na
+  rede `dbee-vpn`, e o full tunnel não toca o host. Sem túnel, a consulta é
+  recusada com `vpn_disconnected` e nunca cai para o acesso direto. O túnel
+  fecha no logout e depois de 8 h ocioso. Configuração: `DBEE_VPN_CONTROLE`,
+  `DBEE_VPN_TOKEN`, `DBEE_VPN_PERFIS`.
+- **MCP do DBee (ADR 015).** `POST /api/mcp` (JSON-RPC 2.0 / Streamable HTTP,
+  sem SDK) com as tools `list_connections`, `list_schema`, `describe_table` e
+  `run_query`. O `run_query` roda sempre em `READ ONLY`, com teto de 500 linhas
+  e 30 s, e só em Postgres. Autenticação por token pessoal
+  (`dbee_<prefixo>_<segredo>`, argon2id, mostrado uma vez), aceito **só** em
+  `/api/mcp`; o cookie não vale ali. Falhas de token têm rate limit. No
+  `query_log`, a execução aparece como `<userId>#mcp:<token>`. A tela de tokens
+  fica no ícone de chave da barra superior, com o comando `claude mcp add`
+  pronto.
+
+### Alterado
+
+- **Menos "cara de IA" na interface (auditoria `docs/auditoria-ui-ux.md`).**
+  Âmbar sólido volta a significar só modo escrita: o botão "Entrar" (e os de
+  setup e troca de senha) virou neutro forte, o foco dos campos deixou de
+  acender em âmbar, "Nova consulta" no estado vazio é `secondary`, o spinner de
+  "conectando" na árvore é `muted`. Favo de mel/hexágonos decorativos saíram do
+  cabeçalho, pé da árvore, estado vazio, login e tela de servidor fora
+  (`Honeycomb`/`HoneycombCluster` removidos). Login sem slogans, sem título
+  bicolor e sem véu em gradiente; título "Entrar no DBee", tagline "Cliente de
+  banco de dados self-hosted" (era "Seu PostgreSQL", errado com 7 engines);
+  ilustração só a partir de `lg`. Estado vazio com título e dica coerentes
+  ("Nenhuma aba aberta" / "Abra uma tabela na árvore à esquerda ou comece uma
+  consulta") e mascote estático. O mascote não comemora mais cada consulta.
+  Ponto de saúde da conexão maior (8 px) e com rótulo acessível. `Skeleton`
+  pulsa em vez de brilhar em gradiente; popover de export com sombra curta.
+
+### Corrigido
+
+- **Segurança: escape do modo somente-leitura via `standard_conforming_strings`.**
+  `SET standard_conforming_strings = off; SELECT 'a\'' ; COMMIT ; CREATE TABLE …`
+  fazia o splitter e o Postgres discordarem sobre as aspas, e o `COMMIT`
+  embutido escapava do `BEGIN READ ONLY` dentro de uma única chamada. Isso
+  valia para o editor da UI e para o MCP. O SQL do usuário agora vai pelo
+  protocolo estendido, em que o Postgres recusa mais de um comando por
+  mensagem. Teste de integração que falha sem a correção.
+
+- **Stream de leitura devolvia ao pool cliente preso em transação.** Se o
+  `ROLLBACK` de `withStreamingTransaction` falhasse, o cliente voltava ao pool
+  ainda dentro da transação e o `BEGIN READ ONLY` seguinte virava no-op. Agora
+  o cliente é destruído (`release(true)`), como já fazia `withTransaction`.
+- **libSQL: corpo lento pendurava sem prazo e HTML de proxy virava erro cru.**
+  O prazo agora cobre a leitura do corpo, e resposta não-JSON (ex.: 502 HTML)
+  vira `ErroLibsql` com o status HTTP, sem ecoar corpo, URL ou token.
+
 ## [0.4.1] — 2026-09-21
 
 ### Corrigido

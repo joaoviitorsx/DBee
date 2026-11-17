@@ -32,7 +32,7 @@ const conexao: ResolvedConnection = {
   sslMode: "disable", timezone: "UTC", statementTimeoutMs: 30_000,
   // SQLite escreve pelo handle r/w: a base do portão é `writeEnabled`.
   writeEnabled: true, hasWriteCredential: false, authSource: null,
-  filePath: "app.db", createdAt: "", updatedAt: "",
+  filePath: "app.db", vpn: null, createdAt: "", updatedAt: "",
 };
 
 function pedido(over: Partial<CreateTableRequest>): CreateTableRequest {

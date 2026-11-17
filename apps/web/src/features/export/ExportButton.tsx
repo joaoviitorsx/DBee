@@ -140,7 +140,7 @@ export function ExportButton({
           aria-label={t("export.opcoes")}
           // Largura fixa em 20rem, mas nunca além da viewport: em 375px o popover
           // alinhado à direita passava da borda e cortava a última coluna.
-          className="absolute right-0 z-40 mt-1 w-[min(20rem,calc(100vw-1.5rem))] rounded-[6px] border border-line bg-overlay p-3 shadow-lg"
+          className="absolute right-0 z-40 mt-1 w-[min(20rem,calc(100vw-1.5rem))] rounded-[6px] border border-line bg-overlay p-3 shadow-[0_8px_24px_rgba(0,0,0,.5)]"
         >
           <Grupo rotulo={t("export.formato")} layout="grid">
             {FORMATOS.filter((f) => !f.somenteTabela || source.kind === "table").map((f) => (

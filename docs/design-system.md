@@ -161,8 +161,9 @@ Traduzido para a interface: as divisórias da lista são o mesmo gesto. Uma
 hairline de 1px que deixa o fundo passar, nunca uma linha "desenhada por cima".
 
 Isso é o único elemento decorativo herdado, e ele carrega função: separar
-registros. Sem favo de mel, sem abelha ilustrada, sem hexágono de fundo — o
-caminho curto para kitsch.
+registros. Sem favo de mel, sem hexágono de fundo — o caminho curto para kitsch.
+A abelha aparece como **marca** e **mascote** nos lugares listados no §4b, e em
+nenhum outro.
 
 ---
 
@@ -415,38 +416,51 @@ Fingir que a navegação funciona é o que faz o usuário confiar numa lista
 incompleta — e numa ferramenta de conferência de dado, lista incompleta é a
 pior saída possível.
 
-### 4b. Marca, mascote e favo de mel
+### 4b. Marca e mascote
 
 **A marca** é a abelha cujo corpo é um cilindro de banco de dados (banco +
 abelha numa forma só), em `assets/`. Substituiu o SVG desenhado à mão: a
 identidade agora é o render da logo, no favicon, no cabeçalho, no carregamento e
-no estado vazio — uma marca só em todo lugar (`components/Marca`).
+no estado vazio — uma marca só em todo lugar (`components/Marca`). O "Bee" do
+logotipo em âmbar é marca (a WCAG isenta logotipo de contraste), não acento de
+interface: é a única palavra âmbar fora do modo escrita.
 
 **O mascote** — a abelha de óculos — aparece nos momentos em que a tela fala com
 a pessoa, num humor a cada estado (`features/mascote`):
 
 | humor | onde |
 |---|---|
-| laptop | login (acolhe) |
 | pensando | login com erro, troca de senha |
-| joia | troca de senha, sucesso de query |
+| joia | troca de senha |
+| feliz / laptop | estado vazio do miolo (**estático**) |
 | carregando | qualquer espera (`Trabalhando`) |
 | dormindo | o servidor não respondeu |
 
 Os PNGs 3D de ~1 MB viraram WebP de ~30 KB no tamanho de exibição, baixados só
-quando aparecem. O mascote **flutua** (`animate-float`) onde é o assunto, e dá um
-`pop` de comemoração no sucesso — uma vez, sem eco. Nunca ao lado de um erro: uma
-abelha feliz sobre um erro seria a tela contradizendo a si mesma. Isto aposentou
-o `anime.js` — as cenas animadas viraram o mascote, e o pacote saiu.
+quando aparecem. O mascote **flutua** (`animate-float`) só onde ele é o assunto
+da tela e a tela é de passagem — servidor fora, espera longa. **Nunca numa tela
+de trabalho:** o estado vazio do miolo aparece toda vez que a última aba fecha, e
+um loop contínuo ali vira insistência. Também **não comemora consulta**: o
+rodapé de resultado é só métrica (`N ms · somente leitura`) — quem roda 200
+consultas por dia veria 200 comemorações. Nunca ao lado de um erro: uma abelha
+feliz sobre um erro seria a tela contradizendo a si mesma.
 
-**O favo de mel** (`components/Honeycomb`) é o motivo da abelha assinando o
-fundo — hexágonos flat-top que **tesselam de verdade**: o tile é `3s × √3s` com
-dois hexágonos (um alinhado, um deslocado meia altura), então o padrão cobre o
-plano sem falha nem sobra. Traço, não preenchimento (favo é a parede entre as
-células), `currentColor` + opacidade baixa, o mesmo componente em dark e light.
-Aparece na **vitrine do login** (âmbar, presente), atrás do formulário, no
-**canto direito do cabeçalho** e no **pé da barra lateral**, sempre desvanecendo
-com `mask` para costurar sem competir com o conteúdo.
+**Favo de mel e hexágono: não.** Houve um `Honeycomb`/`HoneycombCluster`
+espalhado por cabeçalho, pé da árvore, estado vazio, login e tela de servidor
+fora. Saiu em 2026-11 (auditoria de UI, `docs/auditoria-ui-ux.md` #2): o motivo
+repetido como papel de parede é exatamente o kitsch que o §4 e o §10 recusam, e
+deixava a tela "segura" mais enfeitada que a de perigo. O único hexágono que
+sobra é o que está **dentro da ilustração** da vitrine do login (≥ `lg`), que é
+arte, não ornamento da interface.
+
+**A tela de entrada é a ferramenta, não uma landing page.** Título único em
+`text-ink` ("Entrar no DBee"), tagline factual ("Cliente de banco de dados
+self-hosted" — são 7 engines, não "seu PostgreSQL"), campos e botão no raio e
+altura do resto do app (`rounded-[6px]`, `h-10`). Botão em neutro forte
+(`bg-ink text-surface`), foco em `line-strong` — **sem âmbar**, sem sombra
+colorida, sem lift, sem slogan sobre a imagem, sem véu em gradiente. A
+ilustração só existe a partir de `lg`; abaixo disso o campo de usuário fica na
+primeira dobra.
 
 ### 4c. Visão de databases e processos (só-leitura)
 
@@ -537,7 +551,7 @@ mover o desenho que existe.
 | Animação | Onde | Quando |
 |---|---|---|
 | `animate-wing` + `animate-hover` | a marca na barra lateral | **só** enquanto há requisição em voo |
-| `animate-shimmer` | `Skeleton` | primeiro carregamento da lista |
+| `animate-pulse` | `Skeleton` | primeiro carregamento da lista (pulso de opacidade; o brilho em gradiente saiu em 2026-11) |
 | `animate-probe` | tag de cor da linha | aquela conexão está sendo testada |
 | `animate-settle` | selo de resultado | o resultado acabou de chegar |
 
@@ -656,14 +670,18 @@ Registrado para não voltar por engano:
 - **Meta em `A · B · C` com ponto médio** em toda parte. As coordenadas usam um
   separador porque são um endereço, não porque fica bonito.
 - **Gradiente como decoração.** Nenhum gradiente que não represente dado.
-- **Favo de mel, hexágono, abelha ilustrada.** A marca já é a abelha; repeti-la
-  no cenário é redundância.
+- **Favo de mel, hexágono decorativo.** A marca já é a abelha; repeti-la no
+  cenário é redundância. A abelha (marca e mascote) aparece só onde o §4b
+  lista. Removidos do código em 2026-11 junto com `Honeycomb`/`HoneycombCluster`.
+- **Mascote em loop numa tela de trabalho, ou comemorando ação rotineira.**
 - **Selo no estado seguro.** Marcar read-only tornaria o selo de escrita
   invisível por hábito.
 - **Âmbar sólido em qualquer coisa que não seja modo escrita.** O selo de PK
   nasceu com `tone="write"` e dizia "escrita" para o olho numa aba de índices.
   Virou contorno âmbar sobre superfície elevada. A regra do §1.4 não tem
-  exceção.
+  exceção O mesmo valeu, em 2026-11, para o botão "Entrar" e o foco
+  dos campos do login (viraram neutro forte / `line-strong`), o "Nova consulta"
+  do estado vazio (`secondary`) e o spinner de "conectando" da árvore (`muted`).
 - **Selo com palavra inteira competindo com o nome numa barra de 260px.** O selo
   "Escrita" comia metade do nome da conexão (`Produção Ass…`), e saber **qual**
   conexão está gravável é todo o ponto do estado de perigo. O nome é o

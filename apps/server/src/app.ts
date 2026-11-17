@@ -26,6 +26,16 @@ import { queryRoutes } from "./routes/query";
 import { rowsRoutes } from "./routes/rows";
 import { savedQueriesRoutes } from "./routes/savedQueries";
 import { usersRoutes } from "./routes/users";
+import { ApiTokensRepository } from "./db/apiTokens.repo";
+import { apiTokensRoutes } from "./routes/apiTokens";
+import { mcpRoutes } from "./routes/mcp";
+import { ApiTokensService } from "./services/apiTokens.service";
+import { McpService } from "./services/mcp.service";
+import { vpnRoutes } from "./routes/vpn";
+import { VpnService } from "./services/vpn.service";
+import { ControleVpn } from "./vpn/cliente";
+import type { ConfigVpn } from "./lib/config";
+import { VpnProfilesRepository } from "./db/vpnProfiles.repo";
 import { schemaRoutes } from "./routes/schema";
 import { AuthService } from "./services/auth.service";
 import { ConnectionsService } from "./services/connections.service";
@@ -50,6 +60,8 @@ export interface AppDeps {
    * que falha por motivo errado.
    */
   readonly releasesApi?: string;
+  /** VPN por pessoa (ADR 014). Ausente = recurso desligado. */
+  readonly vpn?: ConfigVpn | null;
 }
 
 /**
@@ -66,6 +78,7 @@ export function createApp({
   pools = new PoolManager(caCert),
   dataDir,
   releasesApi,
+  vpn: configVpn = null,
 }: AppDeps) {
   const repository = new ConnectionsRepository(store.db, store.key);
   /*
@@ -86,6 +99,19 @@ export function createApp({
   const exportar = new ExportService({ repository, pools, schema, log, drivers });
   const ddl = new DdlService({ repository, pools, log, drivers });
   const usuarios = new UsersService(users);
+  // MCP (ADR 015): tokens pessoais + fachada sobre os serviços da UI.
+  const apiTokens = new ApiTokensService(new ApiTokensRepository(store.db), users);
+  const mcp = new McpService({ repository, schema, query });
+  const vpn = new VpnService({
+    config: configVpn,
+    controle: configVpn === null ? null : new ControleVpn(configVpn),
+    perfis: new VpnProfilesRepository(store.db, store.key),
+    conexoes: repository,
+    usuarios: users,
+  });
+  // `resolve` pergunta ao serviço por onde sai a conexão com VPN deste ator.
+  repository.usarRotaVpn((userId, perfil, host, porta) => vpn.rota(userId, perfil, host, porta));
+  vpn.iniciar();
   const update = new UpdateService({
     settings: new SettingsRepository(store.db, store.key),
     current: versaoDoBinario(),
@@ -94,6 +120,8 @@ export function createApp({
 
   const connections = new ConnectionsService({
     repository,
+    perfilVpnValido: (perfil) => vpn.perfilValido(perfil),
+    onVpnChanged: () => void vpn.sincronizarDestinos(),
     caCert,
     drivers,
     // Editar ou apagar conexão invalida a árvore em cache e derruba os pools:
@@ -126,12 +154,12 @@ export function createApp({
        * quem a libera é a lista `ROTAS_ABERTAS`, explícita e testada, não a
        * posição no arquivo.
        */
-      .use(sessionGuard(users))
+      .use(sessionGuard(users, apiTokens))
       // Toda rota declara `response`. Não é formalidade: foi a validação de
       // resposta que pegou o `array_agg` devolvendo string crua em vez de array
       // (DBee.md §11.17) — bug que nenhum teste cobria e que teria chegado à UI.
       .get("/health", () => ({ status: "ok" }) as const, { response: { 200: HealthResponse } })
-      .use(authRoutes(auth, users))
+      .use(authRoutes(auth, users, (userId) => void vpn.encerrarUsuario(userId)))
       .use(connectionsRoutes(connections, users))
       .use(schemaRoutes(schema, users))
       .use(queryRoutes(query, users))
@@ -142,6 +170,9 @@ export function createApp({
       .use(ddlRoutes(ddl, users))
       .use(savedQueriesRoutes(savedQueries))
       .use(usersRoutes(usuarios, users))
+      .use(apiTokensRoutes(apiTokens, users))
+      .use(mcpRoutes(mcp))
+      .use(vpnRoutes(vpn, users))
       .use(metaRoutes(update, users))
   );
 }

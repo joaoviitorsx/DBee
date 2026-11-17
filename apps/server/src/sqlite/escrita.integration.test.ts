@@ -26,7 +26,7 @@ const conexao = (writeEnabled: boolean): ResolvedConnection =>
     host: "", port: 0, database: "", username: "", password: "",
     sslMode: "disable", timezone: "UTC", statementTimeoutMs: 30_000,
     writeEnabled, hasWriteCredential: false, authSource: null,
-    filePath: "loja.db", createdAt: "", updatedAt: "",
+    filePath: "loja.db", vpn: null, createdAt: "", updatedAt: "",
   }) satisfies ResolvedConnection;
 
 function contar(): number {

@@ -80,7 +80,13 @@ export async function streamExport(
 
   // Sem LIMIT injetado no SQL do usuário (§6). O teto, quando existe, é
   // aplicado contando as linhas entregues.
-  await client.query(`DECLARE ${cursor} NO SCROLL CURSOR FOR ${plan.sql}`, [...plan.values]);
+  // Estendido explícito: com `values` vazio o `pg` cairia em simple query, e
+  // aí um texto com vários comandos passaria (ver `executeOne`).
+  await client.query({
+    text: `DECLARE ${cursor} NO SCROLL CURSOR FOR ${plan.sql}`,
+    values: [...plan.values],
+    queryMode: "extended",
+  });
 
   let nomes: string[] = [];
   let entregues = 0;

@@ -8,6 +8,7 @@ import type {
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
+import { falhaDoResolve } from "../db/connections.repo";
 import type { Drivers } from "../driver/registro";
 import { exigirPostgres } from "./engine.guarda";
 import { listActivity, overviewDatabases } from "../pg/introspect";
@@ -85,8 +86,8 @@ export class SchemaService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (connection === null) return fail("not_found");
     // Sem driver não há catálogo. Só acontece em teste que monta o serviço sem
@@ -156,8 +157,8 @@ export class SchemaService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (connection === null) return fail("not_found");
     // Sem driver não há árvore. Só acontece em teste que monta o serviço sem
@@ -244,8 +245,8 @@ export class SchemaService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (connection === null) return fail("not_found");
 
@@ -266,8 +267,8 @@ export class SchemaService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (connection === null) return fail("not_found");
 
@@ -301,8 +302,8 @@ export class SchemaService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (connection === null) return fail("not_found");
 

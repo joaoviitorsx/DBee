@@ -209,3 +209,68 @@ describe("PoolManager — start depois de shutdown", () => {
     expect(pools.size).toBe(0);
   });
 });
+
+describe("PoolManager — withStreamingTransaction descarta cliente sujo", () => {
+  /** Pool cujo único cliente pode falhar no ROLLBACK; registra o `release`. */
+  function poolComCliente(rollbackFalha: boolean): {
+    pool: Pool;
+    releases: (boolean | Error | undefined)[];
+  } {
+    const releases: (boolean | Error | undefined)[] = [];
+    const client = {
+      query(sql: string): Promise<unknown> {
+        if (sql === "ROLLBACK" && rollbackFalha) return Promise.reject(new Error("conexão caiu"));
+        return Promise.resolve({ rows: [] });
+      },
+      release(arg?: boolean | Error): void {
+        releases.push(arg);
+      },
+    };
+    const pool = {
+      connect: () => Promise.resolve(client),
+      end: () => Promise.resolve(),
+    };
+    return { pool: pool as unknown as Pool, releases };
+  }
+
+  const conn = {
+    id: "c1",
+    host: "h",
+    port: 5432,
+    statementTimeoutMs: 1000,
+    timezone: "UTC",
+  } as unknown as Parameters<PoolManager["withStreamingTransaction"]>[0];
+
+  async function rodar(rollbackFalha: boolean): Promise<(boolean | Error | undefined)[]> {
+    const pools = new PoolManager(undefined);
+    const { pool, releases } = poolComCliente(rollbackFalha);
+    // A chave interna inclui o destino (ADR 014): semeia onde o acquire procura.
+    pools.seedForTest("c1", PoolManager.slot(conn, "db"), pool, Date.now());
+    await pools.withStreamingTransaction(conn, "db", (_c, encerrar) => {
+      encerrar();
+      return Promise.resolve();
+    });
+    // encerrar é fire-and-forget: espera o ROLLBACK assentar.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pools.activeLeases).toBe(0);
+    return releases;
+  }
+
+  it("ROLLBACK que falha destrói o cliente (release(true))", async () => {
+    expect(await rodar(true)).toEqual([true]);
+  });
+
+  it("ROLLBACK ok devolve o cliente ao pool", async () => {
+    expect(await rodar(false)).toEqual([undefined]);
+  });
+});
+
+describe("PoolManager.slot — VPN por pessoa (ADR 014)", () => {
+  it("mesma conexão e database por túneis diferentes não compartilham pool", () => {
+    const base = { id: "c1" } as unknown as Parameters<typeof PoolManager.slot>[0];
+    const alice = { ...base, host: "dbee-vpn", port: 20050 };
+    const bob = { ...base, host: "dbee-vpn", port: 20100 };
+    expect(PoolManager.slot(alice, "app")).not.toBe(PoolManager.slot(bob, "app"));
+    expect(PoolManager.slot(alice, "app")).toBe(PoolManager.slot({ ...alice }, "app"));
+  });
+});

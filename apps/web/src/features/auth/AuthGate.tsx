@@ -1,7 +1,6 @@
 
 import { Button } from "../../components/ui";
 import { useT } from "../../i18n";
-import { Honeycomb } from "../../components/Honeycomb";
 import { Mascote } from "../mascote";
 import { Trabalhando } from "../motion/Trabalhando";
 import { ChangePasswordScreen } from "./ChangePasswordScreen";
@@ -69,7 +68,6 @@ function ServidorMudo({
   const t = useT();
   return (
     <main className="relative flex min-h-dvh flex-col items-center justify-center gap-1 overflow-hidden bg-sunken px-5 py-10">
-      <Honeycomb className="absolute inset-0 text-accent" size={28} opacity={0.04} />
       {/* A abelha dormindo: o servidor está fora, não há o que fazer aqui. */}
       <Mascote humor="dormindo" float className="relative h-40 w-40" />
 

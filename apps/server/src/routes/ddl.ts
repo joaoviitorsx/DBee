@@ -28,6 +28,7 @@ const STATUS: Readonly<Record<FalhaDdl, CodigoDdl>> = {
   write_forbidden: 403,
   not_found: 404,
   decryption_failed: 400,
+  vpn_disconnected: 502,
   upstream_error: 502,
 };
 
@@ -36,6 +37,7 @@ const MENSAGEM: Readonly<Record<FalhaDdl, string>> = {
   write_forbidden: "escrita desligada nesta conexão",
   not_found: "conexão não encontrada",
   decryption_failed: "não foi possível decifrar a senha da conexão",
+  vpn_disconnected: "sua VPN deste banco não está conectada — conecte-a no escudo da barra superior",
   upstream_error: "o Postgres recusou o comando",
 };
 

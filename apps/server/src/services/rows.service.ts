@@ -2,6 +2,7 @@ import type { RowsRequest, RowsResponse } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
+import { falhaDoResolve } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import { capacidadesDe } from "@dbee/shared/puro";
 
@@ -103,8 +104,8 @@ export class RowsService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (connection === null) return fail("not_found");
 

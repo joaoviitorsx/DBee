@@ -5,6 +5,7 @@ import type { ConnectionGrant } from "@dbee/shared";
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
+import { falhaDoResolve } from "../db/connections.repo";
 import type { Drivers } from "../driver/registro";
 import {
   exigirCamposDaEngine,
@@ -26,7 +27,17 @@ export interface ConnectionsServiceDeps {
   readonly drivers?: Drivers;
   /** Avisa quem mantém cache ou pool que aquela conexão mudou de forma. */
   readonly onConnectionChanged?: (id: string) => void;
+  /**
+   * VPN (ADR 014): o perfil existe neste servidor? Ausente = nenhum perfil
+   * vale, e conexão com `vpn` é recusada.
+   */
+  readonly perfilVpnValido?: (perfil: string) => boolean;
+  /** Conexão com VPN criada/editada: abre o encaminhamento para quem já está no túnel. */
+  readonly onVpnChanged?: () => void;
 }
+
+/** Engines que trafegam por TCP simples e cabem num encaminhamento de VPN. */
+const ENGINES_COM_VPN: ReadonlySet<string> = new Set(["postgres", "mysql", "mariadb"]);
 
 /**
  * Orquestra persistência (SQLite) e mundo externo (Postgres).
@@ -38,11 +49,21 @@ export class ConnectionsService {
   readonly #repository: ConnectionsRepository;
   readonly #drivers: Drivers | undefined;
   readonly #onChanged: (id: string) => void;
+  readonly #perfilVpnValido: (perfil: string) => boolean;
+  readonly #onVpnChanged: () => void;
 
-  constructor({ repository, onConnectionChanged, drivers }: ConnectionsServiceDeps) {
+  constructor({ repository, onConnectionChanged, drivers, perfilVpnValido, onVpnChanged }: ConnectionsServiceDeps) {
     this.#repository = repository;
     this.#drivers = drivers;
     this.#onChanged = onConnectionChanged ?? ((): void => undefined);
+    this.#perfilVpnValido = perfilVpnValido ?? ((): boolean => false);
+    this.#onVpnChanged = onVpnChanged ?? ((): void => undefined);
+  }
+
+  /** `vpn` vazio/ausente sempre vale; preenchido exige perfil e engine TCP. */
+  #vpnAceito(engine: string, vpn: string | undefined): boolean {
+    if (vpn === undefined || vpn === "") return true;
+    return ENGINES_COM_VPN.has(engine) && this.#perfilVpnValido(vpn);
   }
 
   /** Só o que este ator enxerga (migração 005). Admin vê tudo. */
@@ -110,8 +131,11 @@ export class ConnectionsService {
 
     const colisao = recusarCredencialDeEscritaIgual<Connection>(engine, input);
     if (colisao !== null) return colisao;
+    if (!this.#vpnAceito(engine, input.vpn)) return fail("bad_request");
 
-    return ok(this.#repository.create(input));
+    const criada = this.#repository.create(input);
+    if (criada.vpn !== null) this.#onVpnChanged();
+    return ok(criada);
   }
 
   /**
@@ -141,10 +165,12 @@ export class ConnectionsService {
       writeUsername: patch.writeUsername,
     });
     if (colisao !== null) return colisao;
+    if (!this.#vpnAceito(atual.engine, patch.vpn)) return fail("bad_request");
 
     const updated = this.#repository.update(id, patch);
     if (updated === null) return fail("not_found");
     this.#onChanged(id);
+    if (updated.vpn !== null) this.#onVpnChanged();
     return ok(updated);
   }
 
@@ -162,8 +188,8 @@ export class ConnectionsService {
     let resolved;
     try {
       resolved = this.#repository.resolve(id, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (resolved === null) return fail("not_found");
 

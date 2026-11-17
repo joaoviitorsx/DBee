@@ -32,3 +32,5 @@ data/
 
 # Definições de subagente são locais — não vão para o repo.
 /.claude/agents/
+
+graphify-out/

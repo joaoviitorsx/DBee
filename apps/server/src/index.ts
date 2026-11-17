@@ -95,7 +95,7 @@ if (await portaOcupada(config.port)) {
 // painel do Dokploy. Com conta, remove o token.
 garantirSetup(config.dataDir, new UsersRepository(store.db).contar() > 0);
 
-const api = createApp({ store, caCert: config.caCert, pools, dataDir: config.dataDir });
+const api = createApp({ store, caCert: config.caCert, pools, dataDir: config.dataDir, vpn: config.vpn });
 
 // O binário serve a API **e** o web (DBee.md §8): a raiz embrulha o app `/api`
 // e, fora dele, entrega o build do Vite. Sem isto o container responde só JSON e

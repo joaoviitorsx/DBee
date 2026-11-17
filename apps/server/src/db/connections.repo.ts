@@ -19,6 +19,7 @@ const PUBLIC_COLUMNS = `
   (write_password_enc IS NOT NULL) AS hasWriteCredential,
   auth_source AS authSource,
   file_path AS filePath,
+  vpn,
   created_at AS createdAt, updated_at AS updatedAt
 `;
 
@@ -36,6 +37,7 @@ const PUBLIC_COLUMNS_C = `
   (c.write_password_enc IS NOT NULL) AS hasWriteCredential,
   c.auth_source AS authSource,
   c.file_path AS filePath,
+  c.vpn,
   c.created_at AS createdAt, c.updated_at AS updatedAt
 `;
 
@@ -56,6 +58,7 @@ interface ConnectionRow {
   hasWriteCredential: number;
   authSource: string | null;
   filePath: string | null;
+  vpn: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -87,6 +90,12 @@ function writeEnabledEfetivo(c: Connection, canWrite: boolean): boolean {
 export interface ResolvedConnection extends Connection {
   readonly password: string;
   /**
+   * Host original para TLS (SNI e `verify-full`) quando o socket vai para o
+   * encaminhamento da VPN (ADR 014): `host`/`port` apontam para o sidecar, mas
+   * o certificado do banco continua emitido para o host de verdade.
+   */
+  readonly tlsHost?: string;
+  /**
    * A credencial de escrita, decifrada — presente só quando a conexão tem uma
    * (`hasWriteCredential`) e a engine grava por credencial separada. `username`
    * é `""` no libSQL (a credencial é o token, que vai em `password`).
@@ -108,9 +117,42 @@ export interface ResolvedConnection extends Connection {
  */
 const aadEscrita = (id: string): string => `${id}#write`;
 
+/**
+ * Conexão atrás de VPN sem o túnel de QUEM consulta de pé (ADR 014). Lançado
+ * pelo `resolve`; quem chama traduz com `falhaDoResolve` para
+ * `vpn_disconnected`, e não para "senha ilegível".
+ */
+export class VpnDesconectada extends Error {
+  constructor(readonly perfil: string) {
+    super(`vpn ${perfil} desconectada`);
+  }
+}
+
+/** Traduz o que o `resolve` lançou para a falha de domínio certa. */
+export function falhaDoResolve(e: unknown): "vpn_disconnected" | "decryption_failed" {
+  return e instanceof VpnDesconectada ? "vpn_disconnected" : "decryption_failed";
+}
+
+/** Para onde abrir o socket de uma conexão com VPN, para um usuário. */
+export type RotaVpn = (
+  userId: string,
+  perfil: string,
+  host: string,
+  porta: number,
+) => { host: string; port: number } | null;
+
 export class ConnectionsRepository {
   readonly #db: Database;
   readonly #key: EncryptionKey;
+  #rotaVpn: RotaVpn | null = null;
+
+  /**
+   * Liga a resolução por túnel (ADR 014). Setter e não construtor: o
+   * `VpnService` depende deste repositório para listar destinos.
+   */
+  usarRotaVpn(rota: RotaVpn): void {
+    this.#rotaVpn = rota;
+  }
 
   // Statements preparados uma vez (CLAUDE.md, "Ao escrever código").
   readonly #list: Statement<ConnectionRow, []>;
@@ -254,10 +296,22 @@ export class ConnectionsRepository {
 
     // O id entra como AAD: um password_enc movido para outra conexão não
     // decifra (ADR 005).
-    const base: ResolvedConnection = {
+    const decifrada: ResolvedConnection = {
       ...connection,
       password: decrypt(this.#key, id, row.password_enc),
     };
+
+    /*
+     * VPN por pessoa (ADR 014): o socket vai para o encaminhamento do túnel
+     * DESTE ator no sidecar. Sem túnel de pé, recusa — nunca cai para o host
+     * direto, que ou não responde ou responderia pela rede errada.
+     */
+    let base = decifrada;
+    if (connection.vpn !== null) {
+      const rota = this.#rotaVpn?.(ator.id, connection.vpn, connection.host, connection.port) ?? null;
+      if (rota === null) throw new VpnDesconectada(connection.vpn);
+      base = { ...decifrada, host: rota.host, port: rota.port, tlsHost: connection.host };
+    }
 
     /*
      * A credencial de escrita, quando existe. Decifrada com o AAD distinto
@@ -318,9 +372,9 @@ export class ConnectionsRepository {
         `INSERT INTO connections (
            id, name, color, engine, host, port, database, username, password_enc,
            ssl_mode, write_enabled, statement_timeout_ms, timezone,
-           write_username, write_password_enc, auth_source, file_path,
+           write_username, write_password_enc, auth_source, file_path, vpn,
            created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -369,6 +423,7 @@ export class ConnectionsRepository {
         input.authSource === undefined || input.authSource === "" ? null : input.authSource,
         // `filePath` só existe no SQLite.
         input.filePath === undefined || input.filePath === "" ? null : input.filePath,
+        input.vpn === undefined || input.vpn === "" ? null : input.vpn,
         now,
         now,
       );
@@ -413,6 +468,7 @@ export class ConnectionsRepository {
     if (patch.filePath !== undefined) {
       put("file_path", patch.filePath === "" ? null : patch.filePath);
     }
+    if (patch.vpn !== undefined) put("vpn", patch.vpn === "" ? null : patch.vpn);
 
     /*
      * A credencial de escrita. Espelha a semântica da senha de leitura, com um

@@ -86,3 +86,42 @@ iptables -I DOCKER-USER -i tailscale0 -p tcp --dport 3001 -j ACCEPT
 Persista as regras como já faz para as outras portas (o mesmo `iptables-restore`
 / unit que mantém as regras da 3000 e da 15672). Confirmar depois: de fora da
 tailnet, a 3001 não responde; de dentro, sim.
+
+## VPN para bancos de cliente (ADR 014)
+
+Cada pessoa usa a própria VPN. O DBee mantém um túnel por (usuário, perfil)
+num container sidecar.
+
+**Subir (uma vez, admin do servidor):**
+
+1. Gere um token longo: `openssl rand -hex 32`.
+2. Suba o sidecar com `deploy/vpn/docker-compose.yml` e
+   `DBEE_VPN_TOKEN=<token>`. Ele cria a rede `dbee-vpn`. **Só o DBee entra
+   nela.**
+3. No serviço do DBee, entre na rede `dbee-vpn` e defina:
+   `DBEE_VPN_CONTROLE=http://dbee-vpn:7600`, `DBEE_VPN_TOKEN=<o mesmo>` e
+   `DBEE_VPN_PERFIS=cliente-a,cliente-b`. Depois, redeploy.
+4. Nas conexões que ficam atrás da VPN, escolha o perfil no campo **VPN** do
+   formulário. Host e porta continuam os reais, do banco.
+
+**Uso (cada dev):**
+
+1. Clique no escudo da barra superior, depois em **Enviar .ovpn** (o arquivo
+   que o responsável da VPN mandou para você). Isso é feito uma vez.
+2. Digite o usuário da VPN e o PIN mais o código do autenticador, depois
+   **Conectar**.
+3. As conexões marcadas com o perfil passam a funcionar para você. Sem o túnel,
+   elas respondem "sua VPN deste banco não está conectada".
+
+O túnel fecha no logout e depois de 8 h sem uso.
+
+**Diagnóstico:**
+
+- `docker logs dbee-vpn`: o openvpn mascara a senha como `password [...]`.
+- Estado "serviço fora do ar": o sidecar está parado, ou o token é diferente
+  entre os dois serviços.
+- "A VPN recusou usuário ou senha/código": o código expirou ou o PIN está
+  errado.
+
+**Teste de integração com openvpn real:** rode `sh deploy/vpn/teste/subir.sh`
+e depois o comando que ele imprime, com `bun test sidecar.integration`.

@@ -17,3 +17,5 @@ export * from "./savedQueries";
 export * from "./schema";
 export * from "./split";
 export * from "./users";
+export * from "./vpn";
+export * from "./mcp";

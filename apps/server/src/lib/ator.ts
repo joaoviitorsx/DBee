@@ -16,4 +16,20 @@ import type { Role } from "@dbee/shared";
 export interface Ator {
   readonly id: string;
   readonly role: Role;
+  /**
+   * Por onde a ação chegou, quando não foi pela UI. Hoje só o MCP (ADR 015):
+   * `mcp:<nome do token>`. Ausente = sessão de navegador.
+   */
+  readonly origem?: string;
+}
+
+/**
+ * O `actor` gravado no `query_log`.
+ *
+ * Sem origem, o id do usuário — o formato de sempre. Com origem,
+ * `<id>#<origem>`: o id continua à frente (quem fez), e a origem diz por qual
+ * porta. Sem migração no `query_log`, e o filtro por prefixo do id ainda acha.
+ */
+export function atorDoLog(ator: Ator): string {
+  return ator.origem === undefined ? ator.id : `${ator.id}#${ator.origem}`;
 }

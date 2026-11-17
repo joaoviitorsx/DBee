@@ -210,6 +210,25 @@ describe.if(temDocker)("escrita bloqueada na conexão read-only", () => {
     expect(existe.results[0]?.rows[0]?.[0]).toBe("0");
   });
 
+  /**
+   * Achado da revisão adversarial do MCP (2026-11-17). Com
+   * `standard_conforming_strings = off`, o splitter e o Postgres discordam
+   * sobre onde termina `'a\''`: para nós é UM statement, para o servidor são
+   * quatro, e o `COMMIT` embutido escapava do READ ONLY dentro de uma única
+   * `client.query` em simple query. O protocolo estendido recusa mais de um
+   * comando por mensagem.
+   */
+  it("standard_conforming_strings = off não contrabandeia COMMIT + DDL", async () => {
+    const sql =
+      "SET standard_conforming_strings = off; SELECT 'a\\'' ; COMMIT ; CREATE TABLE zz_scs (x int) ; SELECT '\\''";
+    await run(idLeitura, sql);
+    const existe = await run(
+      idLeitura,
+      "SELECT count(*)::int FROM information_schema.tables WHERE table_name = 'zz_scs'",
+    );
+    expect(existe.results[0]?.rows[0]?.[0]).toBe("0");
+  });
+
   it("readOnly: false NÃO libera escrita numa conexão de leitura", async () => {
     // A proteção é da conexão; a requisição só pode ser mais restritiva.
     const r = await run(idLeitura, "UPDATE alvo SET v = 'x' WHERE id = 1", { readOnly: false });

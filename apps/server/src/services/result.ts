@@ -5,6 +5,8 @@
 export type ServiceFailure =
   | "not_found"
   | "decryption_failed"
+  /** Conexão atrás de VPN sem o túnel do ator de pé (ADR 014). */
+  | "vpn_disconnected"
   | "upstream_error"
   /** Entrada que o schema não pega — coluna inexistente, cursor incompatível. */
   | "bad_request"
@@ -30,6 +32,7 @@ export type ServiceFailure =
 export type MutationFailure =
   | "not_found"
   | "decryption_failed"
+  | "vpn_disconnected"
   | "upstream_error"
   /** Escrita pedida numa conexão sem `write_enabled`. */
   | "write_forbidden"
