@@ -8,6 +8,8 @@ import connectionEngine from "./007_connection_engine.sql" with { type: "text" }
 import writeCredential from "./008_write_credential.sql" with { type: "text" };
 import authSource from "./009_auth_source.sql" with { type: "text" };
 import filePath from "./010_file_path.sql" with { type: "text" };
+import vpn from "./011_vpn.sql" with { type: "text" };
+import apiTokens from "./012_api_tokens.sql" with { type: "text" };
 
 export interface Migration {
   readonly version: number;
@@ -31,6 +33,8 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 8, name: "008_write_credential", sql: writeCredential },
   { version: 9, name: "009_auth_source", sql: authSource },
   { version: 10, name: "010_file_path", sql: filePath },
+  { version: 11, name: "011_vpn", sql: vpn },
+  { version: 12, name: "012_api_tokens", sql: apiTokens },
 ];
 
 /**
@@ -42,4 +46,4 @@ export const MIGRATIONS: readonly Migration[] = [
  * duas vezes, e uma se disfarçou de erro de conexão na UI — erro alto no boot é
  * mais barato que diagnóstico errado na tela.
  */
-export const EXPECTED_SCHEMA = 10;
+export const EXPECTED_SCHEMA = 12;

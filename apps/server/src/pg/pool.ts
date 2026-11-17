@@ -75,6 +75,16 @@ export class PoolManager {
     this.#sweeper.unref();
   }
 
+  /**
+   * Chave interna do pool: database **e destino**. Conexão atrás de VPN
+   * (ADR 014) resolve para o encaminhamento do túnel de cada usuário — mesma
+   * conexão e database, sockets diferentes. Sem o destino na chave, a consulta
+   * de uma pessoa sairia pelo túnel (e pela identidade de VPN) de outra.
+   */
+  static slot(connection: ResolvedConnection, database: string): string {
+    return `${database}\u0000${connection.host}:${String(connection.port)}`;
+  }
+
   #entry(connectionId: string, database: string): Entry | undefined {
     return this.#pools.get(connectionId)?.get(database);
   }
@@ -97,7 +107,7 @@ export class PoolManager {
    * nova — deixando sem proteção justamente o pool que segura o cliente.
    */
   #acquire(connection: ResolvedConnection, database: string): Entry {
-    const existing = this.#entry(connection.id, database);
+    const existing = this.#entry(connection.id, PoolManager.slot(connection, database));
     if (existing !== undefined) {
       existing.lastUsedAt = Date.now();
       return existing;
@@ -109,7 +119,7 @@ export class PoolManager {
       database,
       user: connection.username,
       password: connection.password,
-      ssl: sslConfigFor(connection.sslMode, this.#caCert, connection.host),
+      ssl: sslConfigFor(connection.sslMode, this.#caCert, connection.tlsHost ?? connection.host),
       application_name: "dbee",
       max: MAX_CLIENTS,
       idleTimeoutMillis: IDLE_TIMEOUT_MS,
@@ -125,7 +135,7 @@ export class PoolManager {
       this.#pools.set(connection.id, byDatabase);
     }
     const entry: Entry = { pool, lastUsedAt: Date.now(), leases: 0, doomed: false };
-    byDatabase.set(database, entry);
+    byDatabase.set(PoolManager.slot(connection, database), entry);
     return entry;
   }
 
@@ -183,7 +193,7 @@ export class PoolManager {
       // ele ficaria lá por 10 min até o sweep — e `?database=` é string livre,
       // então uma requisição por nome inventado acumularia um pool morto (e
       // mais uma cópia da senha na heap) para cada nome.
-      this.#discard(connection.id, database);
+      this.#discard(connection.id, PoolManager.slot(connection, database));
       throw err;
     }
 
@@ -277,7 +287,7 @@ export class PoolManager {
       client = await entry.pool.connect();
     } catch (err: unknown) {
       entry.leases--;
-      this.#discard(connection.id, database);
+      this.#discard(connection.id, PoolManager.slot(connection, database));
       throw err;
     }
 
@@ -336,7 +346,7 @@ export class PoolManager {
       client = await entry.pool.connect();
     } catch (err: unknown) {
       entry.leases--;
-      this.#discard(connection.id, database);
+      this.#discard(connection.id, PoolManager.slot(connection, database));
       throw err;
     }
 
@@ -345,15 +355,23 @@ export class PoolManager {
       if (encerrado) return;
       encerrado = true;
       // Leitura: reverte. Nada foi escrito, e rollback é mais barato.
+      // Mesmo cuidado de `withTransaction`: ROLLBACK que falha deixa o
+      // cliente possivelmente dentro da transação, e devolvê-lo ao pool faria
+      // o `BEGIN READ ONLY` seguinte virar no-op. `release(true)` o destrói.
       void client
         .query("ROLLBACK")
-        .catch(() => undefined)
-        .finally(() => {
-          client.release();
+        .then(() => false)
+        .catch(() => true)
+        .then((sujo) => {
+          // Contabilidade primeiro: release que lança não prende o lease.
           entry.leases--;
           entry.lastUsedAt = Date.now();
-          if (entry.doomed && entry.leases === 0) {
-            void entry.pool.end().catch(() => undefined);
+          try {
+            client.release(sujo || undefined);
+          } finally {
+            if (entry.doomed && entry.leases === 0) {
+              void entry.pool.end().catch(() => undefined);
+            }
           }
         });
     };
@@ -472,7 +490,7 @@ export class PoolManager {
       database,
       user: connection.username,
       password: connection.password,
-      ssl: sslConfigFor(connection.sslMode, this.#caCert, connection.host),
+      ssl: sslConfigFor(connection.sslMode, this.#caCert, connection.tlsHost ?? connection.host),
       connectionTimeoutMillis: 5000,
       statement_timeout: 5000,
     });

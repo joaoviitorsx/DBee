@@ -5,6 +5,8 @@ import { capacidadesDe } from "@dbee/shared/puro";
 import { Plug, X } from "lucide-react";
 import { useState, type ComponentProps } from "react";
 
+import { useVpns } from "../../features/vpn/useVpn";
+
 import { Button, Field, Input } from "../../components/ui";
 import { SeletorDeEngine } from "./SeletorDeEngine";
 import { AcessoDaConexao } from "../../features/usuarios/AcessoDaConexao";
@@ -79,8 +81,13 @@ function initialDraft(editing: Connection | null): ConnectionDraft {
     // `authSource` só existe no Mongo; vazio nas outras. `admin` é o padrão de
     // fato do Mongo, e preencher ajuda mais que deixar em branco.
     authSource: editing?.authSource ?? "",
+    // Perfil de VPN (ADR 014); vazio = acesso direto.
+    vpn: editing?.vpn ?? "",
   };
 }
+
+/** Engines que cabem num encaminhamento TCP da VPN — espelha o servidor. */
+const ENGINES_COM_VPN: ReadonlySet<string> = new Set(["postgres", "mysql", "mariadb"]);
 
 /**
  * Painel lateral, não modal centrado: a lista continua visível enquanto se
@@ -117,6 +124,8 @@ export function ConnectionForm({
    * torna a mudança verificável por screenshot.
    */
   const capacidades = capacidadesDe(draft.engine ?? "postgres");
+  const perfisVpn = (useVpns().data ?? []).map((v) => v.perfil);
+  const mostraVpn = perfisVpn.length > 0 && ENGINES_COM_VPN.has(draft.engine ?? "postgres");
   const mostra = (campo: CampoConexao): boolean =>
     capacidades === null || capacidades.campos.includes(campo);
   const ehLibsql = (draft.engine ?? "postgres") === "libsql";
@@ -145,6 +154,7 @@ export function ConnectionForm({
     // `password` só quando a engine tem credencial — o SQLite não tem, e mandar
     // `password: ""` para ele seria campo de outra engine (recusado no servidor).
     if (permitidos.has("password")) saida["password"] = d.password;
+    if (ENGINES_COM_VPN.has(d.engine ?? "postgres") && perfisVpn.length > 0) saida["vpn"] = d.vpn ?? "";
     for (const campo of ["host", "port", "database", "username", "sslMode", "timezone", "statementTimeoutMs", "writeEnabled", "writeUsername", "writePassword", "authSource"] as const) {
       if (permitidos.has(campo)) saida[campo] = d[campo];
     }
@@ -431,6 +441,22 @@ export function ConnectionForm({
                   </Field>
                 </div>
               </div>
+              ) : null}
+
+              {mostraVpn ? (
+              <Field label={t("form.vpn")} htmlFor="vpn" hint={t("form.vpnAjuda")}>
+                <select
+                  id="vpn"
+                  value={draft.vpn ?? ""}
+                  onChange={(e) => { set("vpn", e.target.value); }}
+                  className="h-10 cursor-pointer rounded-[4px] border border-line bg-sunken px-3 text-sm text-ink transition-colors duration-150 hover:border-line-strong"
+                >
+                  <option value="">{t("form.vpnNenhuma")}</option>
+                  {perfisVpn.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+              </Field>
               ) : null}
 
               {mostra("sslMode") ? (

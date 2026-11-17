@@ -181,7 +181,16 @@ async function executeOne(client: PoolClient, sql: string, maxRows: number): Pro
 
   try {
     // Sem LIMIT injetado: o SQL do usuário entra inteiro (§6).
-    await client.query(prefixo + sql);
+    //
+    // `queryMode: "extended"` é TRAVA DE SEGURANÇA, não detalhe: no protocolo
+    // estendido o Postgres recusa mais de um comando por mensagem Parse. Em
+    // simple query, `SET standard_conforming_strings = off; SELECT 'a\'' ;
+    // COMMIT ; CREATE TABLE …` faz o splitter e o servidor lerem as aspas de
+    // jeitos diferentes, o texto chega como UM statement para nós e QUATRO
+    // para o servidor, e o COMMIT embutido escapa do READ ONLY dentro de um
+    // único `client.query` — onde o SAVEPOINT abaixo não alcança. Achado na
+    // revisão adversarial do MCP; teste em executor.integration.test.ts.
+    await client.query({ text: prefixo + sql, queryMode: "extended" });
   } catch {
     // Não era cursorável — ou tem erro de sintaxe. A execução direta decide.
     await client.query(`ROLLBACK TO SAVEPOINT ${ponto}`);
@@ -220,7 +229,9 @@ async function executeOne(client: PoolClient, sql: string, maxRows: number): Pro
 /** Statement que não passa por cursor. Sem prefixo, logo sem deslocamento. */
 async function executeDirect(client: PoolClient, sql: string): Promise<Parcial> {
   try {
-    const res = await client.query<Cell[]>({ text: sql, rowMode: "array", types: TUDO_TEXTO });
+    // Protocolo estendido pelo mesmo motivo do `executeOne`: um comando por
+    // mensagem, decidido pelo servidor, não pelo nosso splitter.
+    const res = await client.query<Cell[]>({ text: sql, rowMode: "array", types: TUDO_TEXTO, queryMode: "extended" });
     const temLinhas = res.fields.length > 0;
 
     return {
@@ -233,5 +244,17 @@ async function executeDirect(client: PoolClient, sql: string): Promise<Parcial> 
     };
   } catch (causa: unknown) {
     throw new StatementFailure(0, causa);
+  }
+}
+
+/*
+ * `queryMode: "extended"` existe no `pg@8.23` (lib/query.js) mas não no
+ * `@types/pg`. É trava de segurança (um comando por mensagem Parse — ver
+ * `executeOne`), então ganha tipo em vez de cast. Fica aqui, e não num `.d.ts`,
+ * para valer também quando o web compila o server pelo tipo do Eden.
+ */
+declare module "pg" {
+  interface QueryConfig {
+    queryMode?: "extended";
   }
 }

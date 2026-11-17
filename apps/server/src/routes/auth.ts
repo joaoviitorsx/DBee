@@ -72,7 +72,15 @@ function cookieSecuro(request: Request): boolean {
   }
 }
 
-export const authRoutes = (service: AuthService, users: UsersRepository) =>
+/**
+ * `aoSair`: o que mais morre com a sessão. Hoje, os túneis de VPN da pessoa
+ * (ADR 014) — credencial de VPN não sobrevive ao "sair".
+ */
+export const authRoutes = (
+  service: AuthService,
+  users: UsersRepository,
+  aoSair: (userId: string) => void = (): void => undefined,
+) =>
   new Elysia({ prefix: "/auth" })
     // O guard já derivou a sessão globalmente; o `use` aqui é para o **tipo**
     // dela chegar nestes handlers. O Elysia deduplica por `name`, então não há
@@ -145,7 +153,10 @@ export const authRoutes = (service: AuthService, users: UsersRepository) =>
       ({ sessao, cookie }) => {
         // A ordem importa pouco, mas as duas partes importam: apagar só o
         // cookie deixaria o token válido para quem tiver uma cópia dele.
-        if (sessao !== null) service.logout(sessao.tokenHash);
+        if (sessao !== null) {
+          service.logout(sessao.tokenHash);
+          aoSair(sessao.user.id);
+        }
         cookie[SESSION_COOKIE]?.remove();
         return { ok: true } as const;
       },

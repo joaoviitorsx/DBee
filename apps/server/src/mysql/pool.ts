@@ -181,7 +181,7 @@ export class PoolMysql {
    * enquanto a consulta responde — e não é erro.
    */
   async cancelarConsulta(conexao: ResolvedConnection, thread: number): Promise<boolean> {
-    const ssl = sslMysqlPara(conexao.sslMode, this.#caCert, conexao.host);
+    const ssl = sslMysqlPara(conexao.sslMode, this.#caCert, conexao.tlsHost ?? conexao.host);
     if (ehRecusa(ssl)) throw new Error(ssl.motivo);
 
     const c = await mysql.createConnection({
@@ -231,7 +231,9 @@ export class PoolMysql {
      * autenticada com a credencial gravável — exatamente o que a separação
      * existe para impedir.
      */
-    return `${conexao.id}\u0000${conexao.database}\u0000${conexao.username}`;
+    // Destino na chave pelo mesmo motivo do `PoolManager.slot` (ADR 014): com
+    // VPN por pessoa, a mesma conexão sai por túneis diferentes.
+    return `${conexao.id}\u0000${conexao.database}\u0000${conexao.username}\u0000${conexao.host}:${String(conexao.port)}`;
   }
 
   #grupo(conexao: ResolvedConnection): Grupo {
@@ -297,7 +299,7 @@ export class PoolMysql {
 
   /** Abre e prepara, sem mexer na contabilidade do grupo. */
   async #abrirCrua(conexao: ResolvedConnection): Promise<{ conexao: Connection; sabor: Sabor }> {
-    const ssl = sslMysqlPara(conexao.sslMode, this.#caCert, conexao.host);
+    const ssl = sslMysqlPara(conexao.sslMode, this.#caCert, conexao.tlsHost ?? conexao.host);
     if (ehRecusa(ssl)) throw new Error(ssl.motivo);
 
     const c = await mysql.createConnection({

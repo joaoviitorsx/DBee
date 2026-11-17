@@ -38,7 +38,7 @@ const conexao: ResolvedConnection = {
   host: "", port: 0, database: "loja.db", username: "", password: "",
   sslMode: "disable", timezone: "UTC", statementTimeoutMs: 30_000,
   writeEnabled: false, hasWriteCredential: false, authSource: null,
-  filePath: "loja.db", createdAt: "", updatedAt: "",
+  filePath: "loja.db", vpn: null, createdAt: "", updatedAt: "",
 };
 
 async function drenar(stream: ReadableStream<Uint8Array>): Promise<Buffer> {

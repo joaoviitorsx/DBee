@@ -4,6 +4,7 @@ import type {
   ServiceFailure,
   UserFailure,
 } from "../services/result";
+import type { VpnFailure } from "../services/vpn.service";
 
 /** Único ponto que traduz falha de domínio em status HTTP. */
 export const FAILURES: Readonly<
@@ -20,6 +21,10 @@ export const FAILURES: Readonly<
       message:
         "não foi possível decifrar a senha desta conexão — APP_SECRET pode ter mudado (ver DBee.md §11.5)",
     },
+  },
+  vpn_disconnected: {
+    status: 502,
+    body: { code: "vpn_disconnected", message: "sua VPN deste banco não está conectada — conecte-a no escudo da barra superior" },
   },
   bad_request: {
     status: 400,
@@ -102,6 +107,10 @@ export const MUTATION_FAILURES = {
     status: 502,
     body: { code: "upstream_error", message: "o banco não respondeu" },
   },
+  vpn_disconnected: {
+    status: 502,
+    body: { code: "vpn_disconnected", message: "sua VPN deste banco não está conectada — conecte-a no escudo da barra superior" },
+  },
   write_forbidden: {
     status: 403,
     body: {
@@ -162,4 +171,50 @@ export const USER_FAILURES = {
 } as const satisfies Record<
   UserFailure,
   { status: 403 | 404 | 409; body: { code: string; message: string } }
+>;
+
+/**
+ * VPN por pessoa (ADR 014). Nenhuma mensagem cita host, porta, usuário da VPN
+ * ou conteúdo do .ovpn.
+ */
+export const VPN_FAILURES = {
+  admin_required: {
+    status: 403,
+    body: { code: "admin_required", message: "só um administrador pode ver os túneis de todos" },
+  },
+  vpn_desligada: {
+    status: 404,
+    body: { code: "vpn_disabled", message: "VPN não configurada neste servidor" },
+  },
+  perfil_desconhecido: {
+    status: 404,
+    body: { code: "vpn_profile_not_found", message: "perfil de VPN não configurado" },
+  },
+  sem_arquivo: {
+    status: 409,
+    body: { code: "vpn_no_file", message: "envie o seu arquivo .ovpn deste perfil antes de conectar" },
+  },
+  arquivo_ilegivel: {
+    status: 500,
+    body: { code: "vpn_file_unreadable", message: "não foi possível decifrar o .ovpn — envie de novo" },
+  },
+  ovpn_invalido: {
+    status: 422,
+    body: { code: "vpn_file_invalid", message: "o arquivo .ovpn tem diretiva não permitida" },
+  },
+  credencial_recusada: {
+    status: 422,
+    body: { code: "vpn_auth_failed", message: "a VPN recusou usuário ou senha/código" },
+  },
+  inacessivel: {
+    status: 502,
+    body: { code: "vpn_unreachable", message: "o serviço de VPN não respondeu" },
+  },
+  tempo_esgotado: {
+    status: 504,
+    body: { code: "vpn_timeout", message: "a VPN não conectou dentro do prazo" },
+  },
+} as const satisfies Record<
+  "admin_required" | VpnFailure,
+  { status: 403 | 404 | 409 | 422 | 500 | 502 | 504; body: { code: string; message: string } }
 >;

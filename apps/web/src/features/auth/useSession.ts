@@ -48,7 +48,7 @@ export class ErroApi extends Error {
 }
 
 /** Extrai `code` e `message` do erro do Eden, com um padrão quando faltar. */
-function erroDaResposta(error: unknown, padrao: string): ErroApi {
+export function erroDaResposta(error: unknown, padrao: string): ErroApi {
   if (typeof error === "object" && error !== null && "value" in error) {
     const { value } = error;
     if (typeof value === "object" && value !== null) {

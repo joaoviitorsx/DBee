@@ -4,6 +4,7 @@ import { SESSION_COOKIE, type SessionUser } from "@dbee/shared";
 
 import type { UsersRepository } from "../db/users.repo";
 import type { Ator } from "../lib/ator";
+import type { ApiTokensService, AutenticacaoMcp } from "../services/apiTokens.service";
 import { AUTH_FAILURES } from "./failures";
 
 /**
@@ -125,13 +126,37 @@ export const sessionContext = (users: UsersRepository) =>
     },
   );
 
-export const sessionGuard = (users: UsersRepository) =>
+/**
+ * O único caminho autenticado por `Authorization: Bearer` (ADR 015).
+ *
+ * Nos dois sentidos: Bearer **só** vale aqui, e aqui **só** vale Bearer. O
+ * cookie não autentica o MCP porque `POST /api/mcp` com corpo JSON-RPC é uma
+ * requisição que outra origem poderia disparar no navegador de quem está
+ * logado (CSRF); o cookie `SameSite` ajuda, mas o MCP não precisa dele e não
+ * deve depender disso.
+ */
+export const ROTA_MCP = "/api/mcp";
+
+/**
+ * Quem o guard autenticou por Bearer, por requisição.
+ *
+ * `WeakMap` sobre o próprio `Request`: o handler do MCP recebe o mesmo objeto,
+ * então a verificação argon2id roda uma vez só. Requisição sem entrada aqui
+ * não passou pelo guard Bearer — e o handler recusa (fecha em falha).
+ */
+const autenticadosMcp = new WeakMap<Request, AutenticacaoMcp>();
+
+export function autenticacaoMcp(request: Request): AutenticacaoMcp | null {
+  return autenticadosMcp.get(request) ?? null;
+}
+
+export const sessionGuard = (users: UsersRepository, tokens?: ApiTokensService) =>
   new Elysia({ name: "session-guard" })
     .use(sessionContext(users))
     // `onRequest` roda **antes do roteamento**, então já vale para o app
     // inteiro e não aceita `{ as }` — diferente dos outros hooks, em que o
     // escopo local é o padrão que precisa ser desfeito.
-    .onRequest(({ request, status }) => {
+    .onRequest(async ({ request, status, server }) => {
       // Em `onRequest` não há `path` do roteador ainda; o pathname da URL é o
       // mesmo valor e já vem com o prefixo `/api`.
       const pathname = new URL(request.url).pathname;
@@ -147,6 +172,24 @@ export const sessionGuard = (users: UsersRepository) =>
       // pode abrir um `GET` no mesmo caminho.
       const chave = `${request.method} ${pathname}`;
       if (ROTAS_ABERTAS.has(chave)) return;
+
+      // MCP: Bearer e nada mais. O cookie é ignorado de propósito (ver
+      // `ROTA_MCP`). Sem serviço de tokens configurado, o MCP fica fechado.
+      if (pathname === ROTA_MCP || pathname === `${ROTA_MCP}/`) {
+        if (tokens === undefined) {
+          const { status: code, body } = AUTH_FAILURES.unauthenticated;
+          return status(code, body);
+        }
+        // Mesmo critério do login: IP do socket, nunca `X-Forwarded-For`.
+        const origem = server?.requestIP(request)?.address ?? "desconhecida";
+        const r = await tokens.autenticar(request.headers.get("authorization"), origem);
+        if (!r.ok) {
+          const { status: code, body } = AUTH_FAILURES[r.failure];
+          return status(code, body);
+        }
+        autenticadosMcp.set(request, r.value);
+        return;
+      }
 
       const token = cookieDoCabecalho(request.headers.get("cookie"), SESSION_COOKIE);
       const sessao = token === null ? null : users.resolverSessao(token);

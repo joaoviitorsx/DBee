@@ -55,6 +55,11 @@ export const Connection = t.Object({
   authSource: t.Union([t.String(), t.Null()]),
   /** Caminho do arquivo SQLite. `null` nas outras engines. */
   filePath: t.Union([t.String(), t.Null()]),
+  /**
+   * Perfil de VPN (ADR 014): a conexão sai pelo túnel de QUEM consulta. `null`
+   * = acesso direto. Só Postgres, MySQL e MariaDB.
+   */
+  vpn: t.Union([t.String(), t.Null()]),
   createdAt: t.String(),
   updatedAt: t.String(),
 });
@@ -108,6 +113,8 @@ const FIELDS = {
    * do sistema por pedido de conexão).
    */
   filePath: t.String({ minLength: 1, maxLength: 4096 }),
+  /** Perfil de VPN; vazio limpa. Validado contra `DBEE_VPN_PERFIS` no serviço. */
+  vpn: t.String({ pattern: "^([a-z0-9][a-z0-9_-]{0,31})?$", maxLength: 32 }),
   color: t.Union([t.String({ maxLength: 32 }), t.Null()]),
   sslMode: SslMode,
   writeEnabled: t.Boolean(),
@@ -169,6 +176,7 @@ export const CreateConnection = t.Object({
   writePassword: t.Optional(FIELDS.writePassword),
   authSource: t.Optional(FIELDS.authSource),
   filePath: t.Optional(FIELDS.filePath),
+  vpn: t.Optional(FIELDS.vpn),
 });
 export type CreateConnection = Static<typeof CreateConnection>;
 

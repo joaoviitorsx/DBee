@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type { ConnectionWarning } from "@dbee/shared";
 import { ContextMenu, type MenuAnchor, type MenuSection } from "../components/ContextMenu";
-import { HoneycombCluster } from "../components/HoneycombCluster";
 import { Marca } from "../components/Marca";
 import { Button } from "../components/ui";
 import { cn } from "../lib/cn";
@@ -28,6 +27,8 @@ import { ThemeToggle } from "../features/theme/ThemeToggle";
 import { UpdateBadge } from "../features/update/UpdateBadge";
 import { VersaoChip } from "../features/update/VersaoChip";
 import { UsuariosBotao } from "../features/usuarios/UsuariosBotao";
+import { TokensBotao } from "../features/tokens/TokensBotao";
+import { VpnBotao } from "../features/vpn/VpnBotao";
 import { DataTab } from "../features/tabs/DataTab";
 import { IndexesTab } from "../features/tabs/IndexesTab";
 import { StructureTab } from "../features/tabs/StructureTab";
@@ -599,33 +600,7 @@ function TopBar({
         perigo ? "border-accent-line bg-accent-soft" : "border-line bg-surface",
       )}
     >
-      {/*
-        * Favo de mel no canto direito, atrás dos controles — o motivo da
-        * abelha assinando o cabeçalho de leve. `mask` desvanece para a esquerda
-        * para não competir com o miolo. Some no estado de perigo, onde a cor já
-        * carrega a mensagem sozinha.
-        */}
-      {!perigo ? (
-        <HoneycombCluster
-          aria-hidden
-          className="pointer-events-none absolute -right-3 -top-2 h-14 -scale-x-100 text-accent opacity-[0.14]"
-          size={9}
-        />
-      ) : null}
 
-      {/*
-        * Cacho hexagonal no canto superior esquerdo, casando com a marca —
-        * hexágonos flat-top cheios/contorno atrás do "DBee", desvanecendo para
-        * a direita para não invadir o breadcrumb. Some no perigo, onde o
-        * vermelho já carrega a mensagem.
-        */}
-      {!perigo ? (
-        <HoneycombCluster
-          aria-hidden
-          className="pointer-events-none absolute -left-3 -top-2 h-14 text-accent opacity-[0.14]"
-          size={9}
-        />
-      ) : null}
 
       {onToggleTree !== null ? (
         // `shrink-0`: sem ele a hambúrguer era espremida a **16 px de largura**
@@ -710,6 +685,10 @@ function TopBar({
         {/* Administração de contas — só para admin, e só por conveniência: o
             controle é o `exigirAdmin` no servidor. */}
         <UsuariosBotao />
+        {/* Tokens do MCP (ADR 015) — cada conta gerencia os seus. */}
+        <TokensBotao />
+        {/* Estado da VPN do servidor (ADR 014) — some quando não há VPN. */}
+        <VpnBotao />
         {/* Quem está logado é o `actor` do query_log — informação, não perfil. */}
         <UserChip />
       </div>
@@ -956,20 +935,6 @@ function TelaVazia({
   const t = useT();
   return (
     <div className="relative flex h-full min-h-0 items-center justify-center overflow-hidden">
-      {/* Cachos hexagonais nos cantos superior-esquerdo e inferior-direito — o
-          mesmo motivo cheio do cabeçalho e da barra lateral, sangrando para
-          fora, âmbar de leve. Assina a tela sem competir com o centro. */}
-      <HoneycombCluster
-        aria-hidden
-        className="pointer-events-none absolute -left-8 -top-8 h-44 w-44 text-accent opacity-[0.11]"
-        size={17}
-      />
-      <HoneycombCluster
-        aria-hidden
-        className="pointer-events-none absolute -bottom-8 -right-8 h-44 w-44 -scale-x-100 text-accent opacity-[0.11]"
-        size={17}
-      />
-
       {/*
         Estado vazio: uma frase e uma saída.
 
@@ -979,15 +944,14 @@ function TelaVazia({
         árvore só consulta o banco quando você abre o nó" era nota de
         implementação, não instrução).
 
-        O mascote encolheu de 96 para 64 px e perdeu o halo difuso: ele aparece
-        toda vez que uma aba fecha, e o que é bonito na tela de login vira
-        insistente quando se repete o dia inteiro.
+        O mascote é estático: ele aparece toda vez que a última aba fecha, e um
+        loop contínuo (`float`) numa tela de trabalho vira insistência. Título e
+        dica dizem a mesma coisa — "nenhuma aba; abra uma tabela".
       */}
       <div className="relative z-10 mx-auto max-w-xs px-6 text-center">
         <Mascote
           humor={temConexoes ? "feliz" : "laptop"}
-          float
-          className="mx-auto h-16 w-16"
+          className="mx-auto h-12 w-12"
         />
 
         <h2 className="mt-3 text-base font-medium text-ink">
@@ -1004,7 +968,7 @@ function TelaVazia({
         */}
         {temConexoes && onNovaConsulta !== null ? (
           <div className="mt-4 flex flex-col items-center gap-1.5">
-            <Button variant="primary" size="sm" onClick={onNovaConsulta}>
+            <Button variant="secondary" size="sm" onClick={onNovaConsulta}>
               <Code2 aria-hidden className="h-3.5 w-3.5" />
               {t("aba.novaConsulta")}
             </Button>

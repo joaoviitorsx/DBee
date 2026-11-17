@@ -9,7 +9,6 @@ import { api } from "../../lib/api";
 import { SaveQueryDialog, SavedQueriesModal } from "./SavedQueriesModal";
 import { DataTab } from "../tabs/DataTab";
 import { ExportButton } from "../export/ExportButton";
-import { Mascote } from "../mascote";
 import { Trabalhando } from "../motion/Trabalhando";
 import { ResultGrid } from "../grid/ResultGrid";
 import { cn } from "../../lib/cn";
@@ -364,14 +363,9 @@ function Resultado({
 
       <div className="flex items-center gap-2 px-4 py-3 text-2xs text-subtle">
         {/*
-          * O mascote comemora só quando deu certo — erro tem sua própria caixa
-          * com o `code` do Postgres, e uma abelha feliz ao lado de um erro seria
-          * a tela contradizendo a si mesma. `pop` uma vez, sem flutuar depois:
-          * é um aceno, não um enfeite permanente.
+          * Só métrica. Havia um mascote comemorando cada consulta bem-sucedida;
+          * quem roda 200 por dia via 200 comemorações — ruído em ação rotineira.
           */}
-        {resposta.error === null ? (
-          <Mascote humor="joia" pop className="h-6 w-6 shrink-0" />
-        ) : null}
         <span>
           {resposta.totalDurationMs} ms · {resposta.readOnly ? t("query.somenteLeitura") : t("query.escrita")}
         </span>

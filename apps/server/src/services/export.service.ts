@@ -17,6 +17,7 @@ import { dialetoDe } from "@dbee/shared/puro";
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
+import { falhaDoResolve } from "../db/connections.repo";
 import type { Drivers } from "../driver/registro";
 import { citarIdent, exportarEmStream, type PaginaExport } from "../driver/exportador";
 import {
@@ -192,8 +193,8 @@ export class ExportService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (connection === null) return fail("not_found");
 
@@ -566,8 +567,8 @@ export class ExportService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (connection === null) return fail("not_found");
 

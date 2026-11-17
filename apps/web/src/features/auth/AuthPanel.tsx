@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
 import vitrine from "../../assets/vitrine-login.webp";
-import { HoneycombCluster } from "../../components/HoneycombCluster";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
 import { IdiomaToggle } from "../idioma/IdiomaToggle";
@@ -32,19 +31,14 @@ import { IdiomaToggle } from "../idioma/IdiomaToggle";
  */
 export function AuthPanel({
   titulo,
-  tituloDestaque,
   descricao,
   recusado = false,
   children,
   rodape,
 }: {
   readonly titulo: string;
-  /**
-   * Fecho do título, em âmbar. "Bem-vindo" + "de volta" — a cor separa a
-   * saudação do estado, sem precisar de duas linhas.
-   */
-  readonly tituloDestaque?: string;
-  readonly descricao: string;
+  /** Opcional: quando o título já diz tudo ("Entrar"), não há subtítulo. */
+  readonly descricao?: string;
   /** Dispara o gesto de recusa uma vez. */
   readonly recusado?: boolean;
   readonly children: React.ReactNode;
@@ -92,7 +86,7 @@ export function AuthPanel({
       */}
       <div
         className={cn(
-          "relative grid h-full w-full grid-cols-1 grid-rows-[auto_1fr] overflow-hidden",
+          "relative grid h-full w-full grid-cols-1 grid-rows-[1fr] overflow-hidden",
           // Preenche a janela inteira. O que impede o campo de virar uma faixa
           // de 900px num ultrawide é o teto do CONTEÚDO (32rem), não um teto da
           // coluna — capar a coluna deixava tarjas de fundo dos dois lados.
@@ -102,14 +96,13 @@ export function AuthPanel({
       {/*
         Ilustração — embutida, não sangrando: uma margem em volta e cantos
         arredondados, para ela ler como uma janela dentro da tela e não como
-        metade do fundo. Em telas estreitas vira faixa no topo, com o
-        enquadramento no alto, que é onde estão o céu e a abelha.
+        metade do fundo. Só a partir de `lg`: abaixo disso ela empurrava o campo
+        de usuário para a segunda dobra, e no celular quem abre a tela quer
+        entrar. Sem véu, sem slogan, sem gradiente: a imagem fala sozinha.
       */}
-      <div className="order-1 h-40 p-4 sm:h-52 lg:h-auto lg:p-6">
+      <div className="order-1 hidden lg:block lg:p-6">
         {/*
-          A moldura arredondada saiu do `img` e virou este contêiner: os
-          rótulos são irmãos da imagem, e sem um pai que recorte eles vazariam
-          pelos cantos quadrados.
+          A moldura arredondada recorta a imagem nos cantos.
         */}
         <figure className="relative h-full w-full overflow-hidden rounded-2xl">
           <img
@@ -127,55 +120,6 @@ export function AuthPanel({
             className="h-full w-full object-cover object-[50%_20%]"
           />
 
-          {/*
-            Véu nos dois cantos que recebem texto, e só neles.
-
-            Sem ele, os rótulos caem sobre nuvem branca e pedra clara: medido
-            em 1920, o pior pixel sob o texto dá **1,01:1** em cima e
-            **1,09:1** embaixo — invisível, não "pouco legível". O véu é
-            diagonal em vez de uma cortina inteira porque escurecer a cena toda
-            para dois rótulos apagaria justamente o que a imagem tem de bom.
-
-            Com ele, o pior caso varrendo 1024/1280/1440/1680/1920/2560 é
-            **5,06:1** no rótulo de cima (em 2560) e **5,90:1** no de baixo (em
-            1440). Ambos passam o 4,5:1. O recorte muda com a largura, então
-            medir num tamanho só não valeria — e trocar a ilustração invalida a
-            medição, porque o que está sob o texto muda junto.
-          */}
-          <div
-            aria-hidden
-            className={cn(
-              "pointer-events-none absolute inset-0 hidden lg:block",
-              "bg-[linear-gradient(150deg,rgba(20,18,16,0.86)_0%,rgba(20,18,16,0.34)_34%,rgba(20,18,16,0)_54%),linear-gradient(330deg,rgba(20,18,16,0.90)_0%,rgba(20,18,16,0.42)_26%,rgba(20,18,16,0)_50%)]",
-            )}
-          />
-
-          {/*
-            Rótulos só a partir de `lg`. Abaixo disso a ilustração é uma faixa
-            de 160px: um par de frases ali não é enquadramento, é entulho.
-          */}
-          <figcaption className="absolute inset-0 hidden flex-col justify-between p-8 lg:flex xl:p-10">
-            <div>
-              <p className="max-w-[15ch] text-[1.75rem] font-semibold leading-[1.15] tracking-[-0.02em] text-bone xl:text-[2rem]">
-                {t("login.vitrineLinha1")}
-                <br />
-                {t("login.vitrineLinha2")}
-              </p>
-              {/*
-                `--color-amber` (o âmbar de preenchimento), não `--color-accent`:
-                o accent escurece no tema claro para ficar legível sobre creme, e
-                aqui o fundo é a ilustração, que não muda com o tema.
-              */}
-              <span aria-hidden className="mt-4 block h-[3px] w-14 rounded-full bg-amber" />
-            </div>
-
-            <div className="self-end text-right">
-              <span aria-hidden className="mb-3 ml-auto block h-[2px] w-9 rounded-full bg-amber" />
-              <p className="ml-auto max-w-[26ch] text-[0.75rem] font-semibold uppercase leading-[1.6] tracking-[0.2em] text-bone">
-                {t("login.vitrineRodape")}
-              </p>
-            </div>
-          </figcaption>
         </figure>
       </div>
 
@@ -195,36 +139,6 @@ export function AuthPanel({
           recusado && "animate-refuse",
         )}
       >
-        {/*
-          Favo só nos **dois cantos opostos**, não como campo de fundo.
-
-          Antes havia também uma tesselação contínua cobrindo a coluna inteira.
-          Ela virava textura sobre a qual o formulário flutuava, e num tema
-          claro competia com os campos; dois acentos em cantos opostos dão o
-          mesmo pertencimento de marca sem disputar a leitura. Os desenhos são
-          espelhados um do outro de propósito — é o mesmo objeto visto do outro
-          canto, não duas peças diferentes mal-encaixadas.
-
-          A camada é `absolute inset-0 overflow-hidden`: os cachos têm
-          deslocamento negativo de propósito (para sair pela borda em vez de
-          flutuar), e soltos dentro da coluna que rola eles criavam barra de
-          rolagem nos dois eixos.
-
-          O peso vem de `--favo-cacho`, definido POR TEMA no `index.css`: o
-          mesmo âmbar salta sobre o fundo escuro e quase some sobre o creme,
-          então um número fixo erraria num dos dois.
-        */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-          <HoneycombCluster
-            className="absolute -right-10 -top-12 h-36 w-36 text-accent opacity-[var(--favo-cacho)] sm:h-52 sm:w-52 lg:h-72 lg:w-72"
-            size={22}
-          />
-          <HoneycombCluster
-            className="absolute -bottom-14 -left-12 h-28 w-28 rotate-180 text-accent opacity-[var(--favo-cacho)] sm:h-40 sm:w-40 lg:h-56 lg:w-56"
-            size={16}
-          />
-        </div>
-
         {/*
           O seletor mora aqui, e não solto sobre a tela: no empilhado ele caía
           em cima do céu da ilustração — texto claro sobre azul claro.
@@ -260,30 +174,12 @@ export function AuthPanel({
             </div>
           </div>
 
-          <h1 className="mt-10 text-[2rem] font-bold leading-[1.1] tracking-[-0.025em] text-ink sm:text-[2.35rem]">
+          <h1 className="mt-10 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink">
             {titulo}
-            {tituloDestaque === undefined ? null : (
-              <>
-                {" "}
-                {/*
-                  `text-amber` (vibrante), a pedido do autor, para casar com o
-                  "Bee" do lockup.
-
-                  **É uma exceção consciente de contraste, não um descuido.**
-                  Medido com o `contrast.ts` do projeto: sobre o fundo claro o
-                  amber dá 1,62:1, contra 4,5:1 do AA para texto normal e 3:1
-                  para texto grande — reprova nos dois. No "Bee" o mesmo amarelo
-                  é legítimo porque a WCAG isenta logotipo; aqui é cabeçalho, e
-                  não é. No tema escuro a cor é a mesma e dá 8,90:1.
-
-                  Quem quiser reverter: trocar por `text-accent` (4,61:1) devolve
-                  a conformidade sem mexer em mais nada.
-                */}
-                <span className="text-amber">{tituloDestaque}</span>
-              </>
-            )}
           </h1>
-          <p className="mt-2.5 text-base leading-relaxed text-muted">{descricao}</p>
+          {descricao === undefined ? null : (
+            <p className="mt-2 text-sm leading-relaxed text-muted">{descricao}</p>
+          )}
 
           <div className="mt-6">{children}</div>
 
@@ -334,18 +230,18 @@ export function CampoCredencial({
   readonly dica?: string;
   readonly aviso?: string | null;
   readonly acao?: React.ReactNode;
-  /** Ícone à esquerda do campo — acende em âmbar junto com o rótulo no foco. */
+  /** Ícone à esquerda do campo — passa de `subtle` a `ink` no foco. */
   readonly icone?: React.ReactNode;
   readonly invalido?: boolean;
 }) {
   return (
     <div className="group">
       <div className="mb-1.5 flex items-baseline justify-between gap-3">
-        {/* O rótulo acende em âmbar quando o campo recebe foco: diz "é aqui
-            que você está" sem depender só do anel do input. */}
+        {/* Foco sem âmbar: âmbar é o selo do modo escrita (§1.4), e a primeira
+            tela do dia não pode treinar o olho a lê-lo como "campo ativo". */}
         <label
           htmlFor={id}
-          className="text-xs font-medium tracking-[-0.01em] text-ink transition-colors group-focus-within:text-accent"
+          className="text-xs font-medium tracking-[-0.01em] text-ink transition-colors "
         >
           {rotulo}
         </label>
@@ -354,9 +250,8 @@ export function CampoCredencial({
 
       <div className="relative">
         {icone === undefined ? null : (
-          // O ícone guia o campo (usuário, cadeado) e acende no foco junto do
-          // rótulo — detalhe de login moderno, não enfeite: diz o que digitar.
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-11 items-center justify-center text-subtle transition-colors group-focus-within:text-accent">
+          // O ícone guia o campo (usuário, cadeado) e escurece no foco.
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-11 items-center justify-center text-subtle transition-colors group-focus-within:text-ink">
             {icone}
           </div>
         )}
@@ -372,18 +267,18 @@ export function CampoCredencial({
           spellCheck={false}
           autoCapitalize="none"
           className={cn(
-            // Cápsula alta, como na referência: alvo generoso para a mão pesada
-            // de quem já errou a senha duas vezes.
+            // Mesmo raio e altura do resto do app (§3): a tela de entrada é a
+            // ferramenta, não uma landing page com cápsulas.
             // Mais claro que a página, não mais escuro: com o fundo em `sunken`, um
             // campo `sunken` sumiria. `surface` é o passo acima nos dois temas.
-            "h-12 w-full rounded-full border bg-surface px-4 font-mono text-sm text-ink",
+            "h-10 w-full rounded-[6px] border bg-surface max-lg:h-11 px-4 font-mono text-sm text-ink",
             "transition-[color,border-color,box-shadow] duration-150 placeholder:text-subtle",
-            "focus:outline-none focus:ring-4 focus:ring-accent/15",
+            "focus:outline-none focus:ring-1 focus:ring-line-strong",
             icone === undefined ? "" : "pl-11",
             acao === undefined ? "" : "pr-12",
             invalido
               ? "border-danger/60 focus:border-danger"
-              : "border-line/80 hover:border-line-strong focus:border-accent",
+              : "border-line/80 hover:border-line-strong focus:border-line-strong",
           )}
         />
         {acao === undefined ? null : (

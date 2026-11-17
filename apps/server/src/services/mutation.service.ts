@@ -13,6 +13,7 @@ import {
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository } from "../db/connections.repo";
+import { falhaDoResolve } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { PoolClient } from "pg";
 
@@ -208,8 +209,8 @@ export class MutationService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return mutFail("decryption_failed");
+    } catch (e) {
+      return mutFail(falhaDoResolve(e));
     }
     if (connection === null) return mutFail("not_found");
     /*
@@ -321,8 +322,8 @@ export class MutationService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return mutFail("decryption_failed");
+    } catch (e) {
+      return mutFail(falhaDoResolve(e));
     }
     if (connection === null) return mutFail("not_found");
 
@@ -400,8 +401,8 @@ export class MutationService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return mutFail("decryption_failed");
+    } catch (e) {
+      return mutFail(falhaDoResolve(e));
     }
     if (connection === null) return mutFail("not_found");
     if (connection.engine !== "redis") {

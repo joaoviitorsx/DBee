@@ -21,7 +21,6 @@ import { capacidadesDe } from "@dbee/shared/puro";
 
 import { IconeEngine, NOME_ENGINE } from "../../components/IconeEngine";
 import { anchorFromEvent, anchorFromRect, type MenuAnchor } from "../../components/ContextMenu";
-import { HoneycombCluster } from "../../components/HoneycombCluster";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
 import type { TableTarget } from "../../app/workspace";
@@ -169,20 +168,7 @@ export function ConnectionTree({
         )}
       </nav>
 
-      {/*
-        * Favo de mel no pé da barra, atrás do "Nova conexão" — um **cacho**
-        * hexagonal no canto inferior direito (o mesmo motivo do rodapé do
-        * login), não a tesselação difusa de antes: hexágonos flat-top de
-        * verdade, parte cheios, parte contorno. `mask` desvanece para cima e
-        * para a esquerda, para o favo assinar a lateral sem competir com a
-        * árvore; `text-accent` tinge em dark e light.
-        */}
       <div className="relative shrink-0 overflow-hidden border-t border-line p-2">
-        <HoneycombCluster
-          aria-hidden
-          className="absolute bottom-0 right-0 h-28 w-28 translate-x-4 translate-y-4 text-accent opacity-[0.13]"
-          size={13}
-        />
         <Button
           variant="ghost"
           size="sm"
@@ -308,6 +294,8 @@ const HEALTH_DOT: Readonly<Record<"ok" | "untested", string>> = {
   ok: "bg-ok",
   // Anel vazado, não cinza sólido: "nada se sabe ainda" não é um estado, é a
   // ausência de um — e a forma vazada diz isso sem depender do matiz.
+  // `size-2` (8 px), não 6: vazado a 6 px sumia no tema escuro, e o estado da
+  // conexão é a segunda informação mais importante da linha depois da escrita.
   untested: "border border-line-strong",
 };
 
@@ -450,19 +438,19 @@ function ConnectionBranch({
           O `title` fica no invólucro: os ícones do lucide não aceitam `title`,
           e um wrapper só mantém o texto no mesmo lugar para os três estados.
         */}
-        <span aria-hidden className="flex h-3 w-3 shrink-0 items-center justify-center" title={t(HEALTH_LABEL[saude])}>
+        <span role="img" aria-label={t(HEALTH_LABEL[saude])} className="flex h-3 w-3 shrink-0 items-center justify-center" title={t(HEALTH_LABEL[saude])}>
           {saude === "error" ? (
             // Único estado com glifo de alerta: é o único que pede ação, e a
             // forma o separa do "ok" para quem não distingue verde de vermelho.
-            <AlertCircle className="h-3 w-3 text-danger" />
+            <AlertCircle aria-hidden className="h-3 w-3 text-danger" />
           ) : saude === "conectando" ? (
             // Glifo, e não o ponto girando: um anel de 6 px fica idêntico a
             // cada quadro da rotação, então o giro não comunicaria nada. Com o
             // movimento zerado por `prefers-reduced-motion`, o `Loader2` parado
             // ainda é uma forma diferente do ponto — não depende da animação.
-            <Loader2 className="h-3 w-3 animate-spin text-accent" />
+            <Loader2 aria-hidden className="h-3 w-3 animate-spin text-muted" />
           ) : (
-            <span className={cn("h-1.5 w-1.5 rounded-full", HEALTH_DOT[saude === "ok" ? "ok" : "untested"])} />
+            <span aria-hidden className={cn("size-2 rounded-full", HEALTH_DOT[saude === "ok" ? "ok" : "untested"])} />
           )}
         </span>
         {/*

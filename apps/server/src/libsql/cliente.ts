@@ -151,11 +151,37 @@ export async function executarSql(
     { type: "close" as const },
   ];
 
+  const base = alvoValidado(alvo.url);
+
   const controle = new AbortController();
   const prazo = setTimeout(() => { controle.abort(); }, alvo.timeoutMs ?? 30_000);
 
-  const base = alvoValidado(alvo.url);
+  /*
+   * O prazo cobre a requisição INTEIRA, inclusive a leitura do corpo: um
+   * servidor que manda os cabeçalhos e trava o corpo penduraria a rota para
+   * sempre se o timer fosse limpo logo após os cabeçalhos.
+   */
+  try {
+    return await pipeline(base, alvo, requests, controle.signal);
+  } finally {
+    clearTimeout(prazo);
+  }
+}
 
+function erroDeRede(err: unknown): ErroLibsql {
+  if (err instanceof ErroLibsql) return err;
+  if (err instanceof Error && err.name === "AbortError") {
+    return new ErroLibsql("o servidor libSQL não respondeu no tempo esperado", "timeout");
+  }
+  return new ErroLibsql(err instanceof Error ? err.message : String(err), null);
+}
+
+async function pipeline(
+  base: string,
+  alvo: AlvoLibsql,
+  requests: readonly unknown[],
+  signal: AbortSignal,
+): Promise<ResultadoLibsql[]> {
   let resposta: Response;
   try {
     resposta = await fetch(`${base}/v2/pipeline`, {
@@ -167,7 +193,7 @@ export async function executarSql(
         ...(alvo.token === null ? {} : { authorization: `Bearer ${alvo.token}` }),
       },
       body: JSON.stringify({ requests }),
-      signal: controle.signal,
+      signal,
       /*
        * A config de TLS por requisição. O `tls` do `fetch` é extensão do Bun
        * (não existe no fetch padrão), e é o que permite `require` cifrar sem
@@ -192,12 +218,7 @@ export async function executarSql(
       redirect: "manual",
     });
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "AbortError") {
-      throw new ErroLibsql("o servidor libSQL não respondeu no tempo esperado", "timeout");
-    }
-    throw new ErroLibsql(err instanceof Error ? err.message : String(err), null);
-  } finally {
-    clearTimeout(prazo);
+    throw erroDeRede(err);
   }
 
   /*
@@ -214,7 +235,23 @@ export async function executarSql(
     );
   }
 
-  const corpo = (await resposta.json()) as RespostaPipeline;
+  let texto: string;
+  try {
+    texto = await resposta.text();
+  } catch (err: unknown) {
+    throw erroDeRede(err);
+  }
+  let corpo: RespostaPipeline;
+  try {
+    corpo = JSON.parse(texto) as RespostaPipeline;
+  } catch {
+    // Corpo não-JSON (HTML de 502 de um proxy, por exemplo): o status diz o
+    // que houve; o corpo não é ecoado — pode trazer URL ou cabeçalho.
+    throw new ErroLibsql(
+      `o servidor libSQL respondeu ${String(resposta.status)} com corpo que não é JSON`,
+      `http_${String(resposta.status)}`,
+    );
+  }
 
   /*
    * Erro de autorização vem no corpo com HTTP 200 em alguns caminhos e com 401

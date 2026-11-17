@@ -1,8 +1,9 @@
 import type { CancelResponse, QueryLogEntry, QueryRequest, QueryResponse } from "@dbee/shared";
 import { capacidadesDe, gravaPorCredencialSeparada } from "@dbee/shared/puro";
 
-import type { Ator } from "../lib/ator";
+import { type Ator, atorDoLog } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
+import { falhaDoResolve } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { Drivers } from "../driver/registro";
 import { type ServiceResult, fail, ok } from "./result";
@@ -78,8 +79,8 @@ export class QueryService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return fail("decryption_failed");
+    } catch (e) {
+      return fail(falhaDoResolve(e));
     }
     if (connection === null) return fail("not_found");
 
@@ -126,7 +127,7 @@ export class QueryService {
         rowCount: null,
         durationMs: 0,
         readOnly: false,
-        actor: ator.id,
+        actor: atorDoLog(ator),
       });
       return fail("bad_request", motivo);
     }
@@ -178,7 +179,7 @@ export class QueryService {
           rowCount: null,
           durationMs: 0,
           readOnly: false,
-          actor: ator.id,
+          actor: atorDoLog(ator),
         });
         return recusa;
       }
@@ -245,7 +246,7 @@ export class QueryService {
         rowCount: outcome.error === null ? linhas : null,
         durationMs: totalDurationMs,
         readOnly: readOnlyAuditado,
-        actor: ator.id,
+        actor: atorDoLog(ator),
       });
 
       return ok({ ...outcome, totalDurationMs, readOnly });
@@ -264,7 +265,7 @@ export class QueryService {
         rowCount: null,
         durationMs: Math.round(performance.now() - inicio),
         readOnly: readOnlyAuditado,
-        actor: ator.id,
+        actor: atorDoLog(ator),
       });
 
       return fail("upstream_error", message);

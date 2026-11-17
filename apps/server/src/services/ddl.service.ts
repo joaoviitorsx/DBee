@@ -9,6 +9,7 @@ import { capacidadesDe, dialetoDe, gravaPorCredencialSeparada, type DialetoSql }
 
 import type { Ator } from "../lib/ator";
 import type { ConnectionsRepository, ResolvedConnection } from "../db/connections.repo";
+import { falhaDoResolve } from "../db/connections.repo";
 import type { QueryLogRepository } from "../db/queryLog.repo";
 import type { Drivers } from "../driver/registro";
 import type { PoolManager } from "../pg/pool";
@@ -29,6 +30,7 @@ import type { PoolManager } from "../pg/pool";
 export type FalhaDdl =
   | "not_found"
   | "decryption_failed"
+  | "vpn_disconnected"
   | "write_forbidden"
   | "invalid"
   | "upstream_error";
@@ -119,8 +121,8 @@ export class DdlService {
     let connection;
     try {
       connection = this.#repository.resolve(connectionId, ator);
-    } catch {
-      return { ok: false, sql: "", failure: "decryption_failed" };
+    } catch (e) {
+      return { ok: false, sql: "", failure: falhaDoResolve(e) };
     }
     if (connection === null) return { ok: false, sql: "", failure: "not_found" };
 

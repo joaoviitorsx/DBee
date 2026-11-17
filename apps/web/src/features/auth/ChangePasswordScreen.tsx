@@ -126,8 +126,8 @@ export function ChangePasswordScreen({ user }: { readonly user: SessionUser }) {
 
         <Button
           type="submit"
-          variant="primary"
-          className="h-11 w-full"
+          // Neutro forte, como o "Entrar": âmbar sólido é só o modo escrita.
+          className="w-full border-transparent bg-ink font-semibold text-surface hover:border-transparent hover:bg-ink/85"
           disabled={!podeEnviar}
           loading={trocar.isPending}
           loadingLabel={t("senha.trocando")}
