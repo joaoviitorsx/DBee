@@ -8,6 +8,7 @@ import { Button, Input } from "../../components/ui";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
 import { FalhaDdl, useCriarDatabase } from "./useDdl";
+import { useSaidaAnimada } from "../../lib/useSaidaAnimada";
 
 /**
  * Criar database (ADR 010).
@@ -76,11 +77,13 @@ export function CreateDatabaseDialog({
     });
   };
 
+  const saida = useSaidaAnimada(onClose);
   return (
-    <Dialog.Root open onOpenChange={(aberto) => { if (!aberto) onClose(); }}>
+    <Dialog.Root open={saida.aberto} onOpenChange={(aberto) => { if (!aberto) saida.fechar(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[3px] data-[state=open]:animate-in data-[state=open]:fade-in" />
+        <Dialog.Overlay className="veu-dialogo" />
         <Dialog.Content
+          onAnimationEnd={saida.onAnimationEnd}
           onOpenAutoFocus={(e) => { e.preventDefault(); }}
           className={cn(
             "focus-visible:outline-none",

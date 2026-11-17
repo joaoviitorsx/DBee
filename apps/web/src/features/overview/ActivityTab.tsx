@@ -63,7 +63,7 @@ export function ActivityTab({ connectionId }: { readonly connectionId: string })
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2">
-        <ActivityIcon aria-hidden className="h-4 w-4 text-accent" />
+        <ActivityIcon aria-hidden className="h-4 w-4 text-info" />
         <h2 className="text-sm font-semibold text-ink">{t("atividade.titulo")}</h2>
         <span className="text-2xs text-subtle">
           {t(sessoes.length === 1 ? "atividade.sessaoSing" : "atividade.sessaoPlur", { n: sessoes.length })} · {t(ativas === 1 ? "atividade.ativaSing" : "atividade.ativaPlur", { n: ativas })}
@@ -131,7 +131,7 @@ function LinhaSessao({ s }: { readonly s: Activity }) {
     <tr className={cn("border-b border-line/40 hover:bg-raised", s.isSelf && "bg-accent/[0.04]")}>
       <td className="px-4 py-2 font-mono tabular-nums text-muted">
         {s.pid}
-        {s.isSelf ? <span className="ml-1 text-2xs text-accent">{t("atividade.voce")}</span> : null}
+        {s.isSelf ? <span className="ml-1 text-2xs text-info">{t("atividade.voce")}</span> : null}
       </td>
       <td className="px-4 py-2 text-muted">{s.database ?? "—"}</td>
       <td className="px-4 py-2 text-muted">{s.user ?? "—"}</td>

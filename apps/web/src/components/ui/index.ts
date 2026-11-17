@@ -10,3 +10,5 @@ export { Button } from "./Button";
 export { Field } from "./Field";
 export { Input } from "./Input";
 export { Skeleton } from "./Skeleton";
+export { ModalPainel } from "./ModalPainel";
+export { Avisos } from "./Avisos";

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 
-import vitrine from "../../assets/vitrine-login.webp";
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
 import { IdiomaToggle } from "../idioma/IdiomaToggle";
+import { CenaLogin } from "./CenaLogin";
 
 /**
  * A moldura das telas de entrada: um cartão com a ilustração à esquerda e o
@@ -86,7 +86,7 @@ export function AuthPanel({
       */}
       <div
         className={cn(
-          "relative grid h-full w-full grid-cols-1 grid-rows-[1fr] overflow-hidden",
+          "relative grid h-full w-full grid-cols-1 grid-rows-[auto_1fr] overflow-hidden",
           // Preenche a janela inteira. O que impede o campo de virar uma faixa
           // de 900px num ultrawide é o teto do CONTEÚDO (32rem), não um teto da
           // coluna — capar a coluna deixava tarjas de fundo dos dois lados.
@@ -104,23 +104,23 @@ export function AuthPanel({
         {/*
           A moldura arredondada recorta a imagem nos cantos.
         */}
-        <figure className="relative h-full w-full overflow-hidden rounded-2xl">
-          <img
-            src={vitrine}
-            alt=""
-            aria-hidden
-            width={1800}
-            height={2249}
-            // Sem animação contínua: o próprio CSS do projeto diz que nada anima
-            // só por decoração. O estado de carregando vive no botão.
-            // `object-cover` de volta: `contain` mostrava a cena inteira mas
-            // deixava tarjas vazias dos dois lados da coluna, e a tela lia como
-            // desalinhada. O `object-position` em 20% da altura é o que mantém a
-            // abelha enquadrada mesmo com o corte.
-            className="h-full w-full object-cover object-[50%_20%]"
-          />
-
+        {/*
+          A cena animada no lugar da vitrine 3D (identidade.md, "uma abelha
+          só"): a abelha plana leva uma consulta de um banco até a grade.
+          Sobre a superfície rebaixada, sem slogan, sem gradiente.
+        */}
+        <figure className="flex h-full w-full items-center justify-center overflow-hidden rounded-2xl border border-line bg-sunken p-10">
+          <CenaLogin />
         </figure>
+      </div>
+
+      {/*
+        Abaixo de `lg`: a mesma cena como vinheta de 144 px (consulta + topo do
+        favo + abelha), acima do formulário. Baixa o bastante para o campo de
+        usuário continuar na primeira dobra em 375×667.
+      */}
+      <div className="order-1 h-36 shrink-0 px-4 sm:h-48 border-b border-line lg:hidden">
+        <CenaLogin compacta />
       </div>
 
       {/* Formulário. */}
@@ -151,35 +151,28 @@ export function AuthPanel({
           uma cascata por elemento, que é o tique de página gerada.
         */}
         <div className="animate-settle relative z-10 w-full max-w-[32rem]">
-          {/* Marca — ícone, lockup e a linha que diz o que é. */}
-          <div className="flex items-center gap-3">
-            <img src="/icon-192.png" alt="" aria-hidden className="h-16 w-16 shrink-0 sm:h-20 sm:w-20" />
-            <div className="min-w-0">
-              {/*
-                "D" e "Bee" no mesmo corpo — a distinção é só de cor, então
-                "DB" alinha em altura.
+          {/*
+            Dois níveis, não três: o lockup é assinatura (pequeno, em cima) e o
+            título é a única coisa grande. A tagline virou a linha de apoio do
+            título quando a tela não traz descrição própria.
 
-                "Bee" usa `text-amber`, o âmbar VIBRANTE, e não o `accent`
-                legível. Medido: sobre o creme do tema claro o vibrante dá
-                1,83:1, longe do mínimo AA de 4,5:1 — e mesmo assim é o certo
-                aqui, porque a WCAG isenta **logotipo** de contraste. O mesmo
-                amarelo em "de volta" logo abaixo seria violação: lá é texto de
-                cabeçalho, não marca.
-              */}
-              <span className="font-marca text-[2.6rem] font-bold leading-none tracking-[-0.03em] sm:text-[3.1rem]">
-                <span className="text-ink">D</span>
-                <span className="text-amber">Bee</span>
-              </span>
-              <p className="mt-2 text-sm text-muted">{t("login.marcaTagline")}</p>
-            </div>
+            "Bee" usa `text-amber`, o âmbar vibrante: a WCAG isenta logotipo de
+            contraste, e é a única palavra âmbar fora do modo escrita (§4b).
+          */}
+          <div className="flex items-center gap-2.5">
+            <img src="/icon-192.png" alt="" aria-hidden className="h-9 w-9 shrink-0" />
+            <span className="font-marca text-2xl font-bold leading-none tracking-[-0.03em]">
+              <span className="text-ink">D</span>
+              <span className="text-amber">Bee</span>
+            </span>
           </div>
 
-          <h1 className="mt-10 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink">
+          <h1 className="mt-12 text-2xl font-semibold leading-tight tracking-[-0.02em] text-ink max-lg:mt-8">
             {titulo}
           </h1>
-          {descricao === undefined ? null : (
-            <p className="mt-2 text-sm leading-relaxed text-muted">{descricao}</p>
-          )}
+          <p className="mt-1.5 text-sm leading-relaxed text-muted">
+            {descricao ?? t("login.marcaTagline")}
+          </p>
 
           <div className="mt-6">{children}</div>
 
@@ -241,7 +234,7 @@ export function CampoCredencial({
             tela do dia não pode treinar o olho a lê-lo como "campo ativo". */}
         <label
           htmlFor={id}
-          className="text-xs font-medium tracking-[-0.01em] text-ink transition-colors "
+          className="text-xs font-medium text-muted transition-colors duration-(--motion-fast) group-focus-within:text-ink"
         >
           {rotulo}
         </label>
@@ -251,7 +244,7 @@ export function CampoCredencial({
       <div className="relative">
         {icone === undefined ? null : (
           // O ícone guia o campo (usuário, cadeado) e escurece no foco.
-          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-11 items-center justify-center text-subtle transition-colors group-focus-within:text-ink">
+          <div className="pointer-events-none absolute inset-y-0 left-0 flex w-11 items-center justify-center text-subtle transition-colors duration-(--motion-fast) group-hover:text-muted group-focus-within:text-ink">
             {icone}
           </div>
         )}
@@ -271,14 +264,16 @@ export function CampoCredencial({
             // ferramenta, não uma landing page com cápsulas.
             // Mais claro que a página, não mais escuro: com o fundo em `sunken`, um
             // campo `sunken` sumiria. `surface` é o passo acima nos dois temas.
-            "h-10 w-full rounded-[6px] border bg-surface max-lg:h-11 px-4 font-mono text-sm text-ink",
-            "transition-[color,border-color,box-shadow] duration-150 placeholder:text-subtle",
-            "focus:outline-none focus:ring-1 focus:ring-line-strong",
+            "h-11 w-full rounded-[6px] border bg-surface px-4 font-mono text-sm text-ink",
+            "transition-[border-color,box-shadow,background-color] duration-(--motion-base) ease-(--ease-enter) placeholder:text-subtle",
+            // Anel neutro de 3 px, não âmbar: a borda escurece e o anel abre
+            // em volta, como um campo que recebeu a mão (§9 pede foco visível).
+            "focus:bg-raised focus:outline-none focus:ring-[3px] focus:ring-ink/10",
             icone === undefined ? "" : "pl-11",
             acao === undefined ? "" : "pr-12",
             invalido
-              ? "border-danger/60 focus:border-danger"
-              : "border-line/80 hover:border-line-strong focus:border-line-strong",
+              ? "border-danger/60 focus:border-danger focus:ring-danger/15"
+              : "border-line hover:border-line-strong focus:border-muted",
           )}
         />
         {acao === undefined ? null : (

@@ -20,6 +20,8 @@ export interface TreeState {
   readonly expanded: ReadonlySet<string>;
   readonly toggle: (node: string) => void;
   readonly isExpanded: (node: string) => boolean;
+  /** Abre um nó sem alternar (o trilho pede "abra esta conexão"). */
+  readonly expand: (node: string) => void;
 }
 
 export function useTreeExpansion(): TreeState {
@@ -35,7 +37,11 @@ export function useTreeExpansion(): TreeState {
 
   const isExpanded = useCallback((node: string) => expanded.has(node), [expanded]);
 
-  return { expanded, toggle, isExpanded };
+  const expand = useCallback((node: string) => {
+    setExpanded((atual) => (atual.has(node) ? atual : new Set(atual).add(node)));
+  }, []);
+
+  return { expanded, toggle, isExpanded, expand };
 }
 
 export function useConnections() {

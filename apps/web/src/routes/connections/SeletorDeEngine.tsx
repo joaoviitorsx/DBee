@@ -49,7 +49,7 @@ export function SeletorDeEngine({
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium text-muted">{t("form.engine")}</span>
         <div className="flex w-fit items-center gap-2 rounded border border-line bg-raised px-3 py-2">
-          <IconeEngine engine={valor} className="h-5 w-5 text-accent" />
+          <IconeEngine engine={valor} className="h-5 w-5 text-info" />
           <span className="text-sm font-medium text-ink">{NOME_ENGINE[valor]}</span>
         </div>
         <p className="text-2xs text-subtle">{t("form.engineFixa")}</p>
@@ -69,11 +69,11 @@ export function SeletorDeEngine({
               key={engine}
               title={disponivel ? undefined : t("form.engineEmBreve")}
               className={cn(
-                "flex items-center gap-2 rounded border px-2.5 py-2 transition-colors duration-150",
+                "flex items-center gap-2 rounded border px-2.5 py-2 transition-colors duration-(--motion-fast)",
                 "has-[:focus-visible]:outline has-[:focus-visible]:outline-2",
-                "has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent",
+                "has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-info",
                 escolhida
-                  ? "border-accent-line bg-accent-soft text-accent"
+                  ? "border-info/50 bg-info/10 text-ink"
                   : "border-line bg-raised text-muted",
                 disponivel
                   ? "cursor-pointer"

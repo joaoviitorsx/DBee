@@ -70,7 +70,7 @@ export function VersaoChip() {
               : t("update.titulo")
           }
           className={cn(
-            "relative cursor-pointer rounded-[4px] px-1 py-0.5 text-2xs transition-colors duration-150",
+            "relative cursor-pointer rounded-[4px] px-1 py-0.5 text-2xs transition-colors duration-(--motion-fast)",
             temAtualizacao ? "text-accent hover:text-accent" : "text-subtle hover:text-muted",
           )}
         >

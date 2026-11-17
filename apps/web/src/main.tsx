@@ -4,6 +4,7 @@ import { createRoot } from "react-dom/client";
 
 import { App } from "./App";
 import { FronteiraDeErro } from "./components/FronteiraDeErro";
+import { Avisos } from "./components/ui/Avisos";
 import { IdiomaProvider } from "./i18n";
 import { aplicarIdiomaGuardado } from "./lib/idioma";
 import { queryClient } from "./lib/query";
@@ -36,6 +37,7 @@ createRoot(root).render(
         */}
         <FronteiraDeErro variante="tela">
           <App />
+          <Avisos />
         </FronteiraDeErro>
       </IdiomaProvider>
     </QueryClientProvider>

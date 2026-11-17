@@ -57,13 +57,13 @@ export function StructureTab({
                 key={column.name}
                 onClick={() => { onSelectColumn(column.name); }}
                 className={cn(
-                  "cursor-pointer border-b border-line/60 transition-colors duration-150",
+                  "cursor-pointer border-b border-line/60 transition-colors duration-(--motion-fast)",
                   selecionada ? "bg-raised" : "hover:bg-surface",
                 )}
               >
                 <td className="py-1.5 pl-4">
                   {column.isPrimaryKey ? (
-                    <KeyRound aria-label={t("estrutura.pkAria")} className="h-3 w-3 text-accent" />
+                    <KeyRound aria-label={t("estrutura.pkAria")} className="h-3 w-3 text-info" />
                   ) : fk !== undefined ? (
                     <Link2 aria-label={t("estrutura.fkAria")} className="h-3 w-3 text-subtle" />
                   ) : null}
@@ -84,7 +84,7 @@ export function StructureTab({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onOpenReference(fk); }}
                       title={t("estrutura.abrirReferencia")}
-                      className="inline-flex items-center gap-1 rounded-[3px] px-1 text-accent hover:bg-accent-soft"
+                      className="inline-flex items-center gap-1 rounded-[3px] px-1 text-info hover:bg-raised"
                     >
                       {fk.referencedSchema}.{fk.referencedTable}
                       <CornerUpRight aria-hidden className="h-3 w-3" />

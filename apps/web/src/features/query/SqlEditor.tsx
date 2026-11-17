@@ -1,13 +1,13 @@
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { MySQL, PostgreSQL, SQLite, sql as sqlLang, type SQLDialect } from "@codemirror/lang-sql";
 import { tags } from "@lezer/highlight";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
-import { EditorView, keymap, lineNumbers, placeholder } from "@codemirror/view";
+import { Compartment, EditorSelection, EditorState, RangeSet, StateEffect, StateField, type Extension } from "@codemirror/state";
+import { Decoration, type DecorationSet, EditorView, GutterMarker, gutter, keymap, lineNumbers, placeholder } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { acceptCompletion, autocompletion, completionKeymap } from "@codemirror/autocomplete";
 import type { DatabaseSchema } from "@dbee/shared";
 import { splitStatements, type DialetoSql } from "@dbee/shared/puro";
-import { useEffect, useMemo, useRef } from "react";
+import { type Ref, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 
 import { construirCompletion } from "./completion";
 
@@ -28,7 +28,7 @@ const tema = EditorView.theme(
     },
     ".cm-content": {
       fontFamily: "var(--font-mono)",
-      caretColor: "var(--color-accent)",
+      caretColor: "var(--color-info)",
       padding: "12px 0",
     },
     ".cm-gutters": {
@@ -39,14 +39,33 @@ const tema = EditorView.theme(
     ".cm-activeLine": { backgroundColor: "color-mix(in oklab, var(--color-raised) 45%, transparent)" },
     ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--color-muted)" },
     "&.cm-focused": { outline: "none" },
-    ".cm-cursor": { borderLeftColor: "var(--color-accent)" },
+    ".cm-cursor": { borderLeftColor: "var(--color-info)" },
     "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, ::selection": {
-      backgroundColor: "color-mix(in oklab, var(--color-amber) 28%, transparent)",
+      // Seleção em `info`: o âmbar é reservado ao modo escrita (ui-detalhes §3).
+      backgroundColor: "color-mix(in oklab, var(--color-info) 30%, transparent)",
     },
     // Marca o statement que o Cmd+Enter vai rodar.
     ".cm-dbee-ativo": {
-      backgroundColor: "color-mix(in oklab, var(--color-amber) 7%, transparent)",
-      borderLeft: "2px solid color-mix(in oklab, var(--color-accent) 55%, transparent)",
+      backgroundColor: "color-mix(in oklab, var(--color-info) 7%, transparent)",
+      borderLeft: "2px solid color-mix(in oklab, var(--color-info) 55%, transparent)",
+    },
+    /*
+     * Erro com `position` (ui-detalhes §3.6): sublinhado ondulado `danger` no
+     * token e um ponto no gutter da linha. Some ao editar o trecho (o campo
+     * mapeia pelas mudanças e descarta quando o token é apagado).
+     */
+    ".cm-dbee-erro": {
+      textDecoration: "underline wavy var(--color-danger)",
+      textDecorationSkipInk: "none",
+      textUnderlineOffset: "3px",
+    },
+    ".cm-dbee-gutter-erro": { width: "10px" },
+    ".cm-dbee-gutter-erro .cm-gutterElement": { display: "flex", alignItems: "center", justifyContent: "center" },
+    ".cm-dbee-ponto-erro": {
+      width: "6px",
+      height: "6px",
+      borderRadius: "999px",
+      backgroundColor: "var(--color-danger)",
     },
 
     /*
@@ -82,14 +101,15 @@ const tema = EditorView.theme(
       borderLeft: "2px solid transparent",
       transition: "background-color 90ms, color 90ms",
     },
+    // Seleção da lista em neutro + régua `info`: âmbar é só do modo escrita.
     ".cm-tooltip-autocomplete > ul > li[aria-selected]": {
-      backgroundColor: "var(--color-accent-soft)",
+      backgroundColor: "var(--color-raised)",
       color: "var(--color-ink)",
-      borderLeftColor: "var(--color-accent)",
+      borderLeftColor: "var(--color-info)",
     },
     ".cm-completionLabel": { color: "inherit" },
     ".cm-completionMatchedText": {
-      color: "var(--color-accent)",
+      color: "var(--color-info)",
       fontWeight: "700",
       textDecoration: "none",
     },
@@ -109,7 +129,7 @@ const tema = EditorView.theme(
       fontSize: "95%",
     },
     ".cm-completionIcon-table, .cm-completionIcon-keyword, .cm-completionIcon-class": {
-      color: "var(--color-accent)",
+      color: "var(--color-info)",
     },
     ".cm-completionIcon-property, .cm-completionIcon-variable": { color: "var(--color-ok)" },
     ".cm-completionIcon-type, .cm-completionIcon-enum": { color: "var(--color-muted)" },
@@ -125,8 +145,9 @@ const tema = EditorView.theme(
  * palavra-chave — é o acento do produto, e ler SQL é achar o verbo.
  */
 const realce = HighlightStyle.define([
-  { tag: tags.keyword, color: "var(--color-accent)" },
-  { tag: tags.operatorKeyword, color: "var(--color-accent)" },
+  // Palavra-chave em `info`, não âmbar: âmbar significa escrita (design-system §1.4).
+  { tag: tags.keyword, color: "var(--color-info)" },
+  { tag: tags.operatorKeyword, color: "var(--color-info)" },
   { tag: tags.string, color: "var(--color-ok)" },
   { tag: tags.number, color: "var(--color-ok)" },
   { tag: tags.bool, color: "var(--color-ok)" },
@@ -159,11 +180,34 @@ const DIALETO_CODEMIRROR: Record<DialetoSql, SQLDialect> = {
   sqlite: SQLite,
 };
 
+/** Um trecho do documento e onde ele começa (0-based) — para mapear `position`. */
+export interface TrechoSql {
+  readonly sql: string;
+  readonly de: number;
+}
+
+/** O que a aba comanda no editor por ref (React 19: `ref` é prop). */
+export interface SqlEditorApi {
+  /** Põe o cursor no deslocamento (0-based), rola até ele e foca. */
+  irPara: (pos: number) => void;
+  /** Sublinha `[de, ate)`; `null` limpa. */
+  marcarErro: (trecho: { de: number; ate: number } | null) => void;
+  /** Formata o documento inteiro como uma transação desfazível. */
+  formatar: () => void;
+  /** O statement sob o cursor (ou a seleção, se houver). */
+  alvo: () => TrechoSql | null;
+}
+
 export interface SqlEditorProps {
   readonly value: string;
   readonly onChange: (value: string) => void;
-  /** `Cmd+Enter` — recebe só o statement sob o cursor. */
-  readonly onRunStatement: (sql: string) => void;
+  /** `Cmd+Enter` — a seleção, se houver; senão o statement sob o cursor. */
+  readonly onRunStatement: (trecho: TrechoSql) => void;
+  /** Seleção não vazia mudou — o botão vira "Executar seleção" (§4). */
+  readonly onSelecao?: (trecho: TrechoSql | null) => void;
+  /** `Shift+Alt+F` não conseguiu formatar (texto que o formatador não entende). */
+  readonly onFormatarFalhou?: () => void;
+  readonly ref?: Ref<SqlEditorApi>;
   /** `Cmd+Shift+Enter` — o script inteiro. */
   readonly onRunAll: () => void;
   /**
@@ -223,13 +267,74 @@ export function statementSobCursor(
     : { sql: primeiro.sql, de: primeiro.offset, ate: primeiro.offset + primeiro.sql.length };
 }
 
+/** Liga/desliga o sublinhado de erro. */
+const efeitoErro = StateEffect.define<{ de: number; ate: number } | null>();
+const marcaErro = Decoration.mark({ class: "cm-dbee-erro" });
+
+class PontoErro extends GutterMarker {
+  override toDOM(): Node {
+    const el = document.createElement("span");
+    el.className = "cm-dbee-ponto-erro";
+    return el;
+  }
+}
+const pontoErro = new PontoErro();
+
+/**
+ * O sublinhado vive num `StateField` que **mapeia pelas mudanças**: editar
+ * antes do erro desloca a marca junto; apagar o token a descarta. Sem isso a
+ * marca ficaria pregada num deslocamento que já aponta outro texto.
+ */
+const campoErro = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update(atual, tr) {
+    let deco = atual.map(tr.changes);
+    for (const e of tr.effects) {
+      if (e.is(efeitoErro)) {
+        const v = e.value;
+        deco = v === null || v.ate <= v.de || v.ate > tr.state.doc.length
+          ? Decoration.none
+          : Decoration.set([marcaErro.range(v.de, v.ate)]);
+      }
+    }
+    return deco;
+  },
+  provide: (f) => EditorView.decorations.from(f),
+});
+
+const gutterErro = gutter({
+  class: "cm-dbee-gutter-erro",
+  markers: (v) => {
+    const marcas: ReturnType<typeof pontoErro.range>[] = [];
+    v.state.field(campoErro).between(0, v.state.doc.length, (de) => {
+      const linha = v.state.doc.lineAt(de);
+      if (marcas.at(-1)?.from !== linha.from) marcas.push(pontoErro.range(linha.from));
+    });
+    return RangeSet.of(marcas);
+  },
+});
+
+/** O que o `Cmd+Enter` roda: a seleção, se houver; senão o statement do cursor. */
+function alvoDoEditor(v: EditorView, dialeto: DialetoSql): TrechoSql | null {
+  const sel = v.state.selection.main;
+  if (!sel.empty) {
+    const texto = v.state.sliceDoc(sel.from, sel.to);
+    if (texto.trim() !== "") return { sql: texto, de: sel.from };
+  }
+  const alvo = statementSobCursor(v.state.doc.toString(), sel.head, dialeto);
+  return alvo === null ? null : { sql: alvo.sql, de: alvo.de };
+}
+
 export function SqlEditor({
   value,
   onChange,
   onRunStatement,
   onRunAll,
+  onSelecao,
+  onFormatarFalhou,
   schema,
   dialeto = "postgres",
+  ref,
 }: SqlEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -269,9 +374,9 @@ export function SqlEditor({
    * a renderização quebra a garantia de render puro do React e o Compiler
    * recusa.
    */
-  const acoes = useRef({ onChange, onRunStatement, onRunAll });
+  const acoes = useRef({ onChange, onRunStatement, onRunAll, onSelecao, onFormatarFalhou });
   useEffect(() => {
-    acoes.current = { onChange, onRunStatement, onRunAll };
+    acoes.current = { onChange, onRunStatement, onRunAll, onSelecao, onFormatarFalhou };
   });
 
   /*
@@ -284,12 +389,50 @@ export function SqlEditor({
     dialetoRef.current = dialeto;
   }, [dialeto]);
 
+  /**
+   * Formatar como **uma** transação: `Ctrl+Z` volta ao texto anterior inteiro.
+   *
+   * O `sql-formatter` (todos os dialetos, ~300 KB) só é baixado no primeiro
+   * uso — não entra no bundle de quem nunca formata. Se o texto mudou enquanto
+   * o módulo chegava, não sobrescreve: formataria uma versão velha.
+   */
+  const formatar = (v: EditorView): void => {
+    const atual = v.state.doc.toString();
+    void import("./formatar.puro").then(({ formatarSql }) => {
+      const novo = formatarSql(atual, dialetoRef.current);
+      if (novo === null) {
+        acoes.current.onFormatarFalhou?.();
+        return;
+      }
+      if (v.state.doc.toString() !== atual || novo === atual) return;
+      v.dispatch({ changes: { from: 0, to: atual.length, insert: novo }, userEvent: "input.format" });
+    });
+  };
+
+  useImperativeHandle(ref, () => ({
+    irPara: (pos) => {
+      const v = view.current;
+      if (v === null) return;
+      const p = Math.min(Math.max(0, pos), v.state.doc.length);
+      v.dispatch({ selection: EditorSelection.cursor(p), effects: EditorView.scrollIntoView(p, { y: "center" }) });
+      v.focus();
+    },
+    marcarErro: (trecho) => {
+      view.current?.dispatch({ effects: efeitoErro.of(trecho) });
+    },
+    formatar: () => { if (view.current !== null) formatar(view.current); },
+    alvo: () => (view.current === null ? null : alvoDoEditor(view.current, dialetoRef.current)),
+  }));
+
+
   useEffect(() => {
     const el = host.current;
     if (el === null) return;
 
     const extensoes: Extension[] = [
+      gutterErro,
       lineNumbers(),
+      campoErro,
       history(),
       linguagem.current.of(configSql()),
       // Abre sozinho ao digitar, como o VSCode. `Esc` fecha, `Ctrl+Espaço`
@@ -310,12 +453,13 @@ export function SqlEditor({
           key: "Mod-Enter",
           preventDefault: true,
           run: (v) => {
-            const doc = v.state.doc.toString();
-            const alvo = statementSobCursor(doc, v.state.selection.main.head, dialetoRef.current);
-            if (alvo !== null) acoes.current.onRunStatement(alvo.sql);
+            const alvo = alvoDoEditor(v, dialetoRef.current);
+            if (alvo !== null) acoes.current.onRunStatement(alvo);
             return true;
           },
         },
+        // Formatar (roadmap-dbeaver item 4), o atalho do VSCode.
+        { key: "Shift-Alt-f", preventDefault: true, run: (v) => { formatar(v); return true; } },
         {
           key: "Mod-Shift-Enter",
           preventDefault: true,
@@ -335,6 +479,11 @@ export function SqlEditor({
       ]),
       EditorView.updateListener.of((update) => {
         if (update.docChanged) acoes.current.onChange(update.state.doc.toString());
+        if (update.selectionSet || update.docChanged) {
+          const sel = update.state.selection.main;
+          const texto = sel.empty ? "" : update.state.sliceDoc(sel.from, sel.to);
+          acoes.current.onSelecao?.(texto.trim() === "" ? null : { sql: texto, de: sel.from });
+        }
       }),
     ];
 

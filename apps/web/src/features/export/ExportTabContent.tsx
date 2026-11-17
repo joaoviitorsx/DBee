@@ -502,7 +502,7 @@ function Escolha<T extends string>({
       onChange={(e) => { onEscolher(e.target.value as T); }}
       className={cn(
         "h-8 w-full rounded-[4px] border border-line bg-sunken px-2 text-xs text-ink",
-        "transition-colors duration-150 hover:border-line-strong",
+        "transition-colors duration-(--motion-fast) hover:border-line-strong",
         "disabled:cursor-not-allowed disabled:opacity-45",
       )}
     >

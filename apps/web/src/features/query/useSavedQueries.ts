@@ -1,4 +1,4 @@
-import type { SavedQuery } from "@dbee/shared";
+import type { SavedQuery, SavedQueryVisibility } from "@dbee/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../../lib/api";
@@ -29,7 +29,9 @@ function useInvalidar() {
 export function useSalvarQuery() {
   const invalidar = useInvalidar();
   return useMutation({
-    mutationFn: async (dados: { name: string; sql: string; connectionId: string | null }) => {
+    // `visibility` sempre explícita: o servidor trata ausente como `private`
+    // (ADR 016), e a tela agora deixa escolher.
+    mutationFn: async (dados: { name: string; sql: string; connectionId: string | null; visibility: SavedQueryVisibility }) => {
       const { data, error } = await api.api["saved-queries"].post(dados);
       if (error !== null) throw new Error("não foi possível salvar a query");
       return data;
@@ -44,6 +46,18 @@ export function useRenomearQuery() {
     mutationFn: async ({ id, name }: { id: string; name: string }) => {
       const { error } = await api.api["saved-queries"]({ id }).patch({ name });
       if (error !== null) throw new Error("não foi possível renomear");
+    },
+    onSuccess: () => { void invalidar(); },
+  });
+}
+
+/** Troca private ⇄ team. Só o dono ou admin (`canEdit`); o servidor confere. */
+export function useVisibilidadeQuery() {
+  const invalidar = useInvalidar();
+  return useMutation({
+    mutationFn: async ({ id, visibility }: { id: string; visibility: SavedQueryVisibility }) => {
+      const { error } = await api.api["saved-queries"]({ id }).patch({ visibility });
+      if (error !== null) throw new Error("não foi possível alterar a visibilidade");
     },
     onSuccess: () => { void invalidar(); },
   });

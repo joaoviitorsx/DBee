@@ -18,6 +18,8 @@ export interface MenuItem {
   /** Ação destrutiva ganha tratamento visual próprio e fica por último. */
   readonly danger?: boolean;
   readonly disabled?: boolean;
+  /** Atalho de teclado equivalente, mostrado à direita em `<kbd>` (ui-detalhes §3.4). */
+  readonly atalho?: string;
   readonly onSelect: () => void;
 }
 
@@ -43,6 +45,12 @@ export function ContextMenu({ anchor, title, sections, footer, onClose }: Contex
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<MenuAnchor>(anchor);
   const [focado, setFocado] = useState(0);
+  // Saída animada: o menu fica montado até o `animationend` da saída (§7:
+  // saída em `fast`). Sob reduced-motion a animação dura 0,01 ms e o
+  // `animationend` dispara do mesmo jeito.
+  const [saindo, setSaindo] = useState(false);
+  const fechar = (): void => { setSaindo(true); };
+  const busca = useRef({ texto: "", ate: 0 });
 
   const itens = sections.flatMap((s) => s.items).filter((i) => i.disabled !== true);
 
@@ -65,13 +73,23 @@ export function ContextMenu({ anchor, title, sections, footer, onClose }: Contex
 
   useEffect(() => {
     const fora = (e: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(e.target as Node)) onClose();
+      if (ref.current !== null && !ref.current.contains(e.target as Node)) fechar();
     };
     const tecla = (e: KeyboardEvent): void => {
-      if (e.key === "Escape") { onClose(); return; }
-      if (e.key === "ArrowDown") { e.preventDefault(); setFocado((i) => (i + 1) % itens.length); }
-      if (e.key === "ArrowUp") { e.preventDefault(); setFocado((i) => (i - 1 + itens.length) % itens.length); }
-      if (e.key === "Enter") { e.preventDefault(); itens[focado]?.onSelect(); onClose(); }
+      if (e.key === "Escape") { fechar(); return; }
+      if (e.key === "ArrowDown") { e.preventDefault(); setFocado((i) => (i + 1) % itens.length); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setFocado((i) => (i - 1 + itens.length) % itens.length); return; }
+      if (e.key === "Home") { e.preventDefault(); setFocado(0); return; }
+      if (e.key === "End") { e.preventDefault(); setFocado(itens.length - 1); return; }
+      if (e.key === "Enter") { e.preventDefault(); itens[focado]?.onSelect(); fechar(); return; }
+      // Type-ahead: letras digitadas em até 600 ms formam um prefixo.
+      if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        const agora = Date.now();
+        const texto = (agora < busca.current.ate ? busca.current.texto : "") + e.key.toLowerCase();
+        busca.current = { texto, ate: agora + 600 };
+        const achado = itens.findIndex((i) => i.label.toLowerCase().startsWith(texto));
+        if (achado >= 0) setFocado(achado);
+      }
     };
 
     document.addEventListener("mousedown", fora);
@@ -83,7 +101,7 @@ export function ContextMenu({ anchor, title, sections, footer, onClose }: Contex
       document.removeEventListener("contextmenu", fora, true);
       document.removeEventListener("keydown", tecla);
     };
-  }, [onClose, itens, focado]);
+  }, [itens, focado]);
 
   let indice = -1;
 
@@ -92,8 +110,15 @@ export function ContextMenu({ anchor, title, sections, footer, onClose }: Contex
       ref={ref}
       role="menu"
       aria-label={title ?? t("menu.acoes")}
-      style={{ top: pos.y, left: pos.x }}
-      className="fixed z-50 min-w-52 overflow-hidden rounded-[6px] border border-line bg-overlay py-1 shadow-[0_8px_24px_rgba(0,0,0,.5)] max-w-[calc(100vw-1rem)]"
+      style={{
+        top: pos.y,
+        left: pos.x,
+        // Cresce a partir do ponto clicado: se o menu foi empurrado para caber
+        // na janela, a origem acompanha o canto mais próximo do clique.
+        transformOrigin: `${pos.x < anchor.x ? "right" : "left"} ${pos.y < anchor.y ? "bottom" : "top"}`,
+      }}
+      onAnimationEnd={() => { if (saindo) onClose(); }}
+      className={cn(saindo ? "motion-pop-out pointer-events-none" : "motion-pop", "fixed z-50 min-w-52 overflow-hidden rounded-[6px] border border-line bg-overlay py-1 shadow-[0_8px_24px_rgba(0,0,0,.5)] max-w-[calc(100vw-1rem)]")}
     >
       {title !== undefined ? (
         <p className="truncate px-3 pb-1 pt-0.5 text-2xs text-subtle">{title}</p>
@@ -112,9 +137,9 @@ export function ContextMenu({ anchor, title, sections, footer, onClose }: Contex
                 role="menuitem"
                 disabled={item.disabled}
                 onMouseEnter={() => { if (item.disabled !== true) setFocado(atual); }}
-                onClick={() => { item.onSelect(); onClose(); }}
+                onClick={() => { item.onSelect(); fechar(); }}
                 className={cn(
-                  "flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors duration-150",
+                  "flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors duration-(--motion-fast) active:bg-overlay",
                   "disabled:cursor-not-allowed disabled:opacity-45",
                   item.danger === true ? "text-danger" : "text-ink",
                   item.disabled !== true &&
@@ -124,6 +149,9 @@ export function ContextMenu({ anchor, title, sections, footer, onClose }: Contex
               >
                 {item.icon}
                 {item.label}
+                {item.atalho === undefined ? null : (
+                  <kbd className="ml-auto pl-4 font-sans text-2xs text-subtle">{item.atalho}</kbd>
+                )}
               </button>
             );
           })}

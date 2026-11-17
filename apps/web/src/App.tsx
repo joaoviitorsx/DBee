@@ -37,6 +37,19 @@ function Area() {
   const queryClient = useQueryClient();
   const { query, save, remove, test, results } = useConnections();
   const [painel, setPainel] = useState<Painel>({ open: false });
+  /*
+   * Chave e alvo do formulário mudam só ao ABRIR. Antes a chave virava
+   * "fechado" no fechamento e o diálogo remontava na hora — sem a saída
+   * animada (design-system.md §7) e com o conteúdo trocando enquanto sumia.
+   */
+  const [formulario, setFormulario] = useState<{ n: number; editing: Connection | null }>({
+    n: 0,
+    editing: null,
+  });
+  const abrirPainel = (editing: Connection | null): void => {
+    setFormulario((f) => ({ n: f.n + 1, editing }));
+    setPainel({ open: true, editing });
+  };
 
   const connections = query.data ?? [];
   const health = Object.fromEntries(
@@ -59,22 +72,22 @@ function Area() {
         connections={connections}
         health={health}
         warnings={warnings}
-        onNewConnection={() => { setPainel({ open: true, editing: null }); }}
+        onNewConnection={() => { abrirPainel(null); }}
         onRefreshSchema={(connectionId, database) => {
           void queryClient.invalidateQueries({ queryKey: schemaKey(connectionId, database) });
         }}
         connectionActions={(connection) => ({
           testing: test.isPending && test.variables === connection.id,
           onTestConnection: () => { test.mutate(connection.id); },
-          onEditConnection: () => { setPainel({ open: true, editing: connection }); },
+          onEditConnection: () => { abrirPainel(connection); },
           onDeleteConnection: () => { remove.mutate(connection.id); },
         })}
       />
 
       <ConnectionForm
-        key={painel.open ? (painel.editing?.id ?? "nova") : "fechado"}
+        key={formulario.n}
         open={painel.open}
-        editing={painel.open ? painel.editing : null}
+        editing={formulario.editing}
         saving={save.isPending}
         error={save.error?.message ?? null}
         onOpenChange={(open) => { if (!open) setPainel({ open: false }); }}

@@ -15,6 +15,7 @@ import {
   useVerificarAgora,
   type CodigoDeFalha,
 } from "./useUpdate";
+import { useSaidaAnimada } from "../../lib/useSaidaAnimada";
 
 /**
  * Quanto tempo esperar o container voltar antes de desistir e mandar a pessoa
@@ -121,11 +122,13 @@ export function UpdateDialog({
     });
   };
 
+  const saida = useSaidaAnimada(onClose);
   return (
-    <Dialog.Root open onOpenChange={(aberto) => { if (!aberto && !aguardando) onClose(); }}>
+    <Dialog.Root open={saida.aberto} onOpenChange={(aberto) => { if (!aberto && !aguardando) saida.fechar(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[3px] data-[state=open]:animate-in data-[state=open]:fade-in" />
+        <Dialog.Overlay className="veu-dialogo" />
         <Dialog.Content
+          onAnimationEnd={saida.onAnimationEnd}
           onOpenAutoFocus={(e) => { e.preventDefault(); }}
           className={cn(
             // O `:focus-visible` global pinta um anel âmbar de 2px. Num
@@ -189,7 +192,7 @@ export function UpdateDialog({
                   href={estado.releaseNotesUrl}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-accent hover:underline"
+                  className="mt-1.5 inline-flex items-center gap-1 text-xs font-medium text-info hover:underline"
                 >
                   {t("update.notas")}
                   <ArrowUpRight aria-hidden className="h-3 w-3" />
@@ -254,9 +257,9 @@ export function UpdateDialog({
                   checked={estado.autoCheck}
                   disabled={salvar.isPending}
                   onCheckedChange={(ligado) => { salvar.mutate({ autoCheck: ligado }); }}
-                  className="relative h-6 w-11 shrink-0 cursor-pointer rounded-full border border-line bg-raised transition-colors duration-150 data-[state=checked]:border-line-strong data-[state=checked]:bg-muted disabled:cursor-not-allowed disabled:opacity-45"
+                  className="relative h-6 w-11 shrink-0 cursor-pointer press rounded-full border border-line bg-raised data-[state=checked]:border-line-strong data-[state=checked]:bg-muted disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  <Switch.Thumb className="block h-4 w-4 translate-x-1 rounded-full bg-muted transition-transform duration-150 data-[state=checked]:translate-x-6 data-[state=checked]:bg-surface" />
+                  <Switch.Thumb className="block h-4 w-4 translate-x-1 rounded-full bg-muted transition-[translate,background-color] duration-(--motion-base) ease-(--ease-enter) data-[state=checked]:translate-x-6 data-[state=checked]:bg-surface" />
                 </Switch.Root>
               </div>
             ) : null}

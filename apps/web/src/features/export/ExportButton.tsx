@@ -286,7 +286,7 @@ function Opcao({
       onClick={onClick}
       aria-pressed={ativo}
       className={cn(
-        "min-w-0 flex-1 cursor-pointer rounded-[4px] border px-2 py-1 text-left transition-colors duration-150",
+        "min-w-0 flex-1 cursor-pointer rounded-[4px] border px-2 py-1 text-left transition-colors duration-(--motion-fast)",
         ativo
           ? "border-accent/45 bg-accent/10 text-ink"
           : "border-line bg-sunken text-muted hover:border-line-strong hover:text-ink",
@@ -343,7 +343,7 @@ function Escolha({
       onClick={onClick}
       className={cn(
         "flex w-full cursor-pointer items-center gap-2 rounded-[4px] px-2.5 py-1.5 text-left",
-        "transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-45",
+        "transition-colors duration-(--motion-fast) disabled:cursor-not-allowed disabled:opacity-45",
         principal
           ? "bg-amber text-accent-ink hover:bg-amber/90"
           : "border border-line bg-raised text-ink hover:bg-overlay hover:border-line-strong",

@@ -77,7 +77,7 @@ export function AuditTab({
     <div className="flex h-full min-h-0 flex-col">
       {/* Barra de filtros. */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-line px-4 py-2">
-        <ScrollText aria-hidden className="h-4 w-4 text-accent" />
+        <ScrollText aria-hidden className="h-4 w-4 text-info" />
         <h2 className="text-sm font-semibold text-ink">{t("audit.titulo")}</h2>
 
         <div className="relative ml-auto">

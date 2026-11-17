@@ -1,2 +1,2 @@
+export { AbelhaPlana, type Pose } from "./AbelhaPlana";
 export { Mascote } from "./Mascote";
-export { MASCOTE, type Humor } from "./mascote";

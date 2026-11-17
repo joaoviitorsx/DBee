@@ -1,22 +1,22 @@
 import type { Connection, DatabaseTree, RelationKind, RelationTree , ConnectionWarning } from "@dbee/shared";
 import {
-  AlertCircle,
   ChevronRight,
   Database,
   Eye,
   Layers,
-  Loader2,
   MoreHorizontal,
   Pencil,
   Plus,
+  RotateCw,
   Search,
   Table2,
   TriangleAlert,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useRef, useState, useMemo, type KeyboardEvent as KE, type ReactNode } from "react";
 
-import { Button, Input } from "../../components/ui";
+import { Button, Input, Skeleton } from "../../components/ui";
+import { ComSaida } from "../../components/ComSaida";
 import { capacidadesDe } from "@dbee/shared/puro";
 
 import { IconeEngine, NOME_ENGINE } from "../../components/IconeEngine";
@@ -24,10 +24,13 @@ import { anchorFromEvent, anchorFromRect, type MenuAnchor } from "../../componen
 import { useT } from "../../i18n";
 import { cn } from "../../lib/cn";
 import type { TableTarget } from "../../app/workspace";
+import { trechos } from "./destaque.puro";
 import { countRelations, filterSchema } from "./filter";
 import { connectionNode, databaseNode, schemaNode } from "./keys";
 import { plannedSchemaTargets } from "./plan";
+import { acaoDaTecla, buscaPorPrefixo, type ItemArvore } from "./teclado.puro";
 import { useDatabases, useExpandedSchemas, type TreeState } from "./useTree";
+import { SeloAmbiente } from "../ambiente/SeloAmbiente";
 
 /** Ícone por tipo de relação — table, view e matview têm que se distinguir. */
 const RELATION_ICON: Readonly<Record<RelationKind, typeof Table2>> = {
@@ -98,11 +101,78 @@ export function ConnectionTree({
 }: ConnectionTreeProps) {
   const t = useT();
   const [query, setQuery] = useState("");
+  const buscaRef = useRef<HTMLDivElement>(null);
+  const prefixo = useRef({ texto: "", ate: 0 });
+
+  // "/" foca a busca (ui-detalhes §3.4) — só fora de campo editável, para não
+  // roubar a barra de quem está escrevendo SQL ou um filtro.
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent): void => {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      const alvo = e.target as HTMLElement | null;
+      if (alvo !== null && (alvo.isContentEditable || alvo.closest("input, textarea, select, .cm-editor") !== null)) return;
+      const input = buscaRef.current?.querySelector("input");
+      if (input === null || input === undefined) return;
+      e.preventDefault();
+      input.focus();
+    };
+    window.addEventListener("keydown", tecla);
+    return () => { window.removeEventListener("keydown", tecla); };
+  }, []);
+
+  /**
+   * Teclado `role=tree` (§3.4). A lógica é pura (`teclado.puro.ts`); aqui só
+   * se lê o DOM visível em ordem e se aplica foco ou clique. Ler do DOM, e não
+   * de um modelo paralelo, garante que a ordem é a que a pessoa está vendo —
+   * inclusive durante a busca, que reordena e esconde ramos.
+   */
+  const aoTeclar = (e: KE<HTMLElement>): void => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-arvore-item]");
+    if (el === null) return;
+    const nos = Array.from(e.currentTarget.querySelectorAll<HTMLElement>("[data-arvore-item]"));
+    const atual = nos.indexOf(el);
+    const itens: ItemArvore[] = nos.map((n) => ({
+      nivel: Number(n.getAttribute("aria-level")),
+      expansivel: n.hasAttribute("aria-expanded"),
+      expandido: n.getAttribute("aria-expanded") === "true",
+      rotulo: n.dataset["rotulo"] ?? "",
+    }));
+    const focar = (i: number): void => {
+      const alvo = nos[i];
+      if (alvo === undefined) return;
+      // Tabindex móvel: só o item corrente entra no Tab.
+      for (const n of nos) n.tabIndex = -1;
+      alvo.tabIndex = 0;
+      alvo.focus();
+    };
+
+    if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
+      e.preventDefault();
+      const r = el.getBoundingClientRect();
+      el.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + 16, clientY: r.bottom }),
+      );
+      return;
+    }
+    if (e.key.length === 1 && e.key !== " " && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      const agora = Date.now();
+      const texto = (agora < prefixo.current.ate ? prefixo.current.texto : "") + e.key;
+      prefixo.current = { texto, ate: agora + 600 };
+      const i = buscaPorPrefixo(itens, atual, texto);
+      if (i >= 0) { e.preventDefault(); focar(i); }
+      return;
+    }
+    const acao = acaoDaTecla(itens, atual, e.key);
+    if (acao.tipo === "nada") return;
+    e.preventDefault();
+    if (acao.tipo === "focar") focar(acao.indice);
+    else nos[acao.indice]?.click();
+  };
 
   return (
     <div className="flex h-full flex-col">
       {/* Busca sempre visível: a árvore passa de cem nós com poucos clientes. */}
-      <div className="relative shrink-0 p-2">
+      <div ref={buscaRef} className="relative shrink-0 p-2">
         <Search
           aria-hidden
           className="pointer-events-none absolute left-4.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-subtle"
@@ -110,6 +180,12 @@ export function ConnectionTree({
         <Input
           value={query}
           onChange={(e) => { setQuery(e.target.value); }}
+          // Esc limpa e o foco fica no campo (§3.4); vazio, Esc devolve à árvore.
+          onKeyDown={(e) => {
+            if (e.key !== "Escape") return;
+            if (query !== "") { e.preventDefault(); setQuery(""); return; }
+            e.currentTarget.blur();
+          }}
           placeholder={t("arvore.buscar")}
           aria-label={t("arvore.buscarAria")}
           className="h-8 w-full pl-8 pr-7 text-xs"
@@ -129,6 +205,7 @@ export function ConnectionTree({
       <nav
         aria-label={t("arvore.conexoes")}
         className="min-h-0 flex-1 overflow-y-auto px-1 pb-2"
+        onKeyDown={aoTeclar}
         onContextMenu={(e) => {
           /*
            * Só quando o clique **não** caiu num nó.
@@ -150,10 +227,11 @@ export function ConnectionTree({
             {t("arvore.nenhumaConexao")}
           </p>
         ) : (
-          <ul>
-            {connections.map((connection) => (
+          <ul role="tree" aria-label={t("arvore.conexoes")}>
+            {connections.map((connection, i) => (
               <ConnectionBranch
                 key={connection.id}
+                primeira={i === 0}
                 connection={connection}
                 health={health[connection.id] ?? "untested"}
                 warnings={warnings[connection.id] ?? []}
@@ -190,6 +268,8 @@ function Row({
   expanded,
   danger = false,
   active = false,
+  rotulo,
+  primeira = false,
   onClick,
   onContextMenu,
   children,
@@ -201,12 +281,22 @@ function Row({
   readonly expanded?: boolean;
   readonly danger?: boolean;
   readonly active?: boolean;
+  /** Texto do type-ahead (o nome do nó, sem os selos). */
+  readonly rotulo: string;
+  /** O primeiro item da árvore é o ponto de entrada do Tab (tabindex móvel). */
+  readonly primeira?: boolean;
   readonly onClick: () => void;
   readonly onContextMenu?: (anchor: MenuAnchor) => void;
   readonly children: React.ReactNode;
   readonly trailing?: React.ReactNode;
   readonly leading?: React.ReactNode;
 }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  // Abrir uma aba rola a árvore até o nó, só o necessário (§3.4, `nearest`).
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+
   return (
     <div
       // Botão direito em qualquer nó abre o menu daquele nó.
@@ -217,17 +307,16 @@ function Row({
       }
       className={cn(
         "relative",
-        "group/row flex items-center gap-1 rounded-[4px] pr-1 transition-colors duration-150",
+        "group/row flex items-center gap-1 rounded-[4px] pr-1 transition-colors duration-(--motion-fast)",
         danger ? "hover:bg-accent-soft" : "hover:bg-raised",
         active && (danger ? "bg-accent-soft" : "bg-raised"),
       )}
       style={{ paddingLeft: `${String(depth * 12 + 4)}px` }}
     >
       {/*
-        * A relação aberta ganha a **mesma régua** que identifica a conexão na
-        * linha de cima — 3px na borda esquerda, agora em âmbar. Só o fundo
-        * `raised` era fraco demais numa árvore de cem nós: a linha ativa
-        * sumia junto com a linha sob o cursor, que usa o mesmo tom.
+        * Barra de 2 px na relação aberta (§3.4). Em `info` — âmbar é a cor do
+        * modo escrita e de mais nada (design-system); só numa conexão com
+        * escrita habilitada a barra é âmbar, porque ali a linha inteira já é.
         *
         * Não vale para os nós expansíveis: ali "ativo" seria "aberto", e todo
         * ramo aberto com uma régua transformaria a árvore num campo de barras.
@@ -235,23 +324,28 @@ function Row({
       {active && !expandable ? (
         <span
           aria-hidden
-          className={cn(
-            "absolute inset-y-[3px] left-0 w-[3px] rounded-full bg-accent",
-          )}
+          className={cn("absolute inset-y-[3px] left-0 w-[2px] rounded-full", danger ? "bg-accent" : "bg-info")}
         />
       ) : null}
       {leading}
       <button
+        ref={ref}
         type="button"
+        role="treeitem"
+        data-arvore-item=""
+        data-rotulo={rotulo}
+        aria-level={depth + 1}
+        aria-selected={active}
+        tabIndex={primeira ? 0 : -1}
         onClick={onClick}
         aria-expanded={expandable ? expanded : undefined}
-        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 py-1.5 text-left max-lg:py-3"
+        className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 rounded-[4px] py-1.5 text-left transition-opacity duration-(--motion-fast) active:opacity-70 max-lg:py-3"
       >
         {expandable ? (
           <ChevronRight
             aria-hidden
             className={cn(
-              "h-3 w-3 shrink-0 text-subtle transition-transform duration-150",
+              "h-3 w-3 shrink-0 text-subtle transition-transform duration-(--motion-fast) ease-(--ease-enter)",
               expanded === true && "rotate-90",
             )}
           />
@@ -262,6 +356,61 @@ function Row({
       </button>
       {trailing}
     </div>
+  );
+}
+
+/**
+ * Filhos de um ramo (§3.4): entram com `motion-filhos` (opacidade + 2 px, em
+ * `base`, sem stagger) e, ao recolher, ficam montados até o fade `fast` acabar.
+ */
+function Filhos({ aberto, children }: { readonly aberto: boolean; readonly children: ReactNode }) {
+  return (
+    <ComSaida aberto={aberto} role="group" className="motion-filhos">
+      {children}
+    </ComSaida>
+  );
+}
+
+/**
+ * Verdadeiro só depois de `ms` com `ativo` ligado (§3.4: esqueleto após
+ * `fast`). Resposta rápida não pisca esqueleto nenhum.
+ */
+function useAtrasado(ativo: boolean, ms = 120): boolean {
+  const [passou, setPassou] = useState(false);
+  useEffect(() => {
+    if (!ativo) return;
+    const id = window.setTimeout(() => { setPassou(true); }, ms);
+    return () => { window.clearTimeout(id); setPassou(false); };
+  }, [ativo, ms]);
+  return ativo && passou;
+}
+
+/** Erro de carga de um ramo: a mensagem do banco inteira e "tentar de novo". */
+function ErroDeCarga({ mensagem, recuo, onRetry }: { readonly mensagem: string; readonly recuo: string; readonly onRetry: () => void }) {
+  const t = useT();
+  return (
+    <div role="none" className={cn("flex items-start gap-2 py-1.5 pr-2 text-xs text-danger", recuo)}>
+      <span className="min-w-0 flex-1 break-words">{mensagem}</span>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex shrink-0 cursor-pointer items-center gap-1 rounded text-muted hover:text-ink"
+      >
+        <RotateCw aria-hidden className="h-3 w-3" />
+        {t("arvore.tentarDeNovo")}
+      </button>
+    </div>
+  );
+}
+
+/** O nome com o trecho casado em `font-semibold text-ink`, sem fundo (§3.4). */
+function Destacado({ texto, termo }: { readonly texto: string; readonly termo: string }) {
+  return (
+    <>
+      {trechos(texto, termo).map((p, i) =>
+        p.casou ? <span key={i} className="font-semibold text-ink">{p.texto}</span> : <span key={i}>{p.texto}</span>,
+      )}
+    </>
   );
 }
 
@@ -290,13 +439,19 @@ function Row({
  * - `error` — glifo de alerta. A forma muda só onde precisa mudar: é o único
  *   estado que exige ação.
  */
-const HEALTH_DOT: Readonly<Record<"ok" | "untested", string>> = {
-  ok: "bg-ok",
-  // Anel vazado, não cinza sólido: "nada se sabe ainda" não é um estado, é a
-  // ausência de um — e a forma vazada diz isso sem depender do matiz.
-  // `size-2` (8 px), não 6: vazado a 6 px sumia no tema escuro, e o estado da
-  // conexão é a segunda informação mais importante da linha depois da escrita.
-  untested: "border border-line-strong",
+/*
+ * Auditoria #8 / ui-detalhes §3.4: um ponto `size-2` só, sempre o mesmo nó,
+ * para a troca de estado ser um crossfade de cor em `base` (sem pulso — o
+ * único pulso permitido é o da VPN). Forma ainda varia onde importa para quem
+ * não distingue verde de vermelho: `ok` é círculo cheio, `error` é quadrado
+ * cheio, `untested` é contorno, `conectando` é contorno em `info`. O spinner
+ * que havia aqui saiu: carregar filhos é dito pelo esqueleto (§3.4).
+ */
+const HEALTH_DOT: Readonly<Record<ConnectionHealth, string>> = {
+  ok: "rounded-full border-ok bg-ok",
+  error: "rounded-[1px] border-danger bg-danger",
+  untested: "rounded-full border-line-strong bg-transparent",
+  conectando: "rounded-full border-info bg-transparent",
 };
 
 /**
@@ -343,6 +498,7 @@ function saudeVigente(
 }
 
 function ConnectionBranch({
+  primeira,
   connection,
   health,
   warnings,
@@ -352,6 +508,7 @@ function ConnectionBranch({
   onContextMenu,
   activeTarget,
 }: {
+  readonly primeira: boolean;
   readonly connection: Connection;
   readonly health: ConnectionHealth;
   readonly warnings: readonly ConnectionWarning[];
@@ -388,9 +545,11 @@ function ConnectionBranch({
     [connection.id, lista, tree.expanded],
   );
   const arvores = useExpandedSchemas(alvos);
+  const esqueleto = useAtrasado(expanded && databases.isPending);
 
   return (
     <li
+      role="none"
       className={cn(
         "rounded-[6px]",
         // O nó INTEIRO em tom âmbar de cautela, não uma barra de 2px: com
@@ -404,6 +563,8 @@ function ConnectionBranch({
         expandable
         expanded={expanded}
         danger={perigo}
+        rotulo={connection.name}
+        primeira={primeira}
         onClick={() => { tree.toggle(node); }}
         onContextMenu={(anchor) => { onContextMenu({ kind: "connection", connection }, anchor); }}
         leading={
@@ -428,7 +589,7 @@ function ConnectionBranch({
             type="button"
             aria-label={`Ações de ${connection.name}`}
             onClick={(e) => { onContextMenu({ kind: "connection", connection }, anchorFromRect(e.currentTarget.getBoundingClientRect())); }}
-            className="shrink-0 cursor-pointer rounded p-1 text-subtle opacity-0 transition-opacity duration-150 hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100"
+            className="shrink-0 cursor-pointer rounded p-1 text-subtle opacity-0 transition-opacity duration-(--motion-fast) hover:text-ink focus-visible:opacity-100 group-hover/row:opacity-100 group-focus-within/row:opacity-100"
           >
             <MoreHorizontal aria-hidden className="h-3.5 w-3.5" />
           </button>
@@ -439,19 +600,13 @@ function ConnectionBranch({
           e um wrapper só mantém o texto no mesmo lugar para os três estados.
         */}
         <span role="img" aria-label={t(HEALTH_LABEL[saude])} className="flex h-3 w-3 shrink-0 items-center justify-center" title={t(HEALTH_LABEL[saude])}>
-          {saude === "error" ? (
-            // Único estado com glifo de alerta: é o único que pede ação, e a
-            // forma o separa do "ok" para quem não distingue verde de vermelho.
-            <AlertCircle aria-hidden className="h-3 w-3 text-danger" />
-          ) : saude === "conectando" ? (
-            // Glifo, e não o ponto girando: um anel de 6 px fica idêntico a
-            // cada quadro da rotação, então o giro não comunicaria nada. Com o
-            // movimento zerado por `prefers-reduced-motion`, o `Loader2` parado
-            // ainda é uma forma diferente do ponto — não depende da animação.
-            <Loader2 aria-hidden className="h-3 w-3 animate-spin text-muted" />
-          ) : (
-            <span aria-hidden className={cn("size-2 rounded-full", HEALTH_DOT[saude === "ok" ? "ok" : "untested"])} />
-          )}
+          <span
+            aria-hidden
+            className={cn(
+              "size-2 border transition-[background-color,border-color,border-radius] duration-(--motion-base) ease-(--ease-enter)",
+              HEALTH_DOT[saude],
+            )}
+          />
         </span>
         {/*
           * A marca do motor no lugar onde havia uma tomada genérica.
@@ -472,10 +627,11 @@ function ConnectionBranch({
             * pela borda âmbar, pelo fundo e pelo selo do lápis — três vezes.
             * Aqui a regra do conjunto vale: a forma diz qual, a cor diz como.
             */}
-          <IconeEngine engine={connection.engine} className="h-3.5 w-3.5 text-muted" />
+          <span data-icone-conexao={connection.id} className="inline-flex shrink-0"><IconeEngine engine={connection.engine} className="h-3.5 w-3.5 text-muted" /></span>
           <span className="sr-only">{NOME_ENGINE[connection.engine]}</span>
         </span>
         <span className="truncate text-sm font-medium text-ink">{connection.name}</span>
+        <SeloAmbiente compacto environment={connection.environment} />
         <span className="sr-only">{t(HEALTH_LABEL[saude])}</span>
         {/*
           * O nome é o identificador; o selo é qualificador. Numa barra de
@@ -509,12 +665,20 @@ function ConnectionBranch({
         ) : null}
       </Row>
 
-      {expanded ? (
-        <ul>
+      <Filhos aberto={expanded}>
+        <ul role="none">
           {databases.isPending ? (
-            <li className="py-1.5 pl-8 text-xs text-subtle">{t("arvore.carregandoDatabases")}</li>
+            esqueleto ? (
+              <li role="none" className="space-y-2 py-2 pl-8 pr-3">
+                <span className="sr-only">{t("arvore.carregandoDatabases")}</span>
+                <Skeleton className="h-3 w-3/5" />
+                <Skeleton className="h-3 w-2/5" />
+              </li>
+            ) : null
           ) : databases.isError ? (
-            <li className="py-1.5 pl-8 pr-2 text-xs text-danger">{databases.error.message}</li>
+            <li role="none">
+              <ErroDeCarga mensagem={databases.error.message} recuo="pl-8" onRetry={() => { void databases.refetch(); }} />
+            </li>
           ) : (
             lista.map((db) => (
               <DatabaseBranch
@@ -532,7 +696,7 @@ function ConnectionBranch({
             ))
           )}
         </ul>
-      ) : null}
+      </Filhos>
     </li>
   );
 }
@@ -561,6 +725,7 @@ function DatabaseBranch({
         isPending: boolean;
         isError: boolean;
         error: Error | null;
+        refetch: () => unknown;
       }
     | undefined;
   readonly onOpenRelation: (target: TableTarget) => void;
@@ -602,33 +767,55 @@ function DatabaseBranch({
    */
   const totalCasadas = useMemo(() => countRelations(filtrado), [filtrado]);
   const autoExpandir = query !== "" && totalCasadas > 0 && totalCasadas <= MAX_AUTO_EXPAND;
+  const totalRelacoes = useMemo(
+    () => (arvore === undefined ? 0 : arvore.schemas.reduce((n, sc) => n + sc.relations.length, 0)),
+    [arvore],
+  );
+  const esqueleto = useAtrasado(expanded && (schema === undefined || schema.isPending));
 
   return (
-    <li>
+    <li role="none">
       <Row
         depth={1}
         expandable
         expanded={expanded}
         danger={perigo}
+        rotulo={database}
         onClick={() => { tree.toggle(node); }}
         onContextMenu={(anchor) => { onContextMenu({ kind: "database", connection, database }, anchor); }}
       >
         <Database aria-hidden className="h-3.5 w-3.5 shrink-0 text-muted" />
         <span className="truncate font-mono text-xs text-ink">{database}</span>
         {isDefault ? <span className="shrink-0 text-2xs text-subtle">{t("arvore.padrao")}</span> : null}
+        {/*
+          * Contagem "12 de 340" (§3.4) por database, não global: cada catálogo
+          * chega numa requisição própria e o total só é honesto onde já chegou.
+          */}
+        {query.trim() !== "" && arvore !== undefined ? (
+          <span className="ml-auto shrink-0 pl-2 text-2xs tabular-nums text-subtle">
+            {t("arvore.contagem", { n: String(totalCasadas), total: String(totalRelacoes) })}
+          </span>
+        ) : null}
       </Row>
 
-      {expanded ? (
-        schema === undefined || schema.isPending ? (
-          <p className="py-1.5 pl-12 text-xs text-subtle">{t("arvore.lendoCatalogo")}</p>
+      <Filhos aberto={expanded}>
+        {schema === undefined || schema.isPending ? (
+          esqueleto ? (
+            <div className="space-y-2 py-2 pl-12 pr-3">
+              <span className="sr-only">{t("arvore.lendoCatalogo")}</span>
+              <Skeleton className="h-3 w-1/2" />
+              <Skeleton className="h-3 w-2/3" />
+              <Skeleton className="h-3 w-2/5" />
+            </div>
+          ) : null
         ) : schema.isError ? (
-          <p className="py-1.5 pl-12 pr-2 text-xs text-danger">{schema.error?.message}</p>
+          <ErroDeCarga mensagem={schema.error?.message ?? ""} recuo="pl-12" onRetry={() => { schema.refetch(); }} />
         ) : filtrado.length === 0 ? (
           <p className="py-1.5 pl-12 text-xs text-subtle">
             {query === "" ? t("arvore.nenhumaRelacao") : t("arvore.nadaEncontrado", { q: query })}
           </p>
         ) : (
-          <ul>
+          <ul role="none">
             {filtrado.map((entry) => (
               <SchemaBranch
                 key={entry.node.name}
@@ -640,6 +827,7 @@ function DatabaseBranch({
                 // Busca ativa expande tudo: esconder o resultado atrás de um
                 // clique anula o motivo de ter buscado.
                 forceOpen={autoExpandir}
+                query={query}
                 tree={tree}
                 onOpenRelation={onOpenRelation}
                 onContextMenu={onContextMenu}
@@ -647,8 +835,8 @@ function DatabaseBranch({
               />
             ))}
           </ul>
-        )
-      ) : null}
+        )}
+      </Filhos>
     </li>
   );
 }
@@ -660,6 +848,7 @@ function SchemaBranch({
   relations,
   semNivelDeSchema,
   forceOpen,
+  query,
   tree,
   onOpenRelation,
   onContextMenu,
@@ -679,6 +868,7 @@ function SchemaBranch({
    */
   readonly semNivelDeSchema: boolean;
   readonly forceOpen: boolean;
+  readonly query: string;
   readonly tree: TreeState;
   readonly onOpenRelation: (target: TableTarget) => void;
   readonly onContextMenu: (target: TreeTarget, anchor: MenuAnchor) => void;
@@ -689,26 +879,27 @@ function SchemaBranch({
   const expanded = semNivelDeSchema || forceOpen || tree.isExpanded(node);
 
   return (
-    <li>
+    <li role="none">
       {semNivelDeSchema ? null : (
       <Row
         depth={2}
         expandable
         expanded={expanded}
         danger={connection.writeEnabled}
+        rotulo={schemaName}
         onClick={() => { tree.toggle(node); }}
         onContextMenu={(anchor) => {
           onContextMenu({ kind: "schema", connection, database, schema: schemaName }, anchor);
         }}
       >
         <span aria-hidden className="h-1 w-1 shrink-0 rounded-full bg-line-strong" />
-        <span className="truncate text-xs text-muted">{schemaName}</span>
+        <span className="truncate text-xs text-muted"><Destacado texto={schemaName} termo={query} /></span>
         <span className="shrink-0 text-2xs text-subtle">{relations.length}</span>
       </Row>
       )}
 
-      {expanded ? (
-        <ul>
+      <Filhos aberto={expanded}>
+        <ul role="none">
           {relations.map((relation) => {
             const Icon = RELATION_ICON[relation.kind];
             const ativo =
@@ -718,7 +909,7 @@ function SchemaBranch({
               activeTarget.relation === relation.name;
 
             return (
-              <li key={relation.name}>
+              <li key={relation.name} role="none">
                 <Row
                   // Sem o nível de schema, a tabela é neta da conexão e não
                   // bisneta: o recuo tem que dizer a mesma coisa que a árvore.
@@ -726,6 +917,7 @@ function SchemaBranch({
                   expandable={false}
                   danger={connection.writeEnabled}
                   active={ativo}
+                  rotulo={relation.name}
                   onContextMenu={(anchor) => {
                     onContextMenu(
                       { kind: "relation", connection, database, schema: schemaName, relation },
@@ -751,14 +943,14 @@ function SchemaBranch({
                       relation.kind !== "view" && relation.kind !== "materialized_view" && "text-muted",
                     )}
                   />
-                  <span className="truncate text-xs text-ink">{relation.name}</span>
+                  <span className="truncate text-xs text-ink"><Destacado texto={relation.name} termo={query} /></span>
                   <span className="sr-only">{RELATION_LABEL[relation.kind]}</span>
                 </Row>
               </li>
             );
           })}
         </ul>
-      ) : null}
+      </Filhos>
     </li>
   );
 }

@@ -1,6 +1,6 @@
 {
   "name": "@dbee/web",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -20,7 +20,8 @@
     "@dbee/server": "workspace:*",
     "@dbee/shared": "workspace:*",
     "@elysiajs/eden": "^1.4.9",
-    "@fontsource-variable/sora": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/ibm-plex-sans": "^5.3.0",
     "@lezer/highlight": "^1.2.3",
     "@radix-ui/react-dialog": "^1.1.23",
     "@radix-ui/react-label": "^2.1.15",
@@ -34,6 +35,8 @@
     "lucide-react": "^1.41.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "sonner": "^2.0.8",
+    "sql-formatter": "^15.9.0",
     "tailwind-merge": "^3.6.0"
   },
   "devDependencies": {

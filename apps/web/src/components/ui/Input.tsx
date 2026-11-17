@@ -13,7 +13,7 @@ export function Input({ className, invalid = false, mono = false, ...props }: In
       aria-invalid={invalid}
       className={cn(
         "h-10 rounded-[4px] border bg-sunken px-3 text-sm text-ink",
-        "placeholder:text-subtle transition-colors duration-150",
+        "placeholder:text-subtle transition-colors duration-(--motion-fast)",
         "hover:border-line-strong",
         invalid ? "border-danger" : "border-line",
         mono && "font-mono",

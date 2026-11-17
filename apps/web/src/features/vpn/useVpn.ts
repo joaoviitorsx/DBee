@@ -49,10 +49,26 @@ export const useRemoverOvpn = () =>
     return data;
   });
 
+/** Conectar: `codigo` sempre; `usuario`/`senha` só quando não há credencial lembrada. */
+export interface PedidoConectar {
+  readonly perfil: string;
+  readonly codigo: string;
+  readonly usuario?: string;
+  readonly senha?: string;
+  readonly lembrar?: boolean;
+}
+
 export const useConectarVpn = () =>
-  useAcao(async ({ perfil, usuario, senha }: { perfil: string; usuario: string; senha: string }) => {
-    const { data, error } = await api.api.vpn({ perfil }).conectar.post({ usuario, senha });
+  useAcao(async ({ perfil, ...corpo }: PedidoConectar) => {
+    const { data, error } = await api.api.vpn({ perfil }).conectar.post(corpo);
     if (error !== null) throw erroDaResposta(error, "não foi possível conectar a VPN");
+    return data;
+  });
+
+export const useEsquecerCredencial = () =>
+  useAcao(async (perfil: string) => {
+    const { data, error } = await api.api.vpn({ perfil }).credencial.delete();
+    if (error !== null) throw erroDaResposta(error, "não foi possível esquecer a senha");
     return data;
   });
 

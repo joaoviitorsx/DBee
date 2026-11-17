@@ -76,6 +76,7 @@ export interface Paleta {
   readonly ink: string;
   readonly muted: string;
   readonly subtle: string;
+  readonly info: string;
   readonly accentInk: string;
   readonly ok: string;
   readonly danger: string;
@@ -98,7 +99,8 @@ export const DARK: Paleta = {
   overlay: "#2a251f",
   ink: "#f7f3ec",
   muted: "#a79e90",
-  subtle: "#7a7166",
+  subtle: "#978d7f",
+  info: "#8fa9c4",
   accentInk: "#191612",
   ok: "#5fa777",
   danger: "#e5484d",
@@ -121,7 +123,8 @@ export const LIGHT: Paleta = {
   overlay: "#ffffff",
   ink: "#1c1917",
   muted: "#5c5449",
-  subtle: "#8a8071",
+  subtle: "#6b6256",
+  info: "#3d5f82",
   accentInk: "#191612",
   ok: "#2f7d4f",
   danger: "#c0272d",

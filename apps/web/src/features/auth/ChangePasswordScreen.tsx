@@ -93,7 +93,7 @@ export function ChangePasswordScreen({ user }: { readonly user: SessionUser }) {
           <div className="h-[3px] flex-1 overflow-hidden rounded-full bg-line">
             <div
               className={cn(
-                "h-full rounded-full transition-all duration-200",
+                "h-full rounded-full transition-all duration-(--motion-slow)",
                 nova.length >= MINIMO ? "bg-ok" : "bg-amber",
               )}
               style={{ width: `${String(Math.min(100, (nova.length / MINIMO) * 100))}%` }}

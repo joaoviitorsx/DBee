@@ -38,13 +38,27 @@ describe.each(PALETAS)("contraste dos tokens — tema %s", (_nome: string, P: Pa
     expect(round(contrast(fg ?? "", bg ?? ""))).toBeGreaterThanOrEqual(4.5);
   });
 
-  // `subtle` é o único token que NÃO passa AA em texto normal. Isso é
-  // deliberado e está documentado — o teste trava o limite para o uso dele não
-  // escorregar para texto essencial sem alguém perceber.
-  it("subtle fica entre 3:1 e 4.5:1 — só texto grande ou desativado", () => {
-    const ratio = contrast(P.subtle, P.surface);
-    expect(ratio).toBeGreaterThanOrEqual(3);
-    expect(ratio).toBeLessThan(4.5);
+  // `subtle` e `info` carregam texto de 11–12 px de verdade (contador, dica,
+  // `NULL`, link neutro), então passam AA em TODA superfície, inclusive no
+  // modal (`overlay`) e no fundo da página (`sunken`). Medir só sobre
+  // `surface` foi como os valores da proposta em identidade.md reprovavam no
+  // modal (4,0:1) sem ninguém ver.
+  it.each(["subtle", "info"] as const)("%s passa AA nas quatro superfícies", (token) => {
+    for (const bg of [P.sunken, P.surface, P.raised, P.overlay]) {
+      expect(round(contrast(P[token], bg))).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  // A hierarquia de texto não pode colapsar: `subtle` continua abaixo de
+  // `muted`, senão vira sinônimo dele.
+  it("subtle fica abaixo de muted", () => {
+    expect(contrast(P.subtle, P.surface)).toBeLessThan(contrast(P.muted, P.surface));
+  });
+
+  // `info` existe para não ser âmbar (identidade.md: "âmbar é ferrão").
+  it("info se distingue do âmbar e do ok", () => {
+    expect(deltaE(P.info, P.accent)).toBeGreaterThanOrEqual(0.1);
+    expect(deltaE(P.info, P.ok)).toBeGreaterThanOrEqual(0.05);
   });
 
   // WCAG AA para elemento de interface não textual: 3:1.
@@ -110,5 +124,19 @@ describe.each(PALETAS)("estado de perigo — tema %s", (_nome: string, P: Paleta
   it("o âmbar continua legível sobre a superfície de perigo", () => {
     // O selo de escrita aparece dentro do nó de perigo.
     expect(round(contrast(P.accentInk, P.amber))).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+/**
+ * `contrast.ts` é espelho escrito à mão do `index.css`. Sem este teste, mudar o
+ * hex só no CSS deixaria a suíte medindo a cor antiga e passando.
+ */
+describe("o espelho de contrast.ts bate com index.css", () => {
+  it("subtle e info nos dois temas", async () => {
+    const css = await Bun.file(new URL("../index.css", import.meta.url)).text();
+    const valores = (token: string): string[] =>
+      [...css.matchAll(new RegExp(`--color-${token}:\\s*(#[0-9a-f]{6})`, "gi"))].map((m) => (m[1] ?? "").toLowerCase());
+    expect(valores("subtle")).toEqual(PALETAS.map(([, p]) => p.subtle));
+    expect(valores("info")).toEqual(PALETAS.map(([, p]) => p.info));
   });
 });

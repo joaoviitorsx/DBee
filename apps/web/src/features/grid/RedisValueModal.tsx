@@ -8,6 +8,9 @@ import { Button, Input } from "../../components/ui";
 import { mensagemDoCodigo, useIdioma } from "../../i18n";
 import { cn } from "../../lib/cn";
 import { api } from "../../lib/api";
+import { useSaidaAnimada } from "../../lib/useSaidaAnimada";
+import { zumbir } from "../../lib/zumbido";
+import { ArvoreNavegavel } from "../visualizador/ArvoreNavegavel";
 
 /** Os quatro tipos de coleção que ganham editor estruturado. */
 export type TipoColecao = "hash" | "list" | "set" | "zset";
@@ -85,6 +88,7 @@ export function RedisValueModal({
       return data;
     },
     onSuccess: () => {
+      zumbir();
       void qc.invalidateQueries({ queryKey: ["rows"] });
     },
     onError: (e: unknown) => {
@@ -144,11 +148,13 @@ export function RedisValueModal({
     });
   };
 
+  const saida = useSaidaAnimada(onClose);
   return (
-    <Dialog.Root open onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Dialog.Root open={saida.aberto} onOpenChange={(o) => { if (!o) saida.fechar(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[3px] data-[state=open]:animate-in data-[state=open]:fade-in" />
+        <Dialog.Overlay className="veu-dialogo" />
         <Dialog.Content
+          onAnimationEnd={saida.onAnimationEnd}
           className={cn(
             "fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[calc(100%-2rem)] max-w-2xl",
             "-translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-line border-l-[3px] border-l-accent bg-surface",
@@ -178,6 +184,9 @@ export function RedisValueModal({
                 <span>{t("redisEdit.truncado")}</span>
               </p>
             ) : null}
+
+            {/* Corpo navegável comum (§6.1); o formulário abaixo é a escrita. */}
+            {alvo.valueJson !== null && !truncado ? <ArvoreNavegavel texto={alvo.valueJson} raiz={alvo.key} /> : null}
 
             {membros.length === 0 ? (
               <p className="py-2 text-xs text-subtle">{t("redisEdit.vazio")}</p>

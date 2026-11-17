@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../../lib/api";
 import { databasesKey, schemaKey } from "../tree/useTree";
+import { zumbir } from "../../lib/zumbido";
 
 /**
  * Criar tabela e criar database (ADR 010).
@@ -46,6 +47,7 @@ export function useCriarTabela(connectionId: string, database: string) {
     // A tabela nova só aparece na árvore depois que o catálogo é relido — sem
     // isto a pessoa cria e não vê, e conclui que não funcionou.
     onSuccess: () => {
+      zumbir();
       void qc.invalidateQueries({ queryKey: schemaKey(connectionId, database) });
     },
   });
@@ -62,6 +64,7 @@ export function useCriarDatabase(connectionId: string) {
       return data.sql;
     },
     onSuccess: () => {
+      zumbir();
       // A lista de databases da conexão é outra chave — o database novo entra lá.
       void qc.invalidateQueries({ queryKey: databasesKey(connectionId) });
     },

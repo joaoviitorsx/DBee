@@ -1,4 +1,4 @@
-import { Activity, Code2, Copy, Database, DatabaseZap, Download, Pencil, Plug, RefreshCw, ScrollText, Share2, Table2, TableProperties, Trash2 } from "lucide-react";
+import { Activity, Code2, Copy, CopyPlus, Database, DatabaseZap, Download, Pencil, Plug, RefreshCw, ScrollText, SearchCode, Share2, Table2, TableProperties, Trash2 } from "lucide-react";
 
 import type { MenuItem, MenuSection } from "../../components/ContextMenu";
 import type { TableTarget } from "../../app/workspace";
@@ -48,7 +48,24 @@ export interface TreeMenuActions {
   readonly onCreateTable: (connectionId: string, database: string, schema: string) => void;
   readonly onCreateDatabase: (connectionId: string) => void;
   readonly onOpenExport: (connectionId: string, database: string) => void;
+  /** Buscar valor no banco (ADR 023) — só Postgres. */
+  readonly onBuscarValor: (connectionId: string, database: string, schema?: string) => void;
+  /** "Copiar tabela para…" (I10): gera script para outra conexão. */
+  readonly onCopiarTabela: (origem: { connectionId: string; database: string; schema: string; table: string }) => void;
   readonly testing: boolean;
+}
+
+/** Item "Buscar valor…": só onde o servidor implementa (Postgres, ADR 023). */
+function itemBuscarValor(conn: { id: string; engine: string }, database: string, schema: string | undefined, actions: TreeMenuActions, t: Tradutor): MenuSection[] {
+  if (conn.engine !== "postgres") return [];
+  return [{
+    items: [{
+      id: "value-search",
+      label: t("menu.buscarValor"),
+      icon: <SearchCode aria-hidden className={icone} />,
+      onSelect: () => { actions.onBuscarValor(conn.id, database, schema); },
+    }],
+  }];
 }
 
 /**
@@ -101,6 +118,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
             },
           ],
         },
+        ...itemBuscarValor(target.connection, target.connection.database, undefined, actions, t),
         // O database é criado no cluster, então o lugar dele é a conexão.
         // Só onde a engine tem CREATE DATABASE (Postgres/MySQL/MariaDB) e a
         // conexão pode escrever (transação ou credencial de escrita).
@@ -168,6 +186,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
       }
       return [
         ...(itensNavegacao.length > 0 ? [{ items: itensNavegacao }] : []),
+        ...itemBuscarValor(target.connection, target.database, undefined, actions, t),
         /*
          * Criar só aparece com escrita ligada.
          *
@@ -217,6 +236,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
 
     case "schema":
       return [
+        ...itemBuscarValor(target.connection, target.database, target.schema, actions, t),
         ...(target.connection.writeEnabled
           ? [
               {
@@ -253,6 +273,7 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
             {
               id: "open",
               label: t("menu.abrir"),
+              atalho: "Enter",
               icon: <Table2 aria-hidden className={icone} />,
               onSelect: () => {
                 actions.onOpenRelation({
@@ -282,6 +303,19 @@ export function treeMenuSections(target: TreeTarget, actions: TreeMenuActions, t
                         target.database,
                         `SELECT *\nFROM ${target.schema}.${target.relation.name}\nLIMIT 100;`,
                       );
+                    },
+                  },
+                  {
+                    id: "copy-to",
+                    label: t("menu.copiarTabelaPara"),
+                    icon: <CopyPlus aria-hidden className={icone} />,
+                    onSelect: () => {
+                      actions.onCopiarTabela({
+                        connectionId: target.connection.id,
+                        database: target.database,
+                        schema: target.schema,
+                        table: target.relation.name,
+                      });
                     },
                   },
                 ],

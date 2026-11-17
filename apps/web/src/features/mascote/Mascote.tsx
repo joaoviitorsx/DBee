@@ -1,44 +1,30 @@
 import { cn } from "../../lib/cn";
-import { MASCOTE, type Humor } from "./mascote";
+import { AbelhaPlana, type Pose } from "./AbelhaPlana";
 
 /**
- * O mascote DBee, animado.
+ * O mascote: a abelha-cilindro plana numa pose, com movimento opcional.
  *
- * `float` faz o bicho flutuar suave — vivo, não colado. É opt-in: numa lista ou
- * num canto pequeno o mascote fica parado; nas telas onde ele é o assunto
- * (login, sucesso, servidor mudo) ele flutua. `pop` é a entrada de comemoração,
- * usada uma vez quando o humor é de sucesso.
+ * `float` faz a figura flutuar; é opt-in e só vale onde ela é o assunto de uma
+ * tela de passagem (espera longa, servidor fora), nunca na tela de trabalho
+ * (design-system §4b). Em `voando`, `float` também bate as asas.
  *
- * Decorativo por padrão (`aria-hidden`): quem carrega o significado é o texto
- * ao lado. Passe `alt` só quando o mascote **for** a informação e não houver
- * texto que a diga.
+ * Sempre decorativo: quem carrega o significado é o texto ao lado.
  */
 export function Mascote({
-  humor,
+  pose,
   className,
   float = false,
-  pop = false,
-  alt,
 }: {
-  readonly humor: Humor;
+  readonly pose: Pose;
   readonly className?: string;
   readonly float?: boolean;
-  readonly pop?: boolean;
-  readonly alt?: string;
 }) {
   return (
-    <img
-      src={MASCOTE[humor]}
-      alt={alt ?? ""}
-      aria-hidden={alt === undefined}
-      draggable={false}
-      className={cn(
-        "select-none object-contain",
-        // O bloco global de reduced-motion no CSS já zera as duas.
-        float && "animate-float",
-        pop && "animate-pop",
-        className,
-      )}
+    <AbelhaPlana
+      pose={pose}
+      animada={float}
+      // O bloco global de reduced-motion no CSS já zera a flutuação.
+      className={cn(float && "animate-float", className)}
     />
   );
 }

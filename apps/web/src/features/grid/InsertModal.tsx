@@ -9,6 +9,8 @@ import { Button, Input } from "../../components/ui";
 import { mensagemDoCodigo, useIdioma } from "../../i18n";
 import { cn } from "../../lib/cn";
 import { api } from "../../lib/api";
+import { useSaidaAnimada } from "../../lib/useSaidaAnimada";
+import { zumbir } from "../../lib/zumbido";
 
 /** Controle de uma coluna no formulário: usar o default, ser NULL, ou o valor. */
 interface Controle {
@@ -100,6 +102,7 @@ export function InsertModal({
       return data;
     },
     onSuccess: () => {
+      zumbir();
       void qc.invalidateQueries({ queryKey: ["rows"] });
       onClose();
     },
@@ -107,11 +110,13 @@ export function InsertModal({
 
   const erro = inserir.error;
 
+  const saida = useSaidaAnimada(onClose);
   return (
-    <Dialog.Root open onOpenChange={(o) => { if (!o) onClose(); }}>
+    <Dialog.Root open={saida.aberto} onOpenChange={(o) => { if (!o) saida.fechar(); }}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[3px] data-[state=open]:animate-in data-[state=open]:fade-in" />
+        <Dialog.Overlay className="veu-dialogo" />
         <Dialog.Content
+          onAnimationEnd={saida.onAnimationEnd}
           className={cn(
             "fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[calc(100%-2rem)] max-w-2xl",
             "-translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg border border-line bg-surface",
@@ -147,7 +152,7 @@ export function InsertModal({
                 >
                   <div className="flex min-w-0 items-center gap-1.5">
                     {c.isPrimaryKey ? (
-                      <KeyRound aria-hidden className="h-3 w-3 shrink-0 text-accent" />
+                      <KeyRound aria-hidden className="h-3 w-3 shrink-0 text-info" />
                     ) : null}
                     <span className="truncate font-mono text-xs text-ink" title={c.dataType}>
                       {c.name}

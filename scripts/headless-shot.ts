@@ -139,8 +139,20 @@ const send = (m: string, p: Record<string, unknown> = {}): Promise<Record<string
 };
 await new Promise<void>((r) => { ws.onopen = () => { r(); }; });
 ws.onmessage = (e) => {
-  const m = JSON.parse(String(e.data)) as { id?: number; result?: unknown };
-  if (m.id !== undefined && pend.has(m.id)) { pend.get(m.id)?.(m.result); pend.delete(m.id); }
+  const m = JSON.parse(String(e.data)) as { id?: number; result?: unknown; error?: { message?: string } };
+  if (m.id === undefined || !pend.has(m.id)) return;
+  /*
+   * Erro do CDP (ex.: "Inspected target navigated or closed") vem em `error`,
+   * sem `result`. Antes o `undefined` seguia adiante e estourava como
+   * `TypeError` longe da causa; agora a mensagem do Chrome aparece.
+   */
+  if (m.error !== undefined) {
+    console.error(`CDP: ${m.error.message ?? "erro sem mensagem"}`);
+    pend.get(m.id)?.({ exceptionDetails: { text: m.error.message ?? "erro do CDP" } });
+  } else {
+    pend.get(m.id)?.(m.result ?? {});
+  }
+  pend.delete(m.id);
 };
 
 await send("Page.enable");

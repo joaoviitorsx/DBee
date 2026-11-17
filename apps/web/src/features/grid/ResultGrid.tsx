@@ -1,9 +1,17 @@
 import type { ResultColumn } from "@dbee/shared";
-import { ArrowDown, ArrowUp, CornerUpRight, Hand } from "lucide-react";
+import { ArrowDown, ArrowUp, Braces, Check, CornerUpRight, Hand, KeyRound, Link2, Sigma } from "lucide-react";
+import { toast } from "sonner";
+import { ContextMenu, type MenuAnchor, type MenuSection } from "../../components/ContextMenu";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useRef, useState } from "react";
 
-import { useT } from "../../i18n";
+import { useIdioma, useT } from "../../i18n";
+import { ConteudoCelula } from "./ConteudoCelula";
+import { type AlvoVisualizador, Visualizador } from "../visualizador/Visualizador";
+import { temVisualizador } from "../visualizador/visual.puro";
+import { gravarZebra, lerZebra } from "./zebra";
+import { paraCsv, paraJson, paraMarkdown } from "./formatos.puro";
+import { type AlvoRegistro, PainelRegistro } from "./PainelRegistro";
 import { cn } from "../../lib/cn";
 import { copiarTexto } from "../../lib/navegador";
 import { dicaVista, marcarDicaVista } from "./dicaArrasto";
@@ -83,6 +91,18 @@ export interface ResultGridProps {
   readonly fkColunas?: ReadonlySet<string>;
   /** Clicar no salto de uma célula de coluna com FK chega aqui. */
   readonly onSaltoFk?: (linha: number, coluna: number) => void;
+  /** Resumo da coluna (rota de estatística) — só onde há tabela por trás. */
+  readonly onEstatistica?: (coluna: string, ancora: DOMRect) => void;
+  /** INSERT gerado pelo servidor para as linhas dadas (o front não monta SQL). */
+  readonly onCopiarInsert?: (linhas: readonly number[]) => Promise<string | null>;
+  /** Filtro rápido a partir de uma célula (vira chip na aba Dados). */
+  readonly onFiltrarValor?: (coluna: string, operador: "eq" | "ne" | "isNull", valor: string | null) => void;
+  /** Colunas da chave primária — ganham o ícone de chave no cabeçalho. */
+  readonly pkColunas?: ReadonlySet<string>;
+  /** Célula recém-gravada: acende uma vez (`animate-salvo`) e apaga. */
+  readonly celulaSalva?: { readonly linha: number; readonly coluna: number } | null;
+  /** Célula com valor alterado e ainda não gravado: canto âmbar (é escrita, §3.5). */
+  readonly celulaPendente?: { readonly linha: number; readonly coluna: number } | null;
 }
 
 export function ResultGrid({
@@ -99,7 +119,34 @@ export function ResultGrid({
   abrirEditorCustom,
   fkColunas,
   onSaltoFk,
+  celulaSalva = null,
+  celulaPendente = null,
+  pkColunas,
+  onEstatistica,
+  onCopiarInsert,
+  onFiltrarValor,
 }: ResultGridProps) {
+  const { locale } = useIdioma();
+  const idioma = locale === "en" ? "en" : "pt";
+  // Zebra: preferência por pessoa, desligada por padrão (ui-detalhes §4 #14).
+  const [zebra, setZebra] = useState(lerZebra);
+  const [menu, setMenu] = useState<{ anchor: MenuAnchor; linha: number; coluna: number } | null>(null);
+  const [registro, setRegistro] = useState<AlvoRegistro | null>(null);
+  // Visualizador de célula: UM overlay por grid, fora da lista virtual (§6).
+  const [vendo, setVendo] = useState<AlvoVisualizador | null>(null);
+  const abrirVisualizador = (linha: number, j: number, el: Element | null): void => {
+    const valor = rows[linha]?.[j];
+    const col = columns[j];
+    if (valor === null || valor === undefined || valor === "" || col === undefined) return;
+    const celulaEl = el ?? scroller.current?.querySelector(`[data-linha="${String(linha)}"][data-col="${String(j)}"]`) ?? null;
+    setVendo({
+      linha,
+      coluna: col.name,
+      tipo: col.dataTypeName,
+      valor,
+      ancora: celulaEl?.getBoundingClientRect() ?? new DOMRect(window.innerWidth / 2, 120, 0, 0),
+    });
+  };
   const scroller = useRef<HTMLDivElement>(null);
   // Célula em edição inline (duplo clique). `valor` é o rascunho do input.
   const [editando, setEditando] = useState<{ linha: number; coluna: number; valor: string } | null>(
@@ -305,7 +352,16 @@ export function ResultGrid({
     const c = cabecalho.current;
     const s = scroller.current;
     if (c === null || s === null) return;
+    // Sombra do cabeçalho só quando há linha escondida sob ele.
+    c.parentElement?.toggleAttribute("data-rolado", s.scrollTop > 0);
     c.style.transform = `translateX(${String(-s.scrollLeft)}px)`;
+    // Coluna fixa (§4 #8): o cabeçalho dela desfaz o deslocamento, e a sombra
+    // à direita só aparece quando há coluna escondida sob ela.
+    if (fixa) {
+      const primeiro = c.firstElementChild as HTMLElement | null;
+      if (primeiro !== null) primeiro.style.transform = `translateX(${String(s.scrollLeft)}px)`;
+    }
+    c.parentElement?.parentElement?.toggleAttribute("data-rolado-x", s.scrollLeft > 0);
     // Andou na horizontal por qualquer meio — barra, Shift+roda, teclado — e a
     // dica perdeu a função: quem chegou aqui já sabe navegar.
     if (s.scrollLeft > 0) encerrarDica();
@@ -331,6 +387,22 @@ export function ResultGrid({
     (e.target as Element).releasePointerCapture(e.pointerId);
   };
 
+  /**
+   * Autoajuste por duplo-clique na alça (ui-detalhes §4 #7). Mede só o que
+   * está no DOM — as células visíveis e o cabeçalho —, nunca o dataset: o grid
+   * é virtualizado e medir 100k linhas travaria a aba. Teto de 480 px.
+   */
+  const autoajustar = (nome: string, j: number): void => {
+    const corpo = scroller.current;
+    const cab = cabecalho.current?.children[j] as HTMLElement | undefined;
+    let maior = (cab?.firstElementChild as HTMLElement | null)?.scrollWidth ?? 0;
+    corpo?.querySelectorAll<HTMLElement>(`[data-col="${String(j)}"]`).forEach((el) => {
+      maior = Math.max(maior, el.scrollWidth);
+    });
+    const largura = Math.min(480, Math.max(64, maior + 2));
+    setLarguras((atual) => new Map(atual).set(nome, largura));
+  };
+
   // O React Compiler pula a memoização deste componente: o `useVirtualizer`
   // devolve funções que não podem ser memoizadas com segurança. É limitação
   // conhecida da biblioteca, não defeito daqui — o aviso do lint é esperado.
@@ -342,6 +414,14 @@ export function ResultGrid({
   });
 
   const itens = virtual.getVirtualItems();
+  /*
+   * PK fixa à esquerda (§4 #8) quando ela é a primeira coluna — o caso comum.
+   * `position: sticky` dentro da linha virtual: a linha tem a largura total do
+   * conteúdo, então a célula gruda no scroller sem sair da virtualização. PK
+   * no meio da tabela não é movida: reordenar colunas mudaria o que se copia.
+   */
+  const fixa = columns[0] !== undefined && pkColunas?.has(columns[0].name) === true;
+  const SOMBRA_FIXA = "group-data-[rolado-x]/grid:shadow-[1px_0_0_var(--color-line-strong),6px_0_8px_-4px_rgb(0_0_0/.55)]";
   const alinhamentos = columns.map((c) => alinhamento(c.dataTypeName));
 
   /**
@@ -375,8 +455,27 @@ export function ResultGrid({
      * copiado é pior que não dizer nada, porque a pessoa vai colar o conteúdo
      * antigo sem desconfiar.
      */
-    void copiarTexto(recorteTsv(rows, faixa)).then((ok) => {
-      if (ok) setCopiado(true);
+    const f = faixa;
+    void copiarTexto(recorteTsv(rows, f)).then((ok) => {
+      if (!ok) return;
+      setCopiado(true);
+      const { linhas, colunas } = contaCelulas(f);
+      toast(t("grid.celulasCopiadas", { n: String(linhas * colunas) }));
+      piscarFaixa(f);
+    });
+  };
+
+  /**
+   * A faixa copiada pisca uma vez (§3.5): opacidade 1→0,6→1 em `base`. Pela
+   * Web Animations API nas células já no DOM — nada de estado React por
+   * célula, e o que está fora da janela virtual não existe para piscar.
+   */
+  const piscarFaixa = (f: NonNullable<typeof faixa>): void => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    scroller.current?.querySelectorAll<HTMLElement>("[data-linha]").forEach((el) => {
+      if (dentro(f, Number(el.dataset["linha"]), Number(el.dataset["col"]))) {
+        el.animate([{ opacity: 1 }, { opacity: 0.6 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
+      }
     });
   };
 
@@ -393,15 +492,103 @@ export function ResultGrid({
     if (ultimoVisivel >= rows.length - 10) onReachEnd();
   }, [ultimoVisivel, rows.length, loadingMore, onReachEnd]);
 
+  /** Itens do menu de contexto do grid (§6.3). Cópias levam o valor bruto. */
+  const secoesDoMenu = (linha: number, coluna: number): MenuSection[] => {
+    const f = faixa ?? { linha0: linha, linha1: linha, coluna0: coluna, coluna1: coluna };
+    const nomes = columns.slice(f.coluna0, f.coluna1 + 1).map((c) => c.name);
+    const recorte = rows.slice(f.linha0, f.linha1 + 1).map((l) => l.slice(f.coluna0, f.coluna1 + 1));
+    const n = recorte.length;
+    const valor = rows[linha]?.[coluna] ?? null;
+    const nome = columns[coluna]?.name ?? "";
+    const copiar = (texto: string, formato: string): void => {
+      void copiarTexto(texto).then((ok) => {
+        toast(ok ? t("gridMenu.copiado", { n: String(n), f: formato }) : t("visualizador.copiaFalhou"));
+      });
+    };
+    const secoes: MenuSection[] = [
+      {
+        items: [
+          { id: "valor", label: t("gridMenu.copiarValor"), disabled: valor === null, onSelect: () => { copiar(valor ?? "", "texto"); } },
+          { id: "tsv", label: t("gridMenu.copiarTsv"), onSelect: () => { copiar(recorteTsv(rows, f), "TSV"); } },
+          { id: "csv", label: t("gridMenu.copiarCsv"), onSelect: () => { copiar(paraCsv(nomes, recorte), "CSV"); } },
+          { id: "md", label: t("gridMenu.copiarMd"), onSelect: () => { copiar(paraMarkdown(nomes, recorte), "Markdown"); } },
+          { id: "json", label: t("gridMenu.copiarJson"), onSelect: () => { copiar(paraJson(nomes, recorte), "JSON"); } },
+          ...(onCopiarInsert !== undefined
+            ? [{
+                id: "insert",
+                label: t("gridMenu.copiarInsert"),
+                onSelect: () => {
+                  const idx = Array.from({ length: n }, (_, k) => f.linha0 + k);
+                  void onCopiarInsert(idx).then((sql) => {
+                    if (sql === null) toast(t("gridMenu.insertFalhou"));
+                    else copiar(sql, "INSERT");
+                  });
+                },
+              }]
+            : []),
+        ],
+      },
+      {
+        items: [
+          {
+            id: "ver",
+            label: t("gridMenu.abrirVisualizador"),
+            disabled: valor === null || valor === "",
+            onSelect: () => { abrirVisualizador(linha, coluna, null); },
+          },
+          { id: "registro", label: t("gridMenu.registro"), onSelect: () => { setRegistro({ linhas: [linha] }); } },
+          {
+            id: "comparar",
+            label: t("gridMenu.comparar"),
+            // Duas linhas selecionadas (Shift+clique) — exatamente duas.
+            disabled: f.linha1 - f.linha0 !== 1,
+            onSelect: () => { setRegistro({ linhas: [f.linha0, f.linha1] }); },
+          },
+        ],
+      },
+    ];
+    if (onFiltrarValor !== undefined) {
+      secoes.push({
+        items: [
+          { id: "f-eq", label: t("gridMenu.filtrarIgual"), disabled: valor === null, onSelect: () => { onFiltrarValor(nome, "eq", valor); } },
+          { id: "f-ne", label: t("gridMenu.filtrarDiferente"), disabled: valor === null, onSelect: () => { onFiltrarValor(nome, "ne", valor); } },
+          { id: "f-null", label: t("gridMenu.filtrarNulo"), onSelect: () => { onFiltrarValor(nome, "isNull", null); } },
+        ],
+      });
+    }
+    secoes.push({
+      items: [
+        ...(onEstatistica !== undefined
+          ? [{
+              id: "stats",
+              label: t("gridMenu.estatistica"),
+              onSelect: () => {
+                const cab = cabecalho.current?.children[coluna] as HTMLElement | undefined;
+                onEstatistica(nome, cab?.getBoundingClientRect() ?? new DOMRect(menu?.anchor.x ?? 0, menu?.anchor.y ?? 0, 0, 0));
+              },
+            }]
+          : []),
+        {
+          id: "zebra",
+          label: t("gridMenu.zebra"),
+          // Item de alternância: o check ocupa a coluna do ícone, ligado ou não.
+          icon: <Check aria-hidden className={cn("h-3.5 w-3.5", zebra ? "text-ink" : "invisible")} />,
+          onSelect: () => { gravarZebra(!zebra); setZebra(!zebra); },
+        },
+      ],
+    });
+    return secoes;
+  };
+
   if (columns.length === 0) {
     return <p className="px-4 py-6 text-xs text-subtle">Sem colunas para mostrar.</p>;
   }
 
   return (
-    <div className="relative flex h-full min-h-0 flex-col" onKeyDown={copiar}>
+    <div className="group/grid relative flex h-full min-h-0 flex-col" onKeyDown={copiar}>
       {/* Cabeçalho fora do scroller vertical: fica fixo verticalmente, e
           acompanha o scroll horizontal do corpo por `transform`. */}
-      <div className="shrink-0 overflow-hidden border-b border-line bg-surface">
+      <div className="relative z-[1] shrink-0 overflow-hidden border-b border-line bg-surface transition-shadow duration-(--motion-fast) data-[rolado]:shadow-[0_4px_8px_-6px_rgb(0_0_0/.45)]">
         <div ref={cabecalho} className="flex will-change-transform" style={{ minWidth: "max-content" }}>
           {columns.map((c, i) => {
             const ordenavel = onSort !== undefined;
@@ -415,7 +602,7 @@ export function ResultGrid({
                   className={cn(
                     "flex items-center gap-1 truncate text-xs font-medium",
                     direita && "justify-end",
-                    ativa ? "text-accent" : "text-ink",
+                    ativa ? "text-info" : "text-ink",
                   )}
                 >
                   {/*
@@ -424,11 +611,28 @@ export function ResultGrid({
                     * a ordenada deixaria de saltar.
                     */}
                   {ativa ? (
+                    // `key` pela direção: inverter remonta a seta e ela entra
+                    // de novo em `fast`, o retorno de que o clique pegou.
                     sortDirection === "asc" ? (
-                      <ArrowUp aria-hidden className="h-3 w-3 shrink-0" />
+                      <ArrowUp key="asc" aria-hidden className="motion-pop h-3 w-3 shrink-0" />
                     ) : (
-                      <ArrowDown aria-hidden className="h-3 w-3 shrink-0" />
+                      <ArrowDown key="desc" aria-hidden className="motion-pop h-3 w-3 shrink-0" />
                     )
+                  ) : null}
+                  {pkColunas?.has(c.name) === true ? (
+                    <KeyRound aria-label="chave primária" className="h-3 w-3 shrink-0 text-info" />
+                  ) : null}
+                  {fkColunas?.has(c.name) === true || (c.origin?.references ?? null) !== null ? (
+                    <span
+                      className="inline-flex shrink-0"
+                      title={
+                        c.origin?.references != null
+                          ? `→ ${c.origin.references.schema}.${c.origin.references.table}.${c.origin.references.column}`
+                          : "chave estrangeira"
+                      }
+                    >
+                      <Link2 aria-label="chave estrangeira" className="h-3 w-3 text-info" />
+                    </span>
                   ) : null}
                   <span className="truncate">{c.name}</span>
                 </span>
@@ -449,14 +653,14 @@ export function ResultGrid({
                * é inegociável" (§6).
                */
               ordenavel &&
-                "cursor-pointer transition-colors duration-150 hover:bg-raised focus-visible:bg-raised focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
-              ativa && "bg-amber/[0.06]",
+                "cursor-pointer transition-colors duration-(--motion-fast) hover:bg-raised focus-visible:bg-raised focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
+              ativa && "bg-raised",
             );
 
             return (
               <div
                 key={`${c.name}-${String(i)}`}
-                className="relative shrink-0"
+                className={cn("group/cab relative shrink-0", fixa && i === 0 && cn("z-[2] bg-surface", SOMBRA_FIXA))}
                 style={{ width: largura }}
               >
                 {ordenavel ? (
@@ -479,6 +683,22 @@ export function ResultGrid({
                   <div className={classe}>{conteudo}</div>
                 )}
 
+                {onEstatistica !== undefined ? (
+                  // Resumo da coluna no hover do cabeçalho (§6.3): um gesto,
+                  // sem competir com o clique que ordena.
+                  <button
+                    type="button"
+                    aria-label={`${t("stats.abrir")}: ${c.name}`}
+                    title={t("stats.abrir")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onEstatistica(c.name, (e.currentTarget.parentElement ?? e.currentTarget).getBoundingClientRect());
+                    }}
+                    className="press absolute right-2 top-1.5 z-10 hidden h-5 w-5 cursor-pointer items-center justify-center rounded-[4px] bg-overlay text-subtle hover:text-ink focus-visible:flex group-hover/cab:flex"
+                  >
+                    <Sigma aria-hidden className="h-3 w-3" />
+                  </button>
+                ) : null}
                 {/*
                   * Alça de redimensionamento na borda direita.
                   *
@@ -494,7 +714,9 @@ export function ResultGrid({
                   onPointerDown={(e) => { iniciarResize(e, c.name); }}
                   onPointerMove={moverResize}
                   onPointerUp={soltarResize}
-                  className="absolute inset-y-0 right-0 z-10 w-1.5 translate-x-1/2 cursor-col-resize touch-none hover:bg-accent/40"
+                  // Duplo-clique ajusta à largura do conteúdo visível.
+                  onDoubleClick={(e) => { e.stopPropagation(); autoajustar(c.name, i); }}
+                  className="absolute inset-y-0 right-0 z-10 w-1.5 translate-x-1/2 cursor-col-resize touch-none transition-colors duration-(--motion-fast) hover:bg-info/40"
                 />
               </div>
             );
@@ -519,7 +741,7 @@ export function ResultGrid({
       */}
       {dica && transborda && faixa === null ? (
         <div className="pointer-events-none absolute bottom-2 left-3 z-10 flex items-center gap-1.5 rounded-[4px] border border-line bg-overlay px-2 py-1 text-2xs text-muted shadow-sm [@media(pointer:coarse)]:hidden">
-          <Hand aria-hidden className="h-3 w-3 shrink-0 text-accent" />
+          <Hand aria-hidden className="h-3 w-3 shrink-0 text-info" />
           {t("grid.dicaArrasto")}
         </div>
       ) : null}
@@ -547,6 +769,20 @@ export function ResultGrid({
         onPointerMove={moverArrasto}
         onPointerUp={soltarArrasto}
         onPointerCancel={soltarArrasto}
+        onContextMenu={(e) => {
+          const el = (e.target as Element).closest<HTMLElement>("[data-linha]");
+          if (el === null) return;
+          e.preventDefault();
+          const linha = Number(el.dataset["linha"]);
+          const coluna = Number(el.dataset["col"]);
+          // Botão direito fora da seleção move a seleção para a célula, como
+          // em planilha; dentro dela, preserva a faixa.
+          if (!dentro(faixa, linha, coluna)) {
+            setAncora({ linha, coluna });
+            setFoco({ linha, coluna });
+          }
+          setMenu({ anchor: { x: e.clientX, y: e.clientY }, linha, coluna });
+        }}
         // Fase de captura: chega antes do `onClick` da célula, que é quem
         // mudaria a seleção ao soltar o arrasto.
         onClickCapture={(e) => {
@@ -565,7 +801,10 @@ export function ResultGrid({
             return (
               <div
                 key={item.key}
-                className="absolute left-0 flex border-b border-line/40 hover:bg-surface"
+                className={cn(
+                  "group/linha absolute left-0 flex border-b border-line/40 hover:bg-raised/70",
+                  zebra && item.index % 2 === 1 && "bg-surface/60",
+                )}
                 style={{ top: 0, transform: `translateY(${String(item.start)}px)`, height: ALTURA_LINHA }}
               >
                 {linha.map((celula, j) => {
@@ -591,7 +830,7 @@ export function ResultGrid({
                         // diff, não o blur; blur cancela, para não abrir modal à
                         // toa ao clicar fora.
                         onBlur={() => { setEditando(null); }}
-                        className="shrink-0 truncate border-r border-accent bg-sunken px-3 font-mono text-xs leading-[26px] text-ink outline-none ring-1 ring-accent"
+                        className="shrink-0 truncate border-r border-accent bg-sunken px-3 font-mono text-xs tabular-nums leading-[26px] text-ink outline-none ring-1 ring-accent"
                         style={{ width: larguraDe(columns[j]?.name ?? "") }}
                       />
                     );
@@ -602,23 +841,34 @@ export function ResultGrid({
                   return (
                   <div
                     key={j}
-                    className="group/cel relative shrink-0"
+                    className={cn(
+                      "group/cel relative shrink-0",
+                      // Fixa precisa de fundo opaco, senão a coluna que passa
+                      // por baixo aparece através dela.
+                      fixa && j === 0 && cn("sticky left-0 z-[2] bg-surface group-hover/linha:bg-raised", SOMBRA_FIXA),
+                    )}
                     style={{ width: larguraDe(columns[j]?.name ?? "") }}
                   >
                   <button
                     type="button"
-                    onDoubleClick={
-                      editavel || abrirEditorCustom !== undefined
-                        ? () => {
-                            // Editor próprio primeiro (modal do Redis); se ele
-                            // assumir a célula, o inline não abre.
-                            if (abrirEditorCustom?.(item.index, j) === true) return;
-                            if (editavel) {
-                              setEditando({ linha: item.index, coluna: j, valor: celula ?? "" });
-                            }
-                          }
-                        : undefined
-                    }
+                    onDoubleClick={(e) => {
+                      // Editor próprio primeiro (modal do Redis); se ele
+                      // assumir a célula, o inline não abre.
+                      if (abrirEditorCustom?.(item.index, j) === true) return;
+                      if (editavel) {
+                        setEditando({ linha: item.index, coluna: j, valor: celula ?? "" });
+                        return;
+                      }
+                      // Sem edição, o duplo-clique abre o visualizador (§6.1).
+                      abrirVisualizador(item.index, j, e.currentTarget);
+                    }}
+                    onKeyDown={(e) => {
+                      // Enter/Espaço com a célula em foco abrem o visualizador.
+                      if ((e.key === "Enter" || e.key === " ") && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+                        e.preventDefault();
+                        abrirVisualizador(item.index, j, e.currentTarget);
+                      }
+                    }}
                     onClick={(e) => {
                       // Shift estende a partir da âncora; clique simples a move.
                       if (e.shiftKey && ancora !== null) setFoco({ linha: item.index, coluna: j });
@@ -628,14 +878,21 @@ export function ResultGrid({
                       }
                       onCellClick?.(item.index, j);
                     }}
-                    title={celula ?? undefined}
+                    title={
+                      celulaPendente?.linha === item.index && celulaPendente.coluna === j
+                        ? t("grid.valorOriginal", { v: celula ?? "NULL" })
+                        : (celula ?? undefined)
+                    }
+                    data-col={j}
+                    data-linha={item.index}
                     className={cn(
-                      "block w-full cursor-default truncate border-r border-line/40 px-3 text-left font-mono text-xs leading-[26px]",
+                      "block w-full cursor-default truncate border-r border-line/40 px-3 text-left font-mono text-xs tabular-nums leading-[26px]",
                       alinhamentos[j] === "right" && "text-right",
                       celula === null ? "text-subtle" : "text-ink",
                       // Faixa de seleção: tinta fraca, não o âmbar sólido do
                       // selo — seleção é interação, selo é informação.
-                      dentro(faixa, item.index, j) && "bg-amber/12 text-ink",
+                      dentro(faixa, item.index, j) && "bg-info/15 text-ink",
+                      celulaSalva?.linha === item.index && celulaSalva.coluna === j && "animate-salvo",
                     )}
                   >
                     {/*
@@ -664,9 +921,37 @@ export function ResultGrid({
                     ) : celula === "" ? (
                       <span className="italic text-muted">{t("grid.vazio")}</span>
                     ) : (
-                      celula
+                      <ConteudoCelula valor={celula} tipo={columns[j]?.dataTypeName ?? ""} idioma={idioma} />
                     )}
                   </button>
+                  {celulaPendente?.linha === item.index && celulaPendente.coluna === j ? (
+                    // Escrita pendente: triângulo âmbar de 4 px no canto (§3.5).
+                    // Âmbar aqui é o sinal certo — é escrita ainda não gravada.
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute right-0 top-0 h-0 w-0 border-l-[6px] border-t-[6px] border-l-transparent border-t-amber"
+                    />
+                  ) : null}
+                  {celula !== null && celula !== "" && temVisualizador(columns[j]?.dataTypeName ?? "", celula) ? (
+                    // Gatilho de um gesto só (§6.1): aparece no hover, como o
+                    // salto de FK. Clique simples na célula continua selecionando.
+                    <button
+                      type="button"
+                      tabIndex={-1}
+                      aria-label={t("visualizador.abrir")}
+                      title={t("visualizador.abrir")}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        abrirVisualizador(item.index, j, e.currentTarget.parentElement);
+                      }}
+                      className={cn(
+                        "absolute inset-y-0 z-10 hidden items-center rounded-l-[3px] border-l border-line bg-overlay px-1 text-info hover:bg-raised group-hover/cel:flex",
+                        temFk ? "right-6" : "right-0",
+                      )}
+                    >
+                      <Braces aria-hidden className="h-3 w-3" />
+                    </button>
+                  ) : null}
                   {temFk ? (
                     // Só no hover da célula: um ícone por célula-FK sempre visível
                     // viraria ruído. Fica sobre a borda direita, com fundo sólido
@@ -676,7 +961,7 @@ export function ResultGrid({
                       aria-label="Abrir tabela referenciada por esta linha"
                       title="Abrir a tabela referenciada, filtrada por esta linha"
                       onClick={(e) => { e.stopPropagation(); onSaltoFk?.(item.index, j); }}
-                      className="absolute inset-y-0 right-0 z-10 hidden items-center rounded-l-[3px] border-l border-accent-line bg-overlay pl-1 pr-1.5 text-accent hover:bg-accent-soft group-hover/cel:flex"
+                      className="absolute inset-y-0 right-0 z-10 hidden items-center rounded-l-[3px] border-l border-line bg-overlay pl-1 pr-1.5 text-info hover:bg-raised group-hover/cel:flex"
                     >
                       <CornerUpRight aria-hidden className="h-3 w-3" />
                     </button>
@@ -689,6 +974,27 @@ export function ResultGrid({
           })}
         </div>
       </div>
+      {menu !== null ? (
+        <ContextMenu
+          anchor={menu.anchor}
+          title={columns[menu.coluna]?.name ?? ""}
+          sections={secoesDoMenu(menu.linha, menu.coluna)}
+          onClose={() => { setMenu(null); }}
+        />
+      ) : null}
+      <PainelRegistro alvo={registro} columns={columns} rows={rows} onFechar={() => { setRegistro(null); }} />
+      <Visualizador
+        alvo={vendo}
+        onFechar={() => { setVendo(null); }}
+        onMoverLinha={(d) => {
+          if (vendo === null) return;
+          const j = columns.findIndex((c) => c.name === vendo.coluna);
+          const alvoLinha = vendo.linha + d;
+          if (alvoLinha < 0 || alvoLinha >= rows.length) return;
+          virtual.scrollToIndex(alvoLinha, { align: "auto" });
+          abrirVisualizador(alvoLinha, j, null);
+        }}
+      />
     </div>
   );
 }

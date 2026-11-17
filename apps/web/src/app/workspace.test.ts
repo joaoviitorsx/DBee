@@ -1,5 +1,5 @@
 import type { Connection } from "@dbee/shared";
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, it as test } from "bun:test";
 
 import type { Tradutor } from "../i18n";
 
@@ -14,8 +14,14 @@ import {
   emptyWorkspace,
   focusTab,
   isDangerous,
+  openCompare,
+  openQuery,
   openTable,
+  openTableFromLink,
+  restaurarWorkspace,
   selectColumn,
+  serializarWorkspace,
+  setQuerySql,
   setView,
   tabTitle,
   tableTabId,
@@ -251,5 +257,64 @@ describe("aba de query é atrelada à conexão e ao database", () => {
   it("a conexão da aba de query é a que decide a tarja de perigo", () => {
     const conexoes = [{ id: "c1", writeEnabled: true }] as unknown as Connection[];
     expect(isDangerous(queryTab(), conexoes)).toBe(true);
+  });
+});
+
+describe("persistência (F8)", () => {
+  const alvoF8: TableTarget = { connectionId: "c1", database: "d", schema: "public", relation: "t", kind: "table" };
+
+  test("ida e volta preserva abas e ativa", () => {
+    let ws = openTable(emptyWorkspace, alvoF8);
+    ws = openQuery(ws, "c1", "d", "select 1");
+    ws = openCompare(ws, "schema", { connectionId: "c1", database: "d", schema: "public", table: null });
+    const volta = restaurarWorkspace(serializarWorkspace(ws));
+    expect(volta.tabs).toEqual(ws.tabs);
+    expect(volta.activeTabId).toBe(ws.activeTabId);
+  });
+
+  test("lixo e versão desconhecida viram vazio", () => {
+    expect(restaurarWorkspace(null)).toEqual(emptyWorkspace);
+    expect(restaurarWorkspace("{")).toEqual(emptyWorkspace);
+    expect(restaurarWorkspace('{"v":2,"tabs":[]}')).toEqual(emptyWorkspace);
+  });
+
+  test("aba inválida é descartada sem levar as outras", () => {
+    const ws = openTable(emptyWorkspace, alvoF8);
+    const bruto = JSON.parse(serializarWorkspace(ws)) as { tabs: unknown[] };
+    bruto.tabs.push({ kind: "foguete", id: "x" }, { kind: "table", id: "y", target: { connectionId: 1 } });
+    expect(restaurarWorkspace(JSON.stringify({ ...bruto, v: 1 })).tabs).toHaveLength(1);
+  });
+
+  test("abas novas não colidem com ids restaurados", () => {
+    const guardado = JSON.stringify({
+      v: 1,
+      activeTabId: null,
+      tabs: [{ kind: "query", id: "query:900", connectionId: "c", database: "d", title: "Consulta 900", initialSql: "" }],
+    });
+    const ws = openQuery(restaurarWorkspace(guardado), "c", "d");
+    expect(ws.tabs[1]?.id).not.toBe("query:900");
+  });
+
+  test("setQuerySql guarda o texto do editor", () => {
+    const ws = openQuery(emptyWorkspace, "c", "d");
+    const id = ws.activeTabId ?? "";
+    const novo = setQuerySql(ws, id, "select 2");
+    expect(novo.tabs[0]?.kind === "query" ? novo.tabs[0].initialSql : null).toBe("select 2");
+  });
+
+  test("link com filtro/ordem abre aba nova com semente; sem eles foca a existente", () => {
+    const ws = openTable(emptyWorkspace, alvoF8);
+    expect(openTableFromLink(ws, alvoF8, [], null).tabs).toHaveLength(1);
+    const com = openTableFromLink(ws, alvoF8, [], { column: "id", direction: "desc" });
+    expect(com.tabs).toHaveLength(2);
+    const nova = com.tabs[1];
+    expect(nova?.kind === "table" ? nova.initialSort : null).toEqual({ column: "id", direction: "desc" });
+  });
+
+  test("comparar nunca herda a tarja de escrita", () => {
+    const ws = openCompare(emptyWorkspace, "data", { connectionId: "c1", database: "d", schema: "s", table: "t" });
+    const tab = ws.tabs[0];
+    if (tab === undefined) throw new Error("sem aba");
+    expect(isDangerous(tab, [{ id: "c1", writeEnabled: true } as never])).toBe(false);
   });
 });

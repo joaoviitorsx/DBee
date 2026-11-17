@@ -5,6 +5,7 @@ import { useT } from "../i18n";
 import { cn } from "../lib/cn";
 import { Button } from "./ui/Button";
 import { copiarTexto } from "../lib/navegador";
+import { detalhesDoErro, semCredencial } from "../features/estados/detalhes.puro";
 
 /**
  * Fronteira de erro — o que impede que um defeito local vire sessão perdida.
@@ -128,13 +129,22 @@ function TelaDeRecuperacao({ erro, pilha, variante, onTentar }: TelaProps) {
   const t = useT();
   const [copiado, setCopiado] = useState(false);
 
-  const detalhes = `${erro.name}: ${erro.message}\n\n${erro.stack ?? ""}\n${pilha ?? ""}`.trim();
+  // Passa pelo filtro de credencial: o texto vai para chat/issue (regra 5).
+  const detalhes = detalhesDoErro({
+    nome: erro.name,
+    mensagem: erro.message,
+    pilha: erro.stack ?? null,
+    pilhaComponente: pilha,
+    caminho: location.pathname,
+    agente: navigator.userAgent,
+  });
 
   return (
     <div
       role="alert"
       className={cn(
-        "flex min-h-0 flex-col items-center justify-center gap-4 overflow-auto p-6 text-center",
+        // Entra com fade (§3.7): a falha troca o conteúdo, não deveria estalar.
+        "motion-fade flex min-h-0 flex-col items-center justify-center gap-4 overflow-auto p-6 text-center",
         /*
           `flex-1` só ocupa a altura quando o pai é flex COM altura — o que
           vale dentro do `<main>`, mas não na raiz: ali o pai é o `#root`, e a
@@ -162,7 +172,7 @@ function TelaDeRecuperacao({ erro, pilha, variante, onTentar }: TelaProps) {
         página na horizontal — o defeito que o `check-responsivo.ts` tranca.
       */}
       <pre className="max-h-40 w-full max-w-lg overflow-auto whitespace-pre-wrap break-words rounded-[4px] border border-line bg-sunken px-3 py-2 text-left text-2xs text-muted">
-        {erro.message}
+        {semCredencial(erro.message)}
       </pre>
 
       <div className="flex flex-wrap items-center justify-center gap-2">

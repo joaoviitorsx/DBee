@@ -1,9 +1,9 @@
-import { KeyRound } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "../../components/ui";
 import { useT } from "../../i18n";
 import { useSession } from "../auth/useSession";
+import { IconeMcp } from "./IconeMcp";
 import { TokensDialog } from "./TokensDialog";
 
 /**
@@ -26,7 +26,7 @@ export function TokensBotao() {
         title={t("tokens.abrir")}
         onClick={() => { setAberto(true); }}
       >
-        <KeyRound aria-hidden className="h-3.5 w-3.5" />
+        <IconeMcp />
       </Button>
       {aberto ? <TokensDialog onClose={() => { setAberto(false); }} /> : null}
     </>

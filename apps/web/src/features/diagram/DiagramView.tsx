@@ -257,7 +257,7 @@ export function DiagramView({
                   >
                     <div className="flex h-full items-center gap-1 px-2" style={{ height: ALTURA_LINHA }}>
                       {c.pk ? (
-                        <KeyRound aria-label={t("diagrama.pk")} className="h-2.5 w-2.5 shrink-0 text-accent" />
+                        <KeyRound aria-label={t("diagrama.pk")} className="h-2.5 w-2.5 shrink-0 text-info" />
                       ) : c.fk ? (
                         <Link2 aria-label={t("diagrama.fk")} className="h-2.5 w-2.5 shrink-0 text-muted" />
                       ) : (

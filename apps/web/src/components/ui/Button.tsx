@@ -6,16 +6,19 @@ import { cn } from "../../lib/cn";
 
 const button = cva(
   "inline-flex items-center justify-center gap-2 rounded-[6px] font-medium " +
-    "transition-colors duration-150 cursor-pointer select-none " +
+    "press cursor-pointer select-none " +
     "disabled:cursor-not-allowed disabled:opacity-45",
   {
     variants: {
       variant: {
         // Âmbar sólido: o único acento saturado que a interface produz.
         primary: "bg-amber text-accent-ink hover:bg-amber/90 active:bg-amber/80",
+        // Ação principal SEM escrita: tinta neutra. Âmbar sólido fica para o
+        // que grava (modo escrita) — a cor tem de significar "isto escreve".
+        solido: "bg-ink text-surface hover:bg-ink/90 active:bg-ink/80",
         secondary:
           "bg-raised text-ink border border-line hover:bg-accent-soft hover:border-accent-line",
-        ghost: "text-muted hover:bg-accent-soft hover:text-accent",
+        ghost: "text-muted hover:bg-raised hover:text-ink active:bg-overlay",
         danger: "bg-transparent text-danger border border-danger/35 hover:bg-danger/10",
       },
       /*
@@ -62,14 +65,35 @@ export function Button({
       aria-busy={loading}
       {...props}
     >
-      {loading ? (
-        <>
-          <Loader2 aria-hidden className="h-3.5 w-3.5 animate-spin" />
-          {loadingLabel ?? children}
-        </>
-      ) : (
-        children
-      )}
+      {/*
+        As camadas ocupam a mesma célula do grid: a largura do botão é a da
+        maior delas, e entrar em "carregando" não pula o layout. Sem
+        `loadingLabel`, o spinner ocupa o lugar do rótulo (que fica em
+        `opacity-0`, ainda lido pelo leitor de tela); com ele, a camada de
+        carregamento existe desde o repouso, invisível, para reservar largura.
+      */}
+      <span className="grid items-center justify-items-center">
+        <span
+          className={cn(
+            "col-start-1 row-start-1 inline-flex items-center gap-2",
+            loading && "opacity-0",
+          )}
+        >
+          {children}
+        </span>
+        {loading || loadingLabel !== undefined ? (
+          <span
+            aria-hidden={!loading}
+            className={cn(
+              "col-start-1 row-start-1 inline-flex items-center gap-2",
+              loading ? "motion-fade" : "invisible",
+            )}
+          >
+            <Loader2 aria-hidden className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
+            {loadingLabel}
+          </span>
+        ) : null}
+      </span>
     </button>
   );
 }

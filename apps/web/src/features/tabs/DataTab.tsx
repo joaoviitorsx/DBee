@@ -1,14 +1,17 @@
-import type { Column, ForeignKey, RowFilter, RowsResponse } from "@dbee/shared";
+import type { Column, FilterOperator, ForeignKey, RowFilter, RowsResponse } from "@dbee/shared";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Filter, Plus, Trash2, TriangleAlert, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Badge, Button, Input } from "../../components/ui";
 import { api } from "../../lib/api";
 import type { TableTarget } from "../../app/workspace";
 import { ExportButton } from "../export/ExportButton";
-import { Trabalhando, TrabalhandoInline } from "../motion/Trabalhando";
+import { Trabalhando } from "../motion/Trabalhando";
+import { EsqueletoGrid, useFaseCarregamento } from "../grid/EsqueletoGrid";
+import { montarFiltro, OPERADORES, rotuloFiltro, semValor, SIMBOLO } from "../grid/carregamento.puro";
 import { ResultGrid } from "../grid/ResultGrid";
+import { type AlvoEstatistica, EstatisticaColuna } from "../grid/EstatisticaColuna";
 import { RowEditModal, type Pendente, type PkValor } from "../grid/RowEditModal";
 import { RedisValueModal, type RedisAlvo, type TipoColecao } from "../grid/RedisValueModal";
 import { MongoDocModal, type MongoAlvo } from "../grid/MongoDocModal";
@@ -47,6 +50,7 @@ export function DataTab({
   colunasSchema,
   foreignKeys,
   initialFilters,
+  initialSort,
   onOpenTableFiltered,
   leading,
   trailing,
@@ -71,6 +75,8 @@ export function DataTab({
   readonly foreignKeys?: readonly ForeignKey[];
   /** Filtros iniciais quando a aba nasce de um salto por FK. */
   readonly initialFilters?: readonly RowFilter[];
+  /** Ordenação inicial vinda de link compartilhado (ADR 020); lida na montagem. */
+  readonly initialSort?: { readonly column: string; readonly direction: "asc" | "desc" };
   /** Salto por FK: abre a tabela referenciada, filtrada, em aba nova. */
   readonly onOpenTableFiltered?: (target: TableTarget, filters: readonly RowFilter[]) => void;
   /** Sub-abas, à esquerda da toolbar — uma linha só (ver `SubTabs`). */
@@ -79,12 +85,43 @@ export function DataTab({
   readonly trailing?: React.ReactNode;
 }) {
   const t = useT();
-  const [orderBy, setOrderBy] = useState<string | null>(null);
-  const [orderDirection, setOrderDirection] = useState<"asc" | "desc">("asc");
+  const [orderBy, setOrderBy] = useState<string | null>(initialSort?.column ?? null);
+  // Célula sendo editada e, depois de gravada, a que acende uma vez no grid.
+  const [emEdicao, setEmEdicao] = useState<{ linha: number; coluna: number } | null>(null);
+  const [salva, setSalva] = useState<{ linha: number; coluna: number } | null>(null);
+  useEffect(() => {
+    if (salva === null) return;
+    const id = setTimeout(() => { setSalva(null); }, 1000);
+    return () => { clearTimeout(id); };
+  }, [salva]);
+  const [orderDirection, setOrderDirection] = useState<"asc" | "desc">(initialSort?.direction ?? "asc");
   // Semeado uma vez com os filtros do salto por FK (a tabela referenciada abre
   // já filtrada); depois o usuário manda. `initialFilters` só é lido na montagem.
   const [filtros, setFiltros] = useState<RowFilter[]>(() => [...(initialFilters ?? [])]);
-  const [rascunho, setRascunho] = useState({ column: "", value: "" });
+  const [estatistica, setEstatistica] = useState<AlvoEstatistica | null>(null);
+  const [rascunho, setRascunho] = useState<{ column: string; operator: FilterOperator; value: string }>({ column: "", operator: "contains", value: "" });
+  // Chip saindo: fica montado um `fast` com `motion-pop-out` e então sai do
+  // estado (§3.5). O índice é do chip, não do filtro — a lista não reordena.
+  const [saindo, setSaindo] = useState<number | null>(null);
+  const removerFiltro = (i: number): void => {
+    if (saindo !== null) return;
+    setSaindo(i);
+    setTimeout(() => {
+      setFiltros((atual) => atual.filter((_, j) => j !== i));
+      setSaindo(null);
+    }, 120);
+  };
+  // Filtro repetido não muda o resultado; recusar mantém a chave do chip única
+  // (a chave é o próprio filtro, para o chip não remontar quando outro sai).
+  const adicionarFiltro = (f: RowFilter): void => {
+    setFiltros((atual) => (atual.some((g) => JSON.stringify(g) === JSON.stringify(f)) ? atual : [...atual, f]));
+  };
+  const aplicarRascunho = (): void => {
+    const f = montarFiltro(rascunho.column, rascunho.operator, rascunho.value);
+    if (f === null) return;
+    adicionarFiltro(f);
+    setRascunho((r) => ({ ...r, column: "", value: "" }));
+  };
   // Edição de linha (v0.2): o modal do diff, e a linha selecionada para excluir.
   const [pendente, setPendente] = useState<Pendente | null>(null);
   // Redis: a coluna `value` de uma coleção abre o editor estruturado.
@@ -117,6 +154,7 @@ export function DataTab({
 
   // `?? []` cru criaria um array novo a cada render e o memo abaixo nunca
   // memoizaria — com dezenas de milhares de linhas, isso é uma cópia por quadro.
+  const fase = useFaseCarregamento(consulta.isPending);
   const dados = consulta.data;
   const paginas = useMemo(() => dados?.pages ?? [], [dados]);
   const primeira = paginas[0];
@@ -196,6 +234,23 @@ export function DataTab({
   };
 
   /** Valores da PK de uma linha, ou `null` se algum for nulo (não identifica). */
+  /**
+   * INSERT das linhas escolhidas, gerado pela rota do servidor (o front não
+   * monta SQL por concatenação). Vai o valor bruto de todas as colunas.
+   */
+  const copiarInsert = async (indices: readonly number[]): Promise<string | null> => {
+    const sel = indices.map((i) => linhas[i]).filter((l) => l !== undefined).map((l) => [...l]);
+    if (sel.length === 0) return null;
+    const { data, error } = await api.api
+      .connections({ id: target.connectionId })
+      .tables({ schema: target.schema })({ table: target.relation })["insert-sql"].post({
+        database: target.database,
+        columns: colunas.map((c) => c.name),
+        rows: sel,
+      });
+    return error === null ? data.sql : null;
+  };
+
   const pkDaLinha = (li: number): PkValor[] | null => {
     const linha = linhas[li];
     if (linha === undefined) return null;
@@ -281,6 +336,7 @@ export function DataTab({
     // clique, mas se cair aqui via Enter do inline, roteia para ele também.
     if (abrirEditorCustom(li, col)) return;
 
+    setEmEdicao({ linha: li, coluna: col });
     setPendente({
       kind: "update",
       database: target.database,
@@ -369,33 +425,50 @@ export function DataTab({
                 <option key={c.name} value={c.name}>{c.name}</option>
               ))}
             </select>
-            <Input
-              value={rascunho.value}
-              onChange={(e) => { setRascunho((r) => ({ ...r, value: e.target.value })); }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && rascunho.column !== "") {
-                  setFiltros((f) => [...f, { column: rascunho.column, operator: "contains", value: rascunho.value }]);
-                  setRascunho({ column: "", value: "" });
-                }
-              }}
-              placeholder={t("dados.contem")}
-              aria-label={t("dados.valorFiltro")}
-              className="h-7 w-full min-w-0 max-w-[9rem] flex-1 text-xs"
-            />
+            <select
+              value={rascunho.operator}
+              onChange={(e) => { setRascunho((r) => ({ ...r, operator: e.target.value as FilterOperator })); }}
+              aria-label={t("dados.operador")}
+              className="h-7 w-[7.25rem] shrink-0 cursor-pointer rounded-[4px] border border-line bg-sunken px-1.5 font-mono text-xs text-ink"
+            >
+              {OPERADORES.map((op) => (
+                <option key={op} value={op}>{SIMBOLO[op]}</option>
+              ))}
+            </select>
+            {semValor(rascunho.operator) ? (
+              <Button size="sm" variant="secondary" disabled={rascunho.column === ""} onClick={aplicarRascunho}>
+                {t("dados.aplicarFiltro")}
+              </Button>
+            ) : (
+              <Input
+                value={rascunho.value}
+                onChange={(e) => { setRascunho((r) => ({ ...r, value: e.target.value })); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") aplicarRascunho();
+                  // Backspace no campo vazio tira o último chip (§3.5).
+                  if (e.key === "Backspace" && rascunho.value === "" && filtros.length > 0) removerFiltro(filtros.length - 1);
+                }}
+                placeholder={rascunho.operator === "in" ? t("dados.valoresIn") : rascunho.operator === "contains" ? t("dados.contem") : t("dados.valor")}
+                aria-label={t("dados.valorFiltro")}
+                className="h-7 w-full min-w-0 max-w-[9rem] flex-1 text-xs"
+              />
+            )}
           </div>
 
           {filtros.map((f, i) => (
-            <Badge key={`${f.column}-${String(i)}`} tone="neutral">
-              {f.column} ⊃ {f.value}
-              <button
-                type="button"
-                aria-label={t("dados.removerFiltro", { col: f.column })}
-                onClick={() => { setFiltros((atual) => atual.filter((_, j) => j !== i)); }}
-                className="cursor-pointer"
-              >
-                <X aria-hidden className="h-2.5 w-2.5" />
-              </button>
-            </Badge>
+            <span key={JSON.stringify(f)} className={saindo === i ? "motion-pop-out" : "motion-pop"}>
+              <Badge tone="neutral">
+                <span className="max-w-[16rem] truncate font-mono" title={rotuloFiltro(f)}>{rotuloFiltro(f)}</span>
+                <button
+                  type="button"
+                  aria-label={t("dados.removerFiltro", { col: f.column })}
+                  onClick={() => { removerFiltro(i); }}
+                  className="press cursor-pointer"
+                >
+                  <X aria-hidden className="h-2.5 w-2.5" />
+                </button>
+              </Badge>
+            </span>
           ))}
         </div>
 
@@ -406,15 +479,6 @@ export function DataTab({
               {t("edit.excluirLinha")}
             </Button>
           ) : null}
-
-          {consulta.isFetchingNextPage ? (
-            <TrabalhandoInline rotulo={t("dados.buscandoMais")} />
-          ) : (
-            <span className="text-2xs text-subtle">
-              {t(linhas.length === 1 ? "dados.carregadaSing" : "dados.carregadaPlur", { n: linhas.length })}
-              {consulta.hasNextPage ? t("dados.haMais") : ""}
-            </span>
-          )}
 
           {/* O export leva os MESMOS filtros e ordenação da tela: o arquivo tem
               de ser o que a pessoa está vendo, não a tabela crua. Escondido nas
@@ -456,7 +520,8 @@ export function DataTab({
 
       <div className="min-h-0 flex-1">
         {consulta.isPending ? (
-          <Trabalhando rotulo={t("dados.lendoLinhas")} cronometro />
+          // Regra única de carregamento (§3.7): nada, esqueleto, Trabalhando.
+          fase === "nada" ? null : fase === "esqueleto" ? <EsqueletoGrid /> : <Trabalhando rotulo={t("dados.lendoLinhas")} cronometro />
         ) : consulta.isError ? (
           <div className="px-4 py-6">
             <div className="flex flex-wrap items-center gap-2">
@@ -476,9 +541,21 @@ export function DataTab({
             </Button>
           </div>
         ) : linhas.length === 0 ? (
-          <p className="px-4 py-6 text-xs text-subtle">{t("dados.nenhumaLinha")}</p>
+          // Tabela vazia e filtro sem resultado são informações diferentes (§3.7).
+          filtros.length > 0 ? (
+            <p className="px-4 py-6 text-xs text-subtle">
+              {t("dados.nenhumaComFiltro")}{" · "}
+              <button type="button" onClick={() => { setFiltros([]); }} className="cursor-pointer text-info hover:underline">
+                {t("dados.limparFiltros")}
+              </button>
+            </p>
+          ) : (
+            <p className="px-4 py-6 text-xs text-subtle">{t("dados.nenhumaLinha")}</p>
+          )
         ) : (
           <ResultGrid
+            celulaSalva={salva}
+            celulaPendente={pendente?.kind === "update" ? emEdicao : null}
             columns={colunas}
             rows={linhas}
             // A ordenação mora no cabeçalho do grid. Antes havia uma segunda
@@ -491,6 +568,22 @@ export function DataTab({
             onEditCell={abrirEdicao}
             {...(redisEstruturado || mongoDocumento ? { abrirEditorCustom } : {})}
             fkColunas={fkColunas}
+            pkColunas={new Set(pk)}
+            onEstatistica={(coluna, ancora) => {
+              setEstatistica({
+                connectionId: target.connectionId,
+                database: target.database,
+                schema: target.schema,
+                table: target.relation,
+                coluna,
+                filtros,
+                ancora,
+              });
+            }}
+            onCopiarInsert={copiarInsert}
+            onFiltrarValor={(coluna, operador, valor) => {
+              adicionarFiltro(operador === "isNull" ? { column: coluna, operator: "isNull" } : { column: coluna, operator: operador, value: valor ?? "" });
+            }}
             {...(onOpenTableFiltered !== undefined ? { onSaltoFk: saltarFk } : {})}
             onCellClick={(li) => { setLinhaSel(li); }}
             loadingMore={consulta.isFetchingNextPage}
@@ -501,12 +594,35 @@ export function DataTab({
         )}
       </div>
 
+      {/* Rodapé de lote (§4 #6): fora da lista virtual. A barra fina corre só
+          durante o lote seguinte. Indeterminada: a rota não informa progresso
+          dentro de um lote (pendência anotada em ui-detalhes §3.5). */}
+      {linhas.length > 0 ? (
+        <div className="relative flex h-6 shrink-0 items-center border-t border-line px-3 text-2xs tabular-nums text-subtle">
+          {consulta.isFetchingNextPage ? (
+            <span aria-hidden className="absolute inset-x-0 top-0 h-px overflow-hidden">
+              <span className="animate-progresso block h-full w-full bg-info" />
+            </span>
+          ) : null}
+          <span aria-live="polite">
+            {consulta.hasNextPage
+              ? t("dados.loteMais", { n: linhas.length.toLocaleString() })
+              : linhas.length === 1
+                ? t("dados.loteUma")
+                : t("dados.loteTodas", { n: linhas.length.toLocaleString() })}
+          </span>
+        </div>
+      ) : null}
+
+      <EstatisticaColuna alvo={estatistica} onFechar={() => { setEstatistica(null); }} />
+
       {pendente !== null ? (
         <RowEditModal
           connectionId={target.connectionId}
           pendente={pendente}
           tipos={tiposDeColuna}
           onClose={() => { setPendente(null); }}
+          onSalvo={() => { if (pendente.kind === "update") setSalva(emEdicao); }}
         />
       ) : null}
 

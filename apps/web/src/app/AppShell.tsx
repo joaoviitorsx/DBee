@@ -1,13 +1,19 @@
 import type { Connection, RowFilter } from "@dbee/shared";
-import { Code2, PanelLeft, PanelRight, Plus, Unlock } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Code2, GitCompareArrows, Link2, PanelLeftClose, PanelLeftOpen, PanelRight, Plus, Unlock } from "lucide-react";
+import { useIsFetching, useIsMutating } from "@tanstack/react-query";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { ConnectionWarning } from "@dbee/shared";
 import { ContextMenu, type MenuAnchor, type MenuSection } from "../components/ContextMenu";
 import { Marca } from "../components/Marca";
+import { connectionNode } from "../features/tree/keys";
+import { deslocamentoFlip, LARGURA_TRILHO, posicoesDoTrilho } from "./trilho.puro";
+import { IconeEngine } from "../components/IconeEngine";
 import { Button } from "../components/ui";
 import { cn } from "../lib/cn";
 import { useLayoutLargo } from "../lib/useMediaQuery";
+import { ComSaida } from "../components/ComSaida";
+import { SeloAmbiente } from "../features/ambiente/SeloAmbiente";
 import { Inspector } from "../features/inspector/Inspector";
 import { ActivityTab } from "../features/overview/ActivityTab";
 import { AuditTab } from "../features/overview/AuditTab";
@@ -20,7 +26,6 @@ import { ExportTabContent } from "../features/export/ExportTabContent";
 import { QueryTabContent } from "../features/query/QueryTabContent";
 import { UserChip } from "../features/auth/UserChip";
 import { Trabalhando } from "../features/motion/Trabalhando";
-import { Mascote } from "../features/mascote";
 import { IdiomaToggle } from "../features/idioma/IdiomaToggle";
 import { type Tradutor, useT } from "../i18n";
 import { ThemeToggle } from "../features/theme/ThemeToggle";
@@ -35,29 +40,39 @@ import { StructureTab } from "../features/tabs/StructureTab";
 import { SubTabButtons, SubTabs, TabStrip } from "../features/tabs/TabStrip";
 import { FronteiraDeErro } from "../components/FronteiraDeErro";
 import { ConnectionTree, type ConnectionHealth, type TreeTarget } from "../features/tree/ConnectionTree";
+import { PaletaBusca } from "../features/busca/PaletaBusca";
+import { BuscaValorDialog, type AlvoBuscaValor } from "../features/busca-valor/BuscaValorDialog";
+import { CopiarTabelaDialog, type OrigemCopia } from "../features/copiar-tabela/CopiarTabelaDialog";
+import { ComparadorTela } from "../features/comparar/ComparadorTela";
+import { useGuardarWorkspace, useWorkspaceInicial } from "../features/estados/useWorkspacePersistido";
+import { linkDeTabela } from "../features/links/links.puro";
+import { copiarLink, useLinkCompartilhado } from "../features/links/useLinkCompartilhado";
 import { treeMenuSections, treeMenuTitle, type TreeMenuActions } from "../features/tree/treeMenu";
 import { capacidadesDe, dialetoDe } from "@dbee/shared/puro";
 import { useConnections, useSchema, useTreeExpansion } from "../features/tree/useTree";
 import {
   activeTab,
   closeTab,
-  emptyWorkspace,
   focusTab,
   openCluster,
+  openCompare,
   openDiagram,
   openExport,
   openQuery,
   openTable,
   openTableFiltered,
+  openTableFromLink,
   selectColumn,
   setView,
   tabsOfLiveConnections,
   toggleInspector,
   type QueryTab,
+  type Tab,
   type TableTab,
   type TableTarget,
   type TableView,
   type Workspace,
+  setQuerySql,
 } from "./workspace";
 
 const LARGURA_MIN = 200;
@@ -82,6 +97,8 @@ export interface AppShellProps {
     | "onCreateTable"
     | "onCreateDatabase"
     | "onOpenExport"
+    | "onBuscarValor"
+    | "onCopiarTabela"
   >;
   readonly onRefreshSchema: (connectionId: string, database: string) => void;
 }
@@ -101,16 +118,22 @@ export function AppShell({
   connectionActions,
   onRefreshSchema,
 }: AppShellProps) {
-  const [ws, setWs] = useState<Workspace>(emptyWorkspace);
-  const [larguraArvore, setLarguraArvore] = useState(260);
+  // Persistido por usuário: sobrevive a reload e re-login (F8, §3.7).
+  const [ws, setWs] = useState<Workspace>(useWorkspaceInicial());
+  useGuardarWorkspace(ws);
+  const [larguraArvore, setLarguraArvore] = useState(LARGURA_PADRAO);
   const [menu, setMenu] = useState<{ target: TreeTarget; anchor: MenuAnchor } | null>(null);
   const [menuAba, setMenuAba] = useState<{ id: string; anchor: MenuAnchor } | null>(null);
   // Botão direito no vazio da árvore: a única ação que cabe ali é acrescentar.
   const [menuFundo, setMenuFundo] = useState<MenuAnchor | null>(null);
   const [arvoreAberta, setArvoreAberta] = useState(false);
+  // ≥lg: a árvore pode ser recolhida (Ctrl+B) para dar a largura toda ao grid.
+  const [arvoreRecolhida, setArvoreRecolhida] = useState(false);
   // Diálogos de DDL — abertos pelo menu da árvore, fechados por si mesmos.
   const [criandoTabela, setCriandoTabela] = useState<{ connectionId: string; database: string; schema: string } | null>(null);
   const [criandoDatabase, setCriandoDatabase] = useState<string | null>(null);
+  const [buscandoValor, setBuscandoValor] = useState<AlvoBuscaValor | null>(null);
+  const [copiando, setCopiando] = useState<OrigemCopia | null>(null);
   const largo = useLayoutLargo();
   const tree = useTreeExpansion();
   const t = useT();
@@ -157,6 +180,15 @@ export function AppShell({
     },
     [connections],
   );
+  // Link do hash (ADR 020): abre a aba, nunca executa.
+  useLinkCompartilhado({
+    connections,
+    prontas: connections.length > 0,
+    abrirTabela: (alvo, filtros, ordem) => { setWs((atual) => openTableFromLink(atual, alvo, filtros, ordem)); },
+    abrirSalva,
+    t,
+  });
+
   const nomeConexao = useCallback(
     (id: string | null) => connections.find((c) => c.id === id)?.name ?? null,
     [connections],
@@ -194,11 +226,38 @@ export function AppShell({
    * Sem aba ativa não há alvo, e abrir uma consulta "sem banco" seria uma aba
    * que não pode executar nada — então o atalho não faz nada nesse caso.
    */
+  // Ctrl+B recolhe/abre a árvore; Ctrl+I abre/fecha o inspetor (ui-detalhes §3.2).
+  useEffect(() => {
+    const tecla = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k === "b") {
+        e.preventDefault();
+        if (largo) setArvoreRecolhida((a) => !a);
+        else setArvoreAberta((a) => !a);
+      }
+      if (k === "i" && activeTab(ws)?.kind === "table") {
+        e.preventDefault();
+        setWs(toggleInspector);
+      }
+    };
+    window.addEventListener("keydown", tecla);
+    return () => { window.removeEventListener("keydown", tecla); };
+  }, [largo, ws]);
+
   useEffect(() => {
     const tecla = (e: KeyboardEvent): void => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "t") return;
       const atual = activeTab(ws);
-      if (atual === null) return;
+      // Sem aba ativa (tela vazia): a primeira conexão em leitura, no database
+      // padrão dela — o atalho anunciado na tela vazia (§3.7) tem de funcionar ali.
+      if (atual === null) {
+        const primeira = conexaoPadrao(connections);
+        if (primeira === undefined) return;
+        e.preventDefault();
+        novaConsulta(primeira.id, primeira.database);
+        return;
+      }
       // Abas de cluster (databases/processos) não têm database — não há consulta
       // a abrir a partir delas.
       const alvo =
@@ -213,7 +272,7 @@ export function AppShell({
     };
     window.addEventListener("keydown", tecla);
     return () => { window.removeEventListener("keydown", tecla); };
-  }, [ws, novaConsulta]);
+  }, [ws, novaConsulta, connections]);
 
   const aba = activeTab(visivel);
   const abaTabela: TableTab | null = aba?.kind === "table" ? aba : null;
@@ -234,6 +293,32 @@ export function AppShell({
   const conexaoAtiva = connections.find((c) => c.id === idConexaoAtiva) ?? null;
   const perigo = conexaoAtiva?.writeEnabled === true;
 
+
+  /*
+   * A árvore é uma só, montada em um lugar por vez: na coluna (aberta), ou no
+   * "peek" sobre o trilho (recolhida). A árvore lê o catálogo de bancos que
+   * não são deste projeto, então é a superfície mais exposta a schema de forma
+   * inesperada. Fronteira própria: catálogo hostil derruba a navegação, não as
+   * abas abertas nem o SQL que está sendo escrito ao lado.
+   */
+  const arvore = (
+    <FronteiraDeErro variante="painel">
+      <ConnectionTree
+        connections={connections}
+        health={health}
+        warnings={warnings}
+        tree={tree}
+        onOpenRelation={(alvo) => {
+          abrir(alvo);
+          if (!largo) setArvoreAberta(false);
+        }}
+        onNewConnection={onNewConnection}
+        onContextMenu={(target, anchor) => { setMenu({ target, anchor }); }}
+        onBackgroundContextMenu={setMenuFundo}
+        activeTarget={abaTabela?.target ?? null}
+      />
+    </FronteiraDeErro>
+  );
   return (
     /*
       `overflow-x-hidden` é rede de segurança, não layout.
@@ -249,7 +334,10 @@ export function AppShell({
         target={abaTabela?.target ?? null}
         database={abaTabela?.target.database ?? abaQuery?.database ?? null}
         connection={conexaoAtiva}
-        onToggleTree={largo ? null : () => { setArvoreAberta((a) => !a); }}
+        arvoreVisivel={largo ? !arvoreRecolhida : arvoreAberta}
+        onToggleTree={
+          largo ? () => { setArvoreRecolhida((a) => !a); } : () => { setArvoreAberta((a) => !a); }
+        }
       />
 
       <div
@@ -264,55 +352,55 @@ export function AppShell({
           * para o centro — a tela do meio simplesmente desaparecia. Sobreposta,
           * ela some quando não está em uso e o centro fica inteiro.
           */}
-        {!largo && arvoreAberta ? (
+        <ComSaida aberto={!largo && arvoreAberta} className="motion-veu fixed inset-0 z-30">
           <button
             type="button"
             aria-label={t("arvore.fechar")}
             onClick={() => { setArvoreAberta(false); }}
-            className="fixed inset-0 z-30 cursor-default bg-black/50"
+            className="h-full w-full cursor-default bg-sunken/80"
           />
-        ) : null}
-
-        <aside
-          style={largo ? { width: "var(--w-arvore)" } : undefined}
-          className={cn(
-            "border-r border-line bg-surface",
-            largo
-              ? "shrink-0"
-              : cn(
-                  "fixed inset-y-0 left-0 z-40 w-[min(19rem,85vw)] transition-transform duration-200",
-                  arvoreAberta ? "translate-x-0" : "-translate-x-full",
-                ),
-          )}
-        >
-          {/*
-            A árvore lê o catálogo de bancos que não são deste projeto, então é
-            a superfície mais exposta a schema de forma inesperada. Fronteira
-            própria: catálogo hostil derruba a navegação, não as abas abertas
-            nem o SQL que está sendo escrito ao lado.
-          */}
-          <FronteiraDeErro variante="painel">
-            <ConnectionTree
-              connections={connections}
-              health={health}
-              warnings={warnings}
-              tree={tree}
-              onOpenRelation={(alvo) => { abrir(alvo); if (!largo) setArvoreAberta(false); }}
-              onNewConnection={onNewConnection}
-              onContextMenu={(target, anchor) => { setMenu({ target, anchor }); }}
-              onBackgroundContextMenu={setMenuFundo}
-              activeTarget={abaTabela?.target ?? null}
-            />
-          </FronteiraDeErro>
-        </aside>
+        </ComSaida>
 
         {largo ? (
-          <Resizer
-            largura={larguraArvore}
-            onArrasto={(px) => { areaRef.current?.style.setProperty("--w-arvore", `${String(px)}px`); }}
-            onFim={setLarguraArvore}
-          />
-        ) : null}
+          <>
+            <ArvoreLateral
+              recolhida={arvoreRecolhida}
+              connections={connections}
+              health={health}
+              onEscolher={(id) => {
+                // Abre a árvore já com a conexão expandida e a traz à vista.
+                tree.expand(connectionNode(id));
+                setArvoreRecolhida(false);
+                requestAnimationFrame(() => {
+                  document
+                    .querySelector(`[data-icone-conexao="${id}"]`)
+                    ?.closest("button")
+                    ?.focus({ preventScroll: false });
+                });
+              }}
+            >
+              {arvore}
+            </ArvoreLateral>
+            {arvoreRecolhida ? null : (
+              <Resizer
+                largura={larguraArvore}
+                onArrasto={(px) => { areaRef.current?.style.setProperty("--w-arvore", `${String(px)}px`); }}
+                onFim={setLarguraArvore}
+              />
+            )}
+          </>
+        ) : (
+          // Abaixo de 1024 px a árvore é gaveta sobreposta (translate nos dois
+          // sentidos — já simétrica).
+          <aside
+            className={cn(
+              "fixed inset-y-0 left-0 z-40 w-[min(19rem,85vw)] border-r border-line bg-surface transition-transform duration-(--motion-slow)",
+              arvoreAberta ? "translate-x-0" : "-translate-x-full",
+            )}
+          >
+            {arvore}
+          </aside>
+        )}
 
         <main className="flex min-w-0 flex-1 flex-col bg-sunken">
           <TabStrip
@@ -343,6 +431,12 @@ export function AppShell({
             nasceria mostrando o painel de falha da anterior.
           */}
           <FronteiraDeErro variante="painel" resetKey={aba?.id ?? null}>
+          {/*
+            Troca de aba: crossfade de 180ms no container, que remonta com a
+            chave da aba. Só opacidade no bloco inteiro — nenhuma linha do grid
+            anima sozinha, a virtualização não percebe (regra 11).
+          */}
+          <div key={aba?.id ?? "vazio"} className="motion-fade flex min-h-0 min-w-0 flex-1 flex-col">
           {abaCluster !== null ? (
             abaCluster.kind === "overview" ? (
               <DatabasesOverviewTab key={abaCluster.id} connectionId={abaCluster.connectionId} />
@@ -369,6 +463,13 @@ export function AppShell({
               database={abaDiagrama.database}
               onOpenTable={(alvo) => { abrir(alvo); if (!largo) setArvoreAberta(false); }}
             />
+          ) : aba?.kind === "compare" ? (
+            <ComparadorTela
+              key={`${aba.id}:${aba.connectionId}:${aba.schema}:${aba.table ?? ""}`}
+              tab={aba}
+              connections={connections}
+              onAbrirSql={(connectionId, database, sql) => { novaConsulta(connectionId, database, sql); }}
+            />
           ) : abaQuery !== null ? (
             <QueryTabContent
               key={abaQuery.id}
@@ -377,14 +478,15 @@ export function AppShell({
               onOpenTableFiltered={abrirFiltrada}
               onAbrirSalva={abrirSalva}
               nomeConexao={nomeConexao}
+              onSqlChange={(texto) => { setWs((a) => setQuerySql(a, abaQuery.id, texto)); }}
             />
           ) : abaTabela === null ? (
             <TelaVazia
               temConexoes={connections.length > 0}
               onNovaConsulta={
-                alvoAtivo === null
+                conexaoPadrao(connections) === undefined
                   ? null
-                  : () => { novaConsulta(alvoAtivo.connectionId, alvoAtivo.database); }
+                  : () => { const c = conexaoPadrao(connections); if (c !== undefined) novaConsulta(c.id, c.database); }
               }
             />
           ) : (
@@ -410,6 +512,7 @@ export function AppShell({
               onToggleInspector={() => { setWs(toggleInspector); }}
             />
           )}
+          </div>
           </FronteiraDeErro>
         </main>
 
@@ -422,27 +525,59 @@ export function AppShell({
           banco ativo —, e não tinha *scrim*, então fechar exigia achar o ⇥
           dentro do próprio painel.
         */}
-        {!largo && visivel.inspectorOpen ? (
+        <ComSaida aberto={!largo && visivel.inspectorOpen} className="motion-veu fixed inset-0 z-30">
           <button
             type="button"
             aria-label={t("inspetor.fechar")}
             onClick={() => { setWs(toggleInspector); }}
-            className="fixed inset-0 z-30 cursor-default bg-black/50"
+            className="h-full w-full cursor-default bg-sunken/80"
           />
-        ) : null}
+        </ComSaida>
 
-        {visivel.inspectorOpen ? (
-          <div
-            className={cn(
-              largo
-                ? "w-[280px] shrink-0"
-                : "fixed bottom-0 right-0 top-[var(--h-topbar,49px)] z-40 w-[min(19rem,85vw)]",
-            )}
-          >
-            <InspectorZone tab={abaTabela} onClose={() => { setWs(toggleInspector); }} />
-          </div>
-        ) : null}
+        <ComSaida
+          aberto={visivel.inspectorOpen}
+          className={cn(
+            "motion-gaveta",
+            largo
+              ? "w-[280px] shrink-0"
+              : "fixed bottom-0 right-0 top-[var(--h-topbar,49px)] z-40 w-[min(19rem,85vw)]",
+          )}
+        >
+          <InspectorZone tab={abaTabela} onClose={() => { setWs(toggleInspector); }} />
+        </ComSaida>
       </div>
+
+      {/* Busca global Cmd+K / Ctrl+K (F8): o atalho vive no próprio componente. */}
+      <PaletaBusca
+        connections={connections}
+        tree={tree}
+        onOpenRelation={abrir}
+        onBuscarValor={(() => {
+          // Alvo da paleta: a conexão ativa se for Postgres, senão a primeira Postgres.
+          const c = (conexaoAtiva?.engine === "postgres" ? conexaoAtiva : null) ?? connections.find((x) => x.engine === "postgres");
+          if (c === undefined) return undefined;
+          const db = c.id === alvoAtivo?.connectionId ? alvoAtivo.database : c.database;
+          return () => { setBuscandoValor({ connectionId: c.id, database: db }); };
+        })()}
+      />
+
+      {buscandoValor !== null ? (
+        <BuscaValorDialog
+          connections={connections}
+          alvo={buscandoValor}
+          onClose={() => { setBuscandoValor(null); }}
+          onAbrirLinha={abrirFiltrada}
+        />
+      ) : null}
+
+      {copiando !== null ? (
+        <CopiarTabelaDialog
+          connections={connections}
+          origem={copiando}
+          onClose={() => { setCopiando(null); }}
+          onAbrirScript={(id, db, sql) => { novaConsulta(id, db, sql); }}
+        />
+      ) : null}
 
       {menu !== null ? (
         <ContextMenu
@@ -458,6 +593,10 @@ export function AppShell({
             onCreateTable: abrirCriarTabela,
             onCreateDatabase: abrirCriarDatabase,
             onOpenExport: abrirExport,
+            onBuscarValor: (connectionId, database, schema) => {
+              setBuscandoValor(schema === undefined ? { connectionId, database } : { connectionId, database, schema });
+            },
+            onCopiarTabela: setCopiando,
           }, t)}
           onClose={() => { setMenu(null); }}
         />
@@ -484,7 +623,10 @@ export function AppShell({
       {menuAba !== null ? (
         <ContextMenu
           anchor={menuAba.anchor}
-          sections={tabMenuSections(menuAba.id, visivel.tabs, setWs, t)}
+          sections={[
+            ...extrasDoMenuDeAba(visivel.tabs.find((x) => x.id === menuAba.id) ?? null, setWs, t),
+            ...tabMenuSections(menuAba.id, visivel.tabs, setWs, t),
+          ]}
           onClose={() => { setMenuAba(null); }}
         />
       ) : null}
@@ -509,6 +651,56 @@ export function AppShell({
       ) : null}
     </div>
   );
+}
+
+/**
+ * Itens de aba de tabela/consulta (F8): copiar link (ADR 020) e comparar
+ * (ADR 018) partindo desta tabela como lado A. Query livre não tem link — só
+ * query salva tem (ADR 020 §2); a aba de consulta não sabe se veio de uma.
+ */
+function extrasDoMenuDeAba(
+  tab: Tab | null,
+  setWs: (fn: (ws: Workspace) => Workspace) => void,
+  t: Tradutor,
+): MenuSection[] {
+  if (tab?.kind !== "table") return [];
+  const { target } = tab;
+  const lado = { connectionId: target.connectionId, database: target.database, schema: target.schema };
+  return [
+    {
+      items: [
+        {
+          id: "copy-link",
+          label: t("links.copiar"),
+          icon: <Link2 aria-hidden className="h-3.5 w-3.5" />,
+          onSelect: () => {
+            copiarLink(
+              linkDeTabela({
+                connectionId: target.connectionId,
+                database: target.database,
+                schema: target.schema,
+                tabela: target.relation,
+                ...(tab.initialFilters === undefined ? {} : { filtros: tab.initialFilters }),
+                ordem: tab.initialSort ?? null,
+              }),
+              t,
+            );
+          },
+        },
+        {
+          id: "compare-data",
+          label: t("comparar.menuDados"),
+          icon: <GitCompareArrows aria-hidden className="h-3.5 w-3.5" />,
+          onSelect: () => { setWs((a) => openCompare(a, "data", { ...lado, table: target.relation })); },
+        },
+        {
+          id: "compare-schema",
+          label: t("comparar.menuSchema"),
+          onSelect: () => { setWs((a) => openCompare(a, "schema", { ...lado, table: null })); },
+        },
+      ],
+    },
+  ];
 }
 
 /** Menu da aba: fechar, fechar as outras, fechar todas. */
@@ -553,6 +745,7 @@ function TopBar({
   database,
   connection,
   onToggleTree,
+  arvoreVisivel,
 }: {
   readonly target: TableTarget | null;
   /** O database ativo, venha ele de uma aba de tabela ou de query. */
@@ -560,6 +753,8 @@ function TopBar({
   readonly connection: Connection | null;
   /** Só existe no layout estreito, onde a árvore é sobreposição. */
   readonly onToggleTree: (() => void) | null;
+  /** Estado da árvore, para o único controle de recolher/expandir. */
+  readonly arvoreVisivel: boolean;
 }) {
   const perigo = connection?.writeEnabled === true;
   const t = useT();
@@ -606,8 +801,21 @@ function TopBar({
         // `shrink-0`: sem ele a hambúrguer era espremida a **16 px de largura**
         // entre 768 e 1023, e de novo abaixo de 375 quando o selo de escrita
         // aparece — justamente a faixa em que ela É a navegação.
-        <Button size="icon" variant="ghost" className="shrink-0" aria-label={t("arvore.abrir")} onClick={onToggleTree}>
-          <PanelLeft aria-hidden className="h-4 w-4" />
+        // Único controle de recolher/expandir (o trilho não tem botão próprio):
+        // o ícone diz o que o clique vai fazer, e o atalho vem no título.
+        <Button
+          size="icon"
+          variant="ghost"
+          className="shrink-0"
+          aria-label={arvoreVisivel ? t("arvore.recolher") : t("arvore.abrir")}
+          aria-expanded={arvoreVisivel}
+          title={`${arvoreVisivel ? t("arvore.recolher") : t("arvore.abrir")} (Ctrl+B)`}
+          onClick={onToggleTree}
+        >
+          <span className="relative h-4 w-4">
+            <PanelLeftClose aria-hidden data-ativo={arvoreVisivel ? "" : undefined} className="motion-troca absolute inset-0 h-4 w-4" />
+            <PanelLeftOpen aria-hidden data-ativo={arvoreVisivel ? undefined : ""} className="motion-troca absolute inset-0 h-4 w-4" />
+          </span>
         </Button>
       ) : null}
 
@@ -622,7 +830,7 @@ function TopBar({
       <div className="relative flex min-w-0 items-center gap-2.5">
         {/* Ícone maior, com um leve halo âmbar para ganhar presença sem virar
             enfeite — a marca é a âncora do cabeçalho, não mais um controle. */}
-        <Marca className="h-8 w-8 drop-shadow-[0_1px_5px_rgba(245,166,35,0.28)]" />
+        <Marca zumbe className="h-8 w-8 drop-shadow-[0_1px_5px_rgba(245,166,35,0.28)]" />
         {/* Mesma marca do login: "Bee" em âmbar, distinção só de cor. Tipo
             próprio (Space Grotesk) só no lockup — ver `.font-marca`. */}
         <span className="hidden font-marca text-xl font-bold leading-none tracking-[-0.03em] sm:inline">
@@ -645,6 +853,7 @@ function TopBar({
             />
           ) : null}
           <span className="truncate text-xs text-ink">{connection.name}</span>
+          <SeloAmbiente environment={connection.environment} />
           <span className="truncate font-mono text-xs text-muted">
             {/*
               Nas engines sem nível de schema (MySQL, MariaDB, libSQL) o schema
@@ -692,7 +901,33 @@ function TopBar({
         {/* Quem está logado é o `actor` do query_log — informação, não perfil. */}
         <UserChip />
       </div>
+      <BarraDeAtividade />
     </header>
+  );
+}
+
+/**
+ * Traço de 2px na base do cabeçalho enquanto o app espera algo que ainda não
+ * está na tela: primeira carga de uma query, ou uma mutação (executar SQL,
+ * salvar linha, testar conexão). Refetch em segundo plano (VPN a cada 15 s,
+ * atividade) **não** conta — barra que pisca sozinha vira ruído e o olho para
+ * de acreditar nela. Cor `muted`, não âmbar: âmbar é modo escrita.
+ */
+function BarraDeAtividade() {
+  const buscando = useIsFetching({ predicate: (q) => q.state.data === undefined });
+  const mutando = useIsMutating();
+  const ocupado = buscando + mutando > 0;
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden transition-opacity duration-(--motion-base)",
+        // Atraso na entrada: espera de menos de 120ms não merece aviso.
+        ocupado ? "opacity-100 delay-(--motion-fast)" : "opacity-0",
+      )}
+    >
+      {ocupado ? <div className="animate-progresso h-full w-1/2 bg-muted" /> : null}
+    </div>
   );
 }
 
@@ -752,13 +987,20 @@ function Resizer({
       // Teclado também redimensiona: a ferramenta é operada por teclado. Passo
       // discreto, então commita direto — não há arrasto a suavizar.
       onKeyDown={(e) => {
-        if (e.key === "ArrowLeft") onFim(Math.max(LARGURA_MIN, largura - 16));
-        if (e.key === "ArrowRight") onFim(Math.min(LARGURA_MAX, largura + 16));
+        const passo = e.shiftKey ? 64 : 16;
+        if (e.key === "ArrowLeft") onFim(Math.max(LARGURA_MIN, largura - passo));
+        if (e.key === "ArrowRight") onFim(Math.min(LARGURA_MAX, largura + passo));
       }}
-      className="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors duration-150 hover:bg-amber/40"
+      // Duplo-clique volta à largura padrão — a saída de um arrasto ruim.
+      onDoubleClick={() => { onFim(LARGURA_PADRAO); }}
+      // `info`, não âmbar: arrastar um divisor não é escrita (§1.4).
+      className="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors duration-(--motion-fast) hover:bg-info/40 focus-visible:bg-info/60 focus-visible:outline-none"
     />
   );
 }
+
+const LARGURA_PADRAO = 260;
+
 
 function TableTabContent({
   tab,
@@ -892,6 +1134,7 @@ function TableTabContent({
           foreignKeys={rel.foreignKeys}
           onOpenTableFiltered={onOpenTableFiltered}
           {...(tab.initialFilters !== undefined ? { initialFilters: tab.initialFilters } : {})}
+          {...(tab.initialSort !== undefined ? { initialSort: tab.initialSort } : {})}
           leading={<SubTabButtons value={tab.view} onChange={onView} counts={counts} semDiagrama={semDiagrama} />}
           trailing={inspetorBtn}
         />
@@ -925,6 +1168,15 @@ function InspectorZone({
   return <Inspector relation={rel} column={column} onClose={onClose} />;
 }
 
+/**
+ * Alvo de "nova consulta" sem aba ativa: a primeira conexão **em leitura**.
+ * Cair numa conexão gravável por atalho, sem ter escolhido, é o acidente que
+ * a tarja âmbar existe para evitar (DBee.md §2.1).
+ */
+function conexaoPadrao(connections: readonly Connection[]): Connection | undefined {
+  return connections.find((c) => !c.writeEnabled) ?? connections[0];
+}
+
 function TelaVazia({
   temConexoes,
   onNovaConsulta,
@@ -933,49 +1185,188 @@ function TelaVazia({
   readonly onNovaConsulta: (() => void) | null;
 }) {
   const t = useT();
+  /*
+   * Vazio do miolo (ui-detalhes §3.7, F6): título único + atalhos REAIS.
+   * Sem mascote — ele aparecia a cada vez que a última aba fechava, e numa
+   * tela de trabalho isso vira insistência. Os três atalhos funcionam daqui:
+   * Ctrl+T cai na primeira conexão quando não há aba ativa, Ctrl+K é a
+   * paleta de busca, Ctrl+B a árvore. Sem conexão nenhum deles tem alvo,
+   * então só a frase de cadastro aparece — ensinar atalho morto é pior.
+   */
+  const mod = /Mac|iPhone|iPad/.test(navigator.platform) ? "Cmd" : "Ctrl";
+  const atalhos: readonly (readonly [string, string])[] = [
+    [t("estados.atalhoConsulta"), "T"],
+    [t("estados.atalhoBusca"), "K"],
+    [t("estados.atalhoArvore"), "B"],
+  ];
   return (
-    <div className="relative flex h-full min-h-0 items-center justify-center overflow-hidden">
-      {/*
-        Estado vazio: uma frase e uma saída.
-
-        Tinha título + parágrafo de 27 palavras + terceira linha que repetia o
-        título — 45 palavras para dizer "abra uma conexão". Tela vazia é convite
-        para agir, não lugar de explicar como a árvore funciona por dentro ("a
-        árvore só consulta o banco quando você abre o nó" era nota de
-        implementação, não instrução).
-
-        O mascote é estático: ele aparece toda vez que a última aba fecha, e um
-        loop contínuo (`float`) numa tela de trabalho vira insistência. Título e
-        dica dizem a mesma coisa — "nenhuma aba; abra uma tabela".
-      */}
-      <div className="relative z-10 mx-auto max-w-xs px-6 text-center">
-        <Mascote
-          humor={temConexoes ? "feliz" : "laptop"}
-          className="mx-auto h-12 w-12"
-        />
-
-        <h2 className="mt-3 text-base font-medium text-ink">
-          {temConexoes ? t("vazio.titulo") : t("vazio.semConexao")}
+    <div className="motion-fade flex h-full min-h-0 items-center justify-center overflow-hidden">
+      <div className="mx-auto w-full max-w-xs px-6 text-center">
+        <h2 className="text-base font-medium text-ink">
+          {temConexoes ? t("estados.vazioTitulo") : t("vazio.semConexao")}
         </h2>
-        <p className="mt-1 text-sm text-muted">
-          {temConexoes ? t("vazio.dica") : t("vazio.dicaSemConexao")}
-        </p>
-
-        {/*
-          O botão e o lembrete de atalho só aparecem quando há uma conexão
-          ativa — sem ela o Cmd+T não faz nada, e ensinar um atalho morto é
-          pior que não ensinar.
-        */}
+        {temConexoes ? (
+          <dl className="mt-4 grid grid-cols-[1fr_auto] items-center gap-x-6 gap-y-2 text-left text-xs">
+            {atalhos.map(([rotulo, tecla]) => (
+              <div key={tecla} className="contents">
+                <dt className="text-muted">{rotulo}</dt>
+                <dd className="flex justify-end gap-1">
+                  <kbd className="rounded-[4px] border border-line bg-raised px-1.5 py-0.5 font-sans text-2xs text-ink">{mod}</kbd>
+                  <kbd className="rounded-[4px] border border-line bg-raised px-1.5 py-0.5 font-sans text-2xs text-ink">{tecla}</kbd>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        ) : (
+          <p className="mt-1 text-sm text-muted">{t("vazio.dicaSemConexao")}</p>
+        )}
         {temConexoes && onNovaConsulta !== null ? (
-          <div className="mt-4 flex flex-col items-center gap-1.5">
-            <Button variant="secondary" size="sm" onClick={onNovaConsulta}>
-              <Code2 aria-hidden className="h-3.5 w-3.5" />
-              {t("aba.novaConsulta")}
-            </Button>
-            <p className="text-2xs text-subtle">{t("vazio.atalhos")}</p>
-          </div>
+          <Button variant="secondary" size="sm" className="mt-5" onClick={onNovaConsulta}>
+            <Code2 aria-hidden className="h-3.5 w-3.5" />
+            {t("aba.novaConsulta")}
+          </Button>
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * Árvore lateral em ≥1024 px: UMA superfície que encolhe para o trilho e
+ * cresce de volta (docs/ui-detalhes.md §3.2).
+ *
+ * - O contêiner de layout troca de largura em UM passo: no início ao abrir,
+ *   no fim ao fechar (`transitionend` do recorte). O grid reflui uma vez.
+ * - A superfície visível tem sempre a largura cheia e anima `clip-path`
+ *   (recorte, não escala: texto não distorce). A borda direita é um traço que
+ *   anda junto com o recorte — nunca duas bordas, nunca dois fundos.
+ * - Conteúdo cruzado: o texto da árvore sai nos primeiros 40 % do fechamento;
+ *   os ícones do trilho entram nos últimos 40 %, desenhados na MESMA posição
+ *   (x e y medidos) dos ícones de conexão da árvore aberta — são "os mesmos
+ *   objetos que ficam". Na abertura, o inverso.
+ * - Peek: com a árvore recolhida, passar o ponteiro (300 ms) ou focar o
+ *   trilho abre a mesma superfície por cima do grid, sem mexer no layout.
+ * - Reduced-motion: tudo instantâneo (duração e atrasos zerados no CSS).
+ */
+function ArvoreLateral({
+  recolhida,
+  connections,
+  health,
+  onEscolher,
+  children,
+}: {
+  readonly recolhida: boolean;
+  readonly connections: readonly Connection[];
+  readonly health: Readonly<Record<string, ConnectionHealth>>;
+  /** Clique num ícone do trilho: abre a árvore com a conexão expandida. */
+  readonly onEscolher: (id: string) => void;
+  readonly children: ReactNode;
+}) {
+  const t = useT();
+  const superficie = useRef<HTMLDivElement>(null);
+  const [layoutRecolhido, setLayoutRecolhido] = useState(recolhida);
+  if (!recolhida && layoutRecolhido) setLayoutRecolhido(false);
+  const [peek, setPeek] = useState(false);
+  if (!recolhida && peek) setPeek(false);
+  /*
+   * O estado VISUAL anda um quadro atrás do pedido: primeiro mede onde estão
+   * os ícones na árvore e pinta o trilho nesse deslocamento (invisível);
+   * no quadro seguinte troca o estado e a transição leva cada ícone até a
+   * posição compacta (FLIP). Trocar no mesmo quadro não animaria: o navegador
+   * nunca veria o ponto de partida.
+   */
+  const [fechadoVisual, setFechadoVisual] = useState(recolhida);
+  const fechado = fechadoVisual && !peek;
+  const [flip, setFlip] = useState<Record<string, { x: number; y: number }>>({});
+  const compacto = posicoesDoTrilho(connections.length);
+
+  useLayoutEffect(() => {
+    const el = superficie.current;
+    if (el === null) return;
+    const base = el.getBoundingClientRect();
+    const naArvore: Record<string, { x: number; y: number }> = {};
+    el.querySelectorAll<HTMLElement>("[data-icone-conexao]").forEach((i) => {
+      const id = i.dataset["iconeConexao"];
+      const r = i.getBoundingClientRect();
+      if (id === undefined || r.height === 0 || r.bottom < base.top || r.top > base.bottom) return;
+      naArvore[id] = { x: r.left + r.width / 2 - base.left, y: r.top + r.height / 2 - base.top };
+    });
+    const pos = posicoesDoTrilho(connections.length);
+    setFlip(Object.fromEntries(connections.map((c, k) => [c.id, deslocamentoFlip(naArvore[c.id], pos[k] ?? { x: 0, y: 0 })])));
+    const quadro = requestAnimationFrame(() => {
+      requestAnimationFrame(() => { setFechadoVisual(recolhida); });
+    });
+    return () => { cancelAnimationFrame(quadro); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recolhida]);
+
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agendar = (aberto: boolean, ms: number): void => {
+    if (!recolhida) return;
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { setPeek(aberto); }, ms);
+  };
+  useEffect(() => () => { if (timer.current !== null) clearTimeout(timer.current); }, []);
+
+  return (
+    <aside
+      className="relative z-30 shrink-0"
+      style={{
+        width: layoutRecolhido ? LARGURA_TRILHO : "var(--w-arvore)",
+        ["--w-trilho" as string]: `${String(LARGURA_TRILHO)}px`,
+      }}
+      onMouseEnter={() => { agendar(true, 300); }}
+      onMouseLeave={() => { agendar(false, 200); }}
+      onKeyDown={(e) => { if (e.key === "Escape") setPeek(false); }}
+    >
+      <div
+        ref={superficie}
+        data-fechado={fechado ? "" : undefined}
+        onTransitionEnd={(e) => {
+          if (e.target !== e.currentTarget || e.propertyName !== "clip-path") return;
+          if (recolhida && !peek) setLayoutRecolhido(true);
+        }}
+        className="arvore-superficie absolute inset-y-0 left-0 w-(--w-arvore) bg-surface"
+      >
+        <div className="arvore-conteudo h-full pr-px">{children}</div>
+        <nav aria-label={t("arvore.trilho")} aria-hidden={!fechado} className="arvore-trilho absolute inset-0">
+          {connections.map((c, k) => {
+            const p = compacto[k] ?? { x: 0, y: 0 };
+            const d = flip[c.id] ?? { x: 0, y: 0 };
+            const saude = health[c.id] ?? "untested";
+            return (
+              <button
+                key={c.id}
+                type="button"
+                tabIndex={fechado ? 0 : -1}
+                title={c.name}
+                aria-label={c.name}
+                onClick={() => { onEscolher(c.id); }}
+                style={{
+                  left: p.x,
+                  top: p.y,
+                  ["--dx" as string]: `${String(d.x)}px`,
+                  ["--dy" as string]: `${String(d.y)}px`,
+                }}
+                className="absolute flex h-7 w-7 cursor-pointer items-center justify-center rounded-[6px] text-muted transition-colors duration-(--motion-fast) hover:bg-raised hover:text-ink focus-visible:bg-raised"
+              >
+                <IconeEngine engine={c.engine} className="h-3.5 w-3.5" />
+                {/* Saúde no canto inferior esquerdo; escrita no superior direito. */}
+                {saude === "ok" || saude === "error" ? (
+                  <span
+                    aria-hidden
+                    className={cn("absolute bottom-0.5 left-0.5 h-1.5 w-1.5 rounded-full", saude === "ok" ? "bg-ok" : "bg-danger")}
+                  />
+                ) : null}
+                {c.writeEnabled ? (
+                  <span aria-hidden className="absolute right-0.5 top-0.5 h-1.5 w-1.5 rounded-full bg-amber" />
+                ) : null}
+              </button>
+            );
+          })}
+        </nav>
+        <div aria-hidden className="arvore-borda absolute inset-y-0 left-0 w-px bg-line" />
+      </div>
+    </aside>
   );
 }

@@ -52,7 +52,7 @@ export function DatabasesOverviewTab({ connectionId }: { readonly connectionId: 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-line px-4 py-2.5">
-        <Database aria-hidden className="h-4 w-4 text-accent" />
+        <Database aria-hidden className="h-4 w-4 text-info" />
         <h2 className="text-sm font-semibold text-ink">{t("databases.titulo")}</h2>
         <span className="text-2xs text-subtle">
           {databases.length} · {versaoCurta}

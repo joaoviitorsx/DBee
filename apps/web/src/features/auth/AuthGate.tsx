@@ -1,3 +1,6 @@
+import type { SessionUser } from "@dbee/shared";
+import { Fragment, useState } from "react";
+
 
 import { Button } from "../../components/ui";
 import { useT } from "../../i18n";
@@ -6,7 +9,8 @@ import { Trabalhando } from "../motion/Trabalhando";
 import { ChangePasswordScreen } from "./ChangePasswordScreen";
 import { LoginScreen } from "./LoginScreen";
 import { SetupScreen } from "./SetupScreen";
-import { useSession, useSetupStatus } from "./useSession";
+import { SessaoExpirada } from "./SessaoExpirada";
+import { saiuDeProposito, useSession, useSetupStatus } from "./useSession";
 
 /**
  * Decide o que existe antes de qualquer coisa.
@@ -22,11 +26,34 @@ export function AuthGate({ children }: { readonly children: React.ReactNode }) {
   // está pendente, este fica ocioso (`enabled`) para não pedir o status à toa.
   const setup = useSetupStatus(sessao.data === null);
 
+  /*
+   * Último usuário autenticado — o que separa "nunca entrou" de "a sessão
+   * venceu" (§3.7). Estado derivado durante o render (padrão do React para
+   * "guardar o valor anterior"), não efeito: o efeito deixaria um quadro com
+   * o login de tela cheia desmontando as abas antes de corrigir.
+   */
+  const [ultimo, setUltimo] = useState<SessionUser | null>(null);
+  const atual = sessao.data ?? null;
+  if (atual !== null && atual.id !== ultimo?.id) setUltimo(atual);
+  if (atual === null && ultimo !== null && saiuDeProposito()) setUltimo(null);
+
   if (sessao.isPending) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-sunken">
         <Trabalhando rotulo={t("sessao.verificando")} />
       </div>
+    );
+  }
+
+  // Venceu com o app aberto: as abas ficam montadas, o login vem por cima.
+  // A chave é o id do usuário — se OUTRA pessoa entrar pelo modal, o
+  // workspace remonta e não herda as abas (nem os dados) da anterior.
+  if (sessao.data === null && ultimo !== null && !saiuDeProposito()) {
+    return (
+      <>
+        <Fragment key={ultimo.id}>{children}</Fragment>
+        <SessaoExpirada usuario={ultimo.username} />
+      </>
     );
   }
 
@@ -47,7 +74,7 @@ export function AuthGate({ children }: { readonly children: React.ReactNode }) {
   }
   if (sessao.data.mustChangePassword) return <ChangePasswordScreen user={sessao.data} />;
 
-  return <>{children}</>;
+  return <Fragment key={sessao.data.id}>{children}</Fragment>;
 }
 
 /**
@@ -69,7 +96,7 @@ function ServidorMudo({
   return (
     <main className="relative flex min-h-dvh flex-col items-center justify-center gap-1 overflow-hidden bg-sunken px-5 py-10">
       {/* A abelha dormindo: o servidor está fora, não há o que fazer aqui. */}
-      <Mascote humor="dormindo" float className="relative h-40 w-40" />
+      <Mascote pose="dormindo" float className="relative h-40 w-40" />
 
       <div className="relative mt-2 max-w-sm text-center">
         <h1 className="text-base font-semibold tracking-[-0.02em] text-ink">

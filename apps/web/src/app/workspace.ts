@@ -1,5 +1,6 @@
 import type { Connection, RelationKind, RowFilter } from "@dbee/shared";
 
+import { filtrosValidos } from "../features/links/links.puro";
 import type { Tradutor } from "../i18n";
 
 /**
@@ -36,6 +37,11 @@ export interface TableTab {
    * do `DataTab` uma vez, na montagem; depois o usuário manda nos filtros.
    */
   readonly initialFilters?: readonly RowFilter[];
+  /**
+   * Ordenação inicial, quando a aba nasce de um link compartilhável (ADR 020,
+   * `o=`/`d=`). Mesma regra de `initialFilters`: semeia uma vez, na montagem.
+   */
+  readonly initialSort?: { readonly column: string; readonly direction: "asc" | "desc" };
 }
 
 /**
@@ -103,7 +109,25 @@ export interface ExportTab {
   readonly database: string;
 }
 
-export type Tab = TableTab | QueryTab | DiagramTab | ClusterTab | ExportTab;
+/**
+ * Comparar dados ou schema (ADR 018). Uma aba por modo: a tela tem seleção
+ * A/B própria, então reabrir foca a existente e só troca o lado A sugerido.
+ *
+ * `connectionId` é o lado A sugerido — é o que amarra a aba ao ciclo de vida
+ * das conexões (`tabsOfLiveConnections`). Não herda a tarja de escrita: a
+ * comparação só lê e o SQL sai como texto (ver `isDangerous`).
+ */
+export interface CompareTab {
+  readonly kind: "compare";
+  readonly id: string;
+  readonly mode: "data" | "schema";
+  readonly connectionId: string;
+  readonly database: string;
+  readonly schema: string;
+  readonly table: string | null;
+}
+
+export type Tab = TableTab | QueryTab | DiagramTab | ClusterTab | ExportTab | CompareTab;
 
 export interface Workspace {
   readonly tabs: readonly Tab[];
@@ -218,6 +242,46 @@ export function openExport(ws: Workspace, connectionId: string, database: string
   if (ws.tabs.some((tab) => tab.id === id)) return { ...ws, activeTabId: id };
   const tab: ExportTab = { kind: "export", id, connectionId, database };
   return { ...ws, tabs: [...ws.tabs, tab], activeTabId: id };
+}
+
+export function openCompare(
+  ws: Workspace,
+  mode: "data" | "schema",
+  lado: { connectionId: string; database: string; schema: string; table: string | null },
+): Workspace {
+  const id = `compare:${mode}`;
+  const tab: CompareTab = { kind: "compare", id, mode, ...lado };
+  const existe = ws.tabs.some((t) => t.id === id);
+  return {
+    ...ws,
+    tabs: existe ? ws.tabs.map((t) => (t.id === id ? tab : t)) : [...ws.tabs, tab],
+    activeTabId: id,
+  };
+}
+
+/**
+ * Abre a tabela de um link compartilhável (ADR 020). Sem filtro nem ordem é o
+ * `openTable` de sempre (foca a aba se já aberta); com eles, aba nova como o
+ * salto por FK — o link carrega um recorte que a aba existente não tem.
+ */
+export function openTableFromLink(
+  ws: Workspace,
+  target: TableTarget,
+  filters: readonly RowFilter[],
+  sort: { column: string; direction: "asc" | "desc" } | null,
+): Workspace {
+  if (filters.length === 0 && sort === null) return openTable(ws, target);
+  const next = openTableFiltered(ws, target, filters);
+  if (sort === null) return next;
+  return patchTable(next, next.activeTabId ?? "", { initialSort: sort });
+}
+
+/** Texto atual do editor, para a aba sobreviver ao reload com o que foi escrito. */
+export function setQuerySql(ws: Workspace, id: string, sql: string): Workspace {
+  return {
+    ...ws,
+    tabs: ws.tabs.map((tab) => (tab.id === id && tab.kind === "query" ? { ...tab, initialSql: sql } : tab)),
+  };
 }
 
 export function openQuery(
@@ -336,6 +400,8 @@ export function tabTitle(tab: Tab, t: Tradutor): string {
       return t("aba.tituloAuditoria");
     case "query":
       return tab.title;
+    case "compare":
+      return t(tab.mode === "data" ? "comparar.tituloDados" : "comparar.tituloSchema");
   }
 }
 
@@ -351,6 +417,117 @@ export function tabConnectionId(tab: Tab): string {
  * conexão gravável herda a tarja (DBee.md §2.1).
  */
 export function isDangerous(tab: Tab, connections: readonly Connection[]): boolean {
+  // Comparar só lê e devolve SQL como texto (ADR 018): nada ali escreve.
+  if (tab.kind === "compare") return false;
   const id = tabConnectionId(tab);
   return connections.find((c) => c.id === id)?.writeEnabled === true;
+}
+
+// ── Persistência (F8) ──────────────────────────────────────────────────────
+
+/**
+ * Chave por usuário: duas pessoas no mesmo navegador não herdam as abas uma da
+ * outra. Só identificadores e SQL que a própria pessoa escreveu — nada de
+ * resultado, nada de credencial (CLAUDE.md regra 5).
+ */
+export const chaveWorkspace = (userId: string): string => `dbee.workspace.v1.${userId}`;
+
+export function serializarWorkspace(ws: Workspace): string {
+  return JSON.stringify({ v: 1, tabs: ws.tabs, activeTabId: ws.activeTabId });
+}
+
+const ehTexto = (v: unknown): v is string => typeof v === "string";
+/** Campos conhecidos de um valor guardado, todos ainda não verificados. */
+type Bruto = Partial<Record<
+  | "v" | "tabs" | "activeTabId" | "id" | "kind" | "target" | "view" | "selectedColumn" | "initialFilters"
+  | "connectionId" | "database" | "schema" | "relation" | "title" | "initialSql" | "source" | "mode" | "table",
+  unknown
+>>;
+const ehObjeto = (v: unknown): v is Bruto => typeof v === "object" && v !== null;
+
+const RELACOES: readonly RelationKind[] = ["table", "view", "materialized_view", "partitioned_table", "foreign_table"];
+const VISTAS: readonly TableView[] = ["data", "structure", "indexes", "diagram"];
+const ehRelacao = (v: unknown): v is RelationKind => RELACOES.some((r) => r === v);
+const ehVista = (v: unknown): v is TableView => VISTAS.some((r) => r === v);
+
+function alvoValido(v: unknown): v is TableTarget {
+  return ehObjeto(v) && ehTexto(v.connectionId) && ehTexto(v.database) && ehTexto(v.schema)
+    && ehTexto(v.relation) && ehRelacao(v.kind);
+}
+
+/**
+ * Valida aba a aba, descartando o que não reconhece em vez de falhar inteiro:
+ * guardado por uma versão antiga do app, um tipo de aba que sumiu não pode
+ * custar as outras. Filtros salvos voltam como estavam (o servidor revalida).
+ */
+function abaValida(v: unknown): Tab | null {
+  if (!ehObjeto(v) || !ehTexto(v.id) || !ehTexto(v.kind)) return null;
+  switch (v.kind) {
+    case "table": {
+      if (!alvoValido(v.target)) return null;
+      const filtros = filtrosValidos(v.initialFilters);
+      return {
+        kind: "table",
+        id: v.id,
+        target: v.target,
+        view: ehVista(v.view) ? v.view : "data",
+        selectedColumn: ehTexto(v.selectedColumn) ? v.selectedColumn : null,
+        ...(filtros === null ? {} : { initialFilters: filtros }),
+      };
+    }
+    case "query":
+      if (!ehTexto(v.connectionId) || !ehTexto(v.database) || !ehTexto(v.title)) return null;
+      return {
+        kind: "query",
+        id: v.id,
+        connectionId: v.connectionId,
+        database: v.database,
+        title: v.title,
+        initialSql: ehTexto(v.initialSql) ? v.initialSql : "",
+        ...(alvoValido(v.source) ? { source: v.source } : {}),
+      };
+    case "diagram":
+    case "export":
+      if (!ehTexto(v.connectionId) || !ehTexto(v.database)) return null;
+      return { kind: v.kind, id: v.id, connectionId: v.connectionId, database: v.database };
+    case "overview":
+    case "activity":
+    case "audit":
+      if (!ehTexto(v.connectionId)) return null;
+      return { kind: v.kind, id: v.id, connectionId: v.connectionId };
+    case "compare":
+      if (!ehTexto(v.connectionId) || !ehTexto(v.database) || !ehTexto(v.schema)) return null;
+      return {
+        kind: "compare",
+        id: v.id,
+        mode: v.mode === "schema" ? "schema" : "data",
+        connectionId: v.connectionId,
+        database: v.database,
+        schema: v.schema,
+        table: ehTexto(v.table) ? v.table : null,
+      };
+    default:
+      return null;
+  }
+}
+
+/** O inverso de `serializarWorkspace`; lixo vira workspace vazio, nunca exceção. */
+export function restaurarWorkspace(texto: string | null): Workspace {
+  if (texto === null) return emptyWorkspace;
+  let bruto: unknown;
+  try {
+    bruto = JSON.parse(texto);
+  } catch {
+    return emptyWorkspace; // guardado corrompido: começar limpo é o estado seguro
+  }
+  if (!ehObjeto(bruto) || bruto.v !== 1 || !Array.isArray(bruto.tabs)) return emptyWorkspace;
+  const tabs = bruto.tabs.map(abaValida).filter((t): t is Tab => t !== null);
+  const ativa = ehTexto(bruto.activeTabId) && tabs.some((t) => t.id === bruto.activeTabId) ? bruto.activeTabId : (tabs[0]?.id ?? null);
+  // Ids com contador (`query:7`, `table-fk:3`) não podem colidir com os
+  // restaurados: a próxima aba nova tem de nascer depois do maior.
+  for (const t of tabs) {
+    const n = Number(/:(\d+)$/.exec(t.id)?.[1] ?? "0");
+    if (n > sequencia) sequencia = n;
+  }
+  return { tabs, activeTabId: ativa, inspectorOpen: false };
 }

@@ -1,11 +1,18 @@
 import { describe, expect, it } from "bun:test";
 
-import { alternar } from "./theme";
+import { proximaPreferencia, resolver } from "./theme";
 
-describe("alternância do tema", () => {
-  it("vai e volta entre os dois — não há terceiro estado", () => {
-    expect(alternar("dark")).toBe("light");
-    expect(alternar("light")).toBe("dark");
-    expect(alternar(alternar("dark"))).toBe("dark");
+describe("preferência de tema", () => {
+  it("cicla escuro → claro → sistema → escuro", () => {
+    expect(proximaPreferencia("dark")).toBe("light");
+    expect(proximaPreferencia("light")).toBe("system");
+    expect(proximaPreferencia("system")).toBe("dark");
+  });
+
+  it("sistema resolve pelo prefers-color-scheme; as outras ignoram o sistema", () => {
+    expect(resolver("system", true)).toBe("light");
+    expect(resolver("system", false)).toBe("dark");
+    expect(resolver("dark", true)).toBe("dark");
+    expect(resolver("light", false)).toBe("light");
   });
 });

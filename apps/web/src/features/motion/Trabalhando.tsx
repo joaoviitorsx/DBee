@@ -64,7 +64,7 @@ export function Trabalhando({ rotulo, cronometro = false, className }: Trabalhan
       role="status"
       aria-busy
     >
-      <Mascote humor="carregando" float className="h-24 w-24" />
+      <Mascote pose="voando" float className="h-24 w-24" />
 
       <p className="text-xs text-muted">
         {rotulo}
@@ -86,7 +86,7 @@ export function Trabalhando({ rotulo, cronometro = false, className }: Trabalhan
 export function TrabalhandoInline({ rotulo }: { readonly rotulo: string }) {
   return (
     <span className="flex items-center gap-2 text-2xs text-muted" role="status" aria-busy>
-      <Mascote humor="carregando" float className="h-5 w-5" />
+      <Mascote pose="voando" float className="h-5 w-5" />
       {rotulo}
     </span>
   );

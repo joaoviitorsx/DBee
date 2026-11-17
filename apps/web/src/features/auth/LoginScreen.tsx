@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 
 import { Button } from "../../components/ui";
 import { mensagemDoCodigo, useT } from "../../i18n";
+import { cn } from "../../lib/cn";
 import { AuthPanel, CampoCredencial } from "./AuthPanel";
 import { ErroApi, useLogin } from "./useSession";
 
@@ -101,11 +102,24 @@ export function LoginScreen() {
                 aria-pressed={verSenha}
                 onClick={() => { setVerSenha((v) => !v); }}
               >
-                {verSenha ? (
-                  <EyeOff aria-hidden className="h-4 w-4" />
-                ) : (
-                  <Eye aria-hidden className="h-4 w-4" />
-                )}
+                {/* Os dois ícones empilhados trocam por opacidade e escala, em
+                    vez de um sumir e o outro aparecer seco. */}
+                <span className="relative grid h-4 w-4 place-items-center">
+                  <Eye
+                    aria-hidden
+                    className={cn(
+                      "col-start-1 row-start-1 h-4 w-4 transition-[opacity,scale] duration-(--motion-fast) ease-(--ease-enter)",
+                      verSenha ? "scale-75 opacity-0" : "scale-100 opacity-100",
+                    )}
+                  />
+                  <EyeOff
+                    aria-hidden
+                    className={cn(
+                      "col-start-1 row-start-1 h-4 w-4 transition-[opacity,scale] duration-(--motion-fast) ease-(--ease-enter)",
+                      verSenha ? "scale-100 opacity-100" : "scale-75 opacity-0",
+                    )}
+                  />
+                </span>
               </Button>
             }
           />
@@ -125,7 +139,7 @@ export function LoginScreen() {
           type="submit"
           // Neutro forte, não âmbar: âmbar sólido é o selo de escrita (§1.4).
           // Sem pílula, sem halo colorido, sem lift — é um botão de formulário.
-          className="w-full border-transparent bg-ink text-sm font-semibold text-surface hover:border-transparent hover:bg-ink/85"
+          className="h-11 w-full border-transparent bg-ink text-sm font-semibold text-surface transition-colors duration-(--motion-fast) hover:border-transparent hover:bg-ink/85"
           loading={login.isPending}
           loadingLabel={t("login.entrando")}
         >

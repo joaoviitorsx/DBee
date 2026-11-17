@@ -2,6 +2,7 @@ import type { SessionUser } from "@dbee/shared";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "../../lib/api";
+import { chaveWorkspace } from "../../app/workspace";
 import { sessionKey } from "../../lib/query";
 
 /**
@@ -106,6 +107,7 @@ export function useLogin() {
       return data.user;
     },
     onSuccess: (user) => {
+      saidaVoluntaria = false;
       qc.setQueryData(sessionKey, user);
       // Qualquer consulta que tenha rodado antes da sessão está com 401 em
       // cache. Hoje o portão impede que isso aconteça (os hooks de dados vivem
@@ -116,6 +118,19 @@ export function useLogin() {
   });
 }
 
+/**
+ * Distingue "saiu" de "a sessão venceu" para o `AuthGate`.
+ *
+ * Os dois deixam a sessão `null`; só o vencimento deve manter as abas montadas
+ * por baixo do login (§3.7). Sair de propósito (logout, troca de senha) tem de
+ * desmontar tudo — os dados na tela são de quem saiu. Módulo e não estado:
+ * quem marca é o `onSuccess` da mutação, quem lê é o render do portão, e os
+ * dois acontecem no mesmo tique da escrita no cache.
+ */
+let saidaVoluntaria = false;
+/** Leitura idempotente (StrictMode renderiza duas vezes); o login zera. */
+export const saiuDeProposito = (): boolean => saidaVoluntaria;
+
 export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
@@ -123,6 +138,20 @@ export function useLogout() {
       await api.api.auth.logout.post();
     },
     onSuccess: () => {
+      /*
+       * Saída voluntária apaga as abas persistidas desta pessoa: o SQL delas
+       * pode ter CPF, CNPJ ou valores literais, e não deve sobreviver ao
+       * "Sair" no navegador (revisão de segurança da v0.6.0). A sessão que
+       * VENCE não passa aqui — essa mantém as abas, de propósito (§3.7).
+       */
+      const userId = qc.getQueryData<{ id: string } | null>(sessionKey)?.id;
+      if (userId !== undefined) {
+        try {
+          localStorage.removeItem(chaveWorkspace(userId));
+        } catch {
+          // Armazenamento indisponível (modo privado): nada a apagar.
+        }
+      }
       /*
        * A ordem é o conserto.
        *
@@ -137,6 +166,7 @@ export function useLogout() {
        * quadro, e só então o resto do cache é descartado — sem tocar na chave
        * de sessão, para não desfazer o que acabou de ser escrito.
        */
+      saidaVoluntaria = true;
       qc.setQueryData(sessionKey, null);
 
       // As conexões, as árvores e os resultados são dados de quem saiu:
@@ -182,6 +212,7 @@ export function useTrocarSenha() {
       // para o login é o estado verdadeiro, e fingir o contrário daria 401 no
       // próximo clique sem explicação. Mesma ordem do logout, pelo mesmo
       // motivo: `clear()` antes apagaria a chave que a linha seguinte escreve.
+      saidaVoluntaria = true;
       qc.setQueryData(sessionKey, null);
       qc.removeQueries({
         predicate: (consulta) => consulta.queryKey[0] !== sessionKey[0],

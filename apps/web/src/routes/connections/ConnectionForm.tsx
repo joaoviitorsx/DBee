@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Switch from "@radix-ui/react-switch";
-import type { CampoConexao, Connection, CreateConnection, SslMode } from "@dbee/shared";
+import { ENVIRONMENTS, type CampoConexao, type Connection, type CreateConnection, type Environment, type SslMode } from "@dbee/shared";
 import { capacidadesDe } from "@dbee/shared/puro";
 import { Plug, X } from "lucide-react";
 import { useState, type ComponentProps } from "react";
@@ -83,6 +83,8 @@ function initialDraft(editing: Connection | null): ConnectionDraft {
     authSource: editing?.authSource ?? "",
     // Perfil de VPN (ADR 014); vazio = acesso direto.
     vpn: editing?.vpn ?? "",
+    // Selo de ambiente (ADR 022): `null` = não declarado, e a tela não inventa.
+    environment: editing?.environment ?? null,
   };
 }
 
@@ -150,6 +152,8 @@ export function ConnectionForm({
       engine: d.engine,
       name: d.name,
       color: d.color,
+      // Rótulo da conexão, existe em toda engine (ADR 022).
+      environment: d.environment ?? null,
     };
     // `password` só quando a engine tem credencial — o SQLite não tem, e mandar
     // `password: ""` para ele seria campo de outra engine (recusado no servidor).
@@ -182,7 +186,7 @@ export function ConnectionForm({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-black/60 backdrop-blur-[3px] data-[state=open]:animate-in data-[state=open]:fade-in" />
+        <Dialog.Overlay className="veu-dialogo" />
         <Dialog.Content
           className={cn(
             // Centrado, não gaveta lateral: o formulário é o assunto enquanto
@@ -198,7 +202,7 @@ export function ConnectionForm({
           <header className="flex items-start justify-between gap-4 border-b border-line px-6 py-5">
             <div className="min-w-0">
               <Dialog.Title className="flex items-center gap-2 text-lg font-semibold text-ink">
-                <Plug aria-hidden className="h-4 w-4 shrink-0 text-accent" />
+                <Plug aria-hidden className="h-4 w-4 shrink-0 text-info" />
                 {isEdit ? t("form.editarTitulo") : t("form.novoTitulo")}
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-xs leading-relaxed text-muted">
@@ -274,7 +278,7 @@ export function ConnectionForm({
                       aria-pressed={draft.color === tag.color}
                       onClick={() => { set("color", draft.color === tag.color ? null : tag.color); }}
                       className={cn(
-                        "h-7 w-7 cursor-pointer rounded-[4px] border-2 transition-transform duration-150",
+                        "h-7 w-7 cursor-pointer rounded-[4px] border-2 transition-transform duration-(--motion-fast)",
                         draft.color === tag.color
                           ? "border-ink scale-110"
                           : "border-transparent hover:scale-105",
@@ -443,13 +447,30 @@ export function ConnectionForm({
               </div>
               ) : null}
 
+              <Field label={t("ambiente.campo")} htmlFor="environment" hint={t("ambiente.campoAjuda")}>
+                <select
+                  id="environment"
+                  value={draft.environment ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    set("environment", v === "" ? null : (v as Environment));
+                  }}
+                  className="h-10 cursor-pointer rounded-[4px] border border-line bg-sunken px-3 text-sm text-ink transition-colors duration-(--motion-fast) hover:border-line-strong"
+                >
+                  <option value="">{t("ambiente.nenhum")}</option>
+                  {ENVIRONMENTS.map((env) => (
+                    <option key={env} value={env}>{t(`ambiente.${env}`)}</option>
+                  ))}
+                </select>
+              </Field>
+
               {mostraVpn ? (
               <Field label={t("form.vpn")} htmlFor="vpn" hint={t("form.vpnAjuda")}>
                 <select
                   id="vpn"
                   value={draft.vpn ?? ""}
                   onChange={(e) => { set("vpn", e.target.value); }}
-                  className="h-10 cursor-pointer rounded-[4px] border border-line bg-sunken px-3 text-sm text-ink transition-colors duration-150 hover:border-line-strong"
+                  className="h-10 cursor-pointer rounded-[4px] border border-line bg-sunken px-3 text-sm text-ink transition-colors duration-(--motion-fast) hover:border-line-strong"
                 >
                   <option value="">{t("form.vpnNenhuma")}</option>
                   {perfisVpn.map((p) => (
@@ -465,7 +486,7 @@ export function ConnectionForm({
                   id="ssl"
                   value={draft.sslMode}
                   onChange={(e) => { set("sslMode", e.target.value as SslMode); }}
-                  className="h-10 cursor-pointer rounded-[4px] border border-line bg-sunken px-3 text-sm text-ink transition-colors duration-150 hover:border-line-strong"
+                  className="h-10 cursor-pointer rounded-[4px] border border-line bg-sunken px-3 text-sm text-ink transition-colors duration-(--motion-fast) hover:border-line-strong"
                 >
                   {SSL_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
@@ -483,7 +504,7 @@ export function ConnectionForm({
                   required
                   value={draft.timezone ?? "UTC"}
                   onChange={(e) => { set("timezone", e.target.value); }}
-                  className="h-10 cursor-pointer rounded-[4px] border border-line bg-sunken px-3 font-mono text-sm text-ink transition-colors duration-150 hover:border-line-strong"
+                  className="h-10 cursor-pointer rounded-[4px] border border-line bg-sunken px-3 font-mono text-sm text-ink transition-colors duration-(--motion-fast) hover:border-line-strong"
                 >
                   {/* Se a conexão editada tem um fuso fora da lista nativa, ele
                       entra no topo para não sumir na edição. */}
@@ -521,9 +542,9 @@ export function ConnectionForm({
                   id="write"
                   checked={draft.writeEnabled === true}
                   onCheckedChange={(checked) => { set("writeEnabled", checked); }}
-                  className="relative h-6 w-11 shrink-0 cursor-pointer rounded-full border border-line bg-raised transition-colors duration-150 data-[state=checked]:border-amber data-[state=checked]:bg-amber"
+                  className="relative h-6 w-11 shrink-0 cursor-pointer press rounded-full border border-line bg-raised data-[state=checked]:border-amber data-[state=checked]:bg-amber"
                 >
-                  <Switch.Thumb className="block h-4 w-4 translate-x-1 rounded-full bg-muted transition-transform duration-150 data-[state=checked]:translate-x-6 data-[state=checked]:bg-accent-ink" />
+                  <Switch.Thumb className="block h-4 w-4 translate-x-1 rounded-full bg-muted transition-[translate,background-color] duration-(--motion-base) ease-(--ease-enter) data-[state=checked]:translate-x-6 data-[state=checked]:bg-accent-ink" />
                 </Switch.Root>
               </div>
               ) : null}
@@ -546,7 +567,8 @@ export function ConnectionForm({
               ) : null}
 
               {error !== null ? (
-                <p role="alert" className="rounded-[4px] border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
+                // `key` no texto: erro novo remonta e sacode de novo (§7 refuse).
+                <p key={error} role="alert" className="animate-refuse rounded-[4px] border border-danger/30 bg-danger/10 px-3 py-2 text-xs text-danger">
                   {error}
                 </p>
               ) : null}
