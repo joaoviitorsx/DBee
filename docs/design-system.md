@@ -52,7 +52,7 @@ de `#191612` faz a placa parecer suja.
 |---|---|---|---|
 | `--text` | `#F7F3EC` | 16.3:1 | corpo, nomes |
 | `--text-muted` | `#A79E90` | 6.8:1 | rótulos, metadados |
-| `--text-subtle` | `#7A7166` | 3.8:1 | **só texto grande ou desativado** — reprova AA em 14px |
+| `--text-subtle` | `#978D7F` (claro `#6B6256`) | 5.5:1 | texto auxiliar: contadores, dicas, `NULL`. Passa AA em toda superfície, inclusive `overlay` (4.6:1) |
 
 ### 1.4 Semântica
 
@@ -60,6 +60,7 @@ de `#191612` faz a placa parecer suja.
 |---|---|---|
 | `--accent` | `#F5A623` | marca, foco, **modo escrita** |
 | `--accent-ink` | `#191612` | texto sobre âmbar sólido (8.9:1) |
+| `--info` | `#8FA9C4` (claro `#3D5F82`) | "fumaça": destaque neutro fora do âmbar (link, dica, seleção de leitura) |
 | `--ok` | `#5FA777` | teste passou, conexão viva |
 | `--danger` | `#E5484D` | apagar, falha, erro do Postgres |
 | `--border` | `#2E2822` | divisórias |
@@ -82,12 +83,16 @@ Os números acima são medidos, não estimados, e ficam travados por
 | `muted` / `surface` | 6.8:1 | ✓ |
 | `ok` / `surface` | 6.3:1 | ✓ |
 | `danger` / `surface` | 4.6:1 | ✓ |
-| `subtle` / `surface` | 3.8:1 | só texto grande |
+| `subtle` / `surface` | 5.5:1 | ✓ |
+| `subtle` / `overlay` | 4.6:1 | ✓ |
+| `info` / `surface` | 7.4:1 | ✓ |
 
-`--text-subtle` é o único que não passa AA em texto normal, e isso é decisão,
-não descuido: ele só carrega texto auxiliar que também existe em outro lugar. O
-teste trava a faixa entre 3:1 e 4.5:1 justamente para o uso dele não escorregar
-para texto essencial sem ninguém notar.
+Até 2026-11 o `--text-subtle` ficava abaixo de AA (3,8:1 no escuro, 3,5:1 no
+claro) e o teste travava essa faixa. Só que ele era usado em texto de 11–12 px
+de verdade, então subiu: `#978D7F` no escuro e `#6B6256` no claro. Os valores do
+`docs/identidade.md` (`#8A8174`/`#736A5E`) passavam sobre `surface` mas
+reprovavam sobre `overlay` (modal, 4,0:1) e sobre `sunken` no claro (4,2:1);
+o teste agora mede `subtle` e `info` contra as quatro superfícies.
 
 ---
 
@@ -97,16 +102,14 @@ para texto essencial sem ninguém notar.
 
 | Papel | Família | Por quê |
 |---|---|---|
-| Display / UI | **Sora** | é a do lockup (`assets/README.txt`: Sora SemiBold, tracking -2.5%) |
-| Dados | **mono** | `host:porta/database` se lê em coluna; alinhamento é informação, não estilo |
+| UI | **IBM Plex Sans** 400/500/600 | ferramenta de ofício sem ser fria; cobre PT; números tabulares |
+| Dados | **IBM Plex Mono** 400/500 (+ itálico 400 para `NULL`) | grid, SQL, `host:porta/database`. Igual em toda máquina |
+| Logotipo | Space Grotesk | só no lockup "DBee" (`.font-marca`) |
 
-Duas famílias, claramente distintas. Sora tem contrapunção geométrica e resolve
-bem em peso 600; a mono só aparece onde há valor técnico literal.
-
-> **Pendência:** o projeto proíbe CDN em runtime, então Sora precisa ser
-> bundlada (`@fontsource/sora`, ~40 KB por peso) — dependência ainda não
-> aprovada. Enquanto isso a pilha cai em `ui-sans-serif`. O sistema de tokens já
-> está pronto para a troca: só muda `--font-display`.
+As duas vêm de `@fontsource/ibm-plex-sans` e `@fontsource/ibm-plex-mono`,
+bundladas pelo Vite (sem CDN), só o subconjunto latin. Antes a mono era a do
+sistema, e cada máquina via uma coisa. O grid usa `tabular-nums` para os
+números alinharem por casa decimal.
 
 ### 2.2 Escala
 
@@ -425,19 +428,19 @@ no estado vazio — uma marca só em todo lugar (`components/Marca`). O "Bee" do
 logotipo em âmbar é marca (a WCAG isenta logotipo de contraste), não acento de
 interface: é a única palavra âmbar fora do modo escrita.
 
-**O mascote** — a abelha de óculos — aparece nos momentos em que a tela fala com
-a pessoa, num humor a cada estado (`features/mascote`):
+**Uma abelha só.** O mascote 3D (abelha de óculos, confete) saiu em 2026-11
+(`docs/identidade.md`, direção A): era estética de gerador de imagem e brigava
+com a marca plana. No lugar dele fica a própria abelha-cilindro em SVG
+(`features/mascote/AbelhaPlana.tsx`), no mesmo traço da marca, em três poses:
 
-| humor | onde |
+| pose | onde |
 |---|---|
-| pensando | login com erro, troca de senha |
-| joia | troca de senha |
-| feliz / laptop | estado vazio do miolo (**estático**) |
-| carregando | qualquer espera (`Trabalhando`) |
+| pousada | estado vazio do miolo (**estático**), vitrine do login |
+| voando | qualquer espera (`Trabalhando`) |
 | dormindo | o servidor não respondeu |
 
-Os PNGs 3D de ~1 MB viraram WebP de ~30 KB no tamanho de exibição, baixados só
-quando aparecem. O mascote **flutua** (`animate-float`) só onde ele é o assunto
+Sem rosto, sem brilho, sem arquivo de imagem: o desenho é código e não pesa no
+bundle. O mascote **flutua** (`animate-float`) só onde ele é o assunto
 da tela e a tela é de passagem — servidor fora, espera longa. **Nunca numa tela
 de trabalho:** o estado vazio do miolo aparece toda vez que a última aba fecha, e
 um loop contínuo ali vira insistência. Também **não comemora consulta**: o
@@ -449,9 +452,8 @@ feliz sobre um erro seria a tela contradizendo a si mesma.
 espalhado por cabeçalho, pé da árvore, estado vazio, login e tela de servidor
 fora. Saiu em 2026-11 (auditoria de UI, `docs/auditoria-ui-ux.md` #2): o motivo
 repetido como papel de parede é exatamente o kitsch que o §4 e o §10 recusam, e
-deixava a tela "segura" mais enfeitada que a de perigo. O único hexágono que
-sobra é o que está **dentro da ilustração** da vitrine do login (≥ `lg`), que é
-arte, não ornamento da interface.
+deixava a tela "segura" mais enfeitada que a de perigo. Com a vitrine 3D fora, não sobra
+nenhum.
 
 **A tela de entrada é a ferramenta, não uma landing page.** Título único em
 `text-ink` ("Entrar no DBee"), tagline factual ("Cliente de banco de dados
@@ -459,8 +461,14 @@ self-hosted" — são 7 engines, não "seu PostgreSQL"), campos e botão no raio
 altura do resto do app (`rounded-[6px]`, `h-10`). Botão em neutro forte
 (`bg-ink text-surface`), foco em `line-strong` — **sem âmbar**, sem sombra
 colorida, sem lift, sem slogan sobre a imagem, sem véu em gradiente. A
-ilustração só existe a partir de `lg`; abaixo disso o campo de usuário fica na
+cena só existe a partir de `lg`; abaixo disso o campo de usuário fica na
 primeira dobra.
+
+A cena (`features/auth/CenaLogin.tsx`) é SVG próprio: três bancos neutros, o
+rastro pontilhado da consulta em `info` e a grade de resultado que acende
+quando a abelha chega. Ciclo de 12 s, três camadas com deriva lenta, sem
+parallax de mouse. Os bancos não são âmbar (âmbar é escrita); só a abelha é.
+Com reduced-motion fica parada num quadro composto.
 
 ### 4c. Visão de databases e processos (só-leitura)
 
@@ -537,7 +545,7 @@ O usuário nunca deve precisar procurar em qual banco está.
 Discreto, e só como resposta a um estado real. Nada anima por decoração, e nada
 se mexe numa tela parada.
 
-- 150ms hover e cor · 200ms entrada de painel · 900ms–2,4s os ciclos de espera
+- Durações só pelos tokens abaixo; 900ms–2,4s ficam para os ciclos de espera
 - `cubic-bezier(0.16, 1, 0.3, 1)` na entrada; saída mais rápida que a entrada
 - Só `transform` e `opacity` — nunca `width`/`height`
 - `prefers-reduced-motion: reduce` zera tudo, sem exceção
@@ -589,6 +597,7 @@ proliferação que a §10 recusa.
 | `BeeSearching` | o servidor não respondeu | que ele está **procurando algo que não atende** — o desenho conta o erro |
 | `animate-probe` | tag de cor da linha | **qual** conexão está sendo testada |
 | `Skeleton` | primeira carga de lista | a forma do que vai aparecer ali |
+| `animate-progresso` | base do cabeçalho | que **algo pedido ainda não chegou** — refetch de fundo não acende |
 | spinner do `Button` | dentro do botão | a 14 px o desenho da abelha não resolve |
 
 **O cronômetro é o que separa esta versão da anterior.** Numa consulta contra
@@ -624,6 +633,84 @@ a existir um `BeeLoader` de região que foi apagado justamente por não responde
 nada que os outros não respondessem. O critério não mudou; o que mudou é que
 "quantas existem" deixou de ser o critério.
 
+### Zumbido: a escrita confirmada
+
+A marca do cabeçalho treme ±1 px, dois ciclos de `--motion-base` (360 ms no
+total, `animate-zumbido`), **só** quando uma escrita é confirmada: linha
+inserida, editada ou apagada, DDL aplicado, consulta em modo escrita que voltou
+sem erro. Leitura e consulta bem-sucedida não zumbem. Quem dispara é
+`zumbir()` (`lib/zumbido.ts`) no `onSuccess` da mutação; só a `Marca` com
+`zumbe` escuta. Sob reduced-motion não acontece. Travado em `zumbido.test.ts`.
+
+### Tokens de movimento
+
+Travados em `apps/web/src/lib/motion.test.ts`. Duração fora desta tabela é
+defeito de revisão.
+
+| Token | Valor | Uso |
+|---|---|---|
+| `--motion-fast` | 120 ms | press, hover, chevron da árvore, **toda saída** |
+| `--motion-base` | 180 ms | entrada de diálogo, menu, troca de aba, switch |
+| `--motion-slow` | 240 ms | gaveta da árvore e do inspetor |
+| `--ease-enter` | `cubic-bezier(0.16, 1, 0.3, 1)` | entrada |
+| `--ease-exit` | `cubic-bezier(0.4, 0, 1, 1)` | saída |
+| `--motion-stagger` | 30 ms | passo entre itens de lista que entram escalonados (para no 8º: no máximo 240 ms de atraso) |
+| `--motion-tema` | 1300 ms | poça de mel da troca de tema — único uso |
+
+| Utilitário | Onde | O que faz |
+|---|---|---|
+| `press` | `Button`, aba, switch | escala 0,97 no `:active`; só com `prefers-reduced-motion: no-preference` |
+| `motion-overlay` | véu de todo `Dialog` | fade in (`base`) e out (`fast`) por `data-state` |
+| `[role=dialog][data-state]` | conteúdo de todo diálogo Radix | sobe 4 px + escala 0,97 → 1 na entrada, sai em `fast` (o Radix espera o `animationend`) |
+| `motion-pop` | menu de contexto | entrada em `fast` |
+| `motion-fade` | container da aba ativa, lista que sai do esqueleto | crossfade de opacidade; o grid virtualizado não anima linha nenhuma (regra 11) |
+| `animate-progresso` | traço de 2 px na base do cabeçalho | primeira carga ou mutação em voo; refetch de fundo não conta; atraso de 120 ms; cor `muted` (âmbar é escrita) |
+| `motion-stagger` | lista de tokens e de contas | filhos diretos entram com `dbee-pop-in`, atraso `min(--i, 8) × --motion-stagger`; o atraso só existe sem reduced-motion |
+| `motion-troca` | copiar→check, sol↔lua | dois ícones empilhados; o sem `data-ativo` some girando −90° e encolhendo a 0,5, em `base` |
+| `motion-fio` | ícone do MCP | no hover/foco do botão, os fios se redesenham do agente aos nós (`stroke-dashoffset`, `slow`) |
+| `motion-pulso` | ponto do selo "conectada" da VPN | opacidade 1→0,35 e escala 1→0,7 em ciclo de 2,4 s; para na 1ª iteração sob reduced-motion |
+| `animate-salvo` | célula recém-gravada no grid | fundo `ok` a 28% apagando em 900 ms, uma vez |
+| `veu-dialogo` | véu de todo diálogo | `sunken` a 80%, sem blur; fade `base` / `fast` por `data-state` |
+| `motion-gaveta` | inspetor, árvore recolhível, visualizador | entra deslizando 16 px (`--gaveta-dx`) + fade em `slow`; com `data-saindo` sai em `fast`/`exit`. Montagem/desmontagem por `components/ComSaida.tsx` |
+| `motion-veu` | véu das gavetas em `<lg` | fade `base`; com `data-saindo`, `fast` |
+| `motion-pop-out` | saída do menu de contexto | `fast`/`exit` antes de desmontar |
+| `indicador-aba` | abas e sub-abas | um elemento só, `translateX`+`scaleX` medidos (`lib/useIndicador.ts`); transição `base` só após a 1ª medição (`data-pronto`) |
+
+Item de árvore e de menu **não escalam**: linha de largura inteira encolhendo
+3% desloca o texto e lê como tremor. Respondem por tom (`active:opacity-70`,
+`active:bg-overlay`).
+
+### Troca de tema: poça de mel
+
+O botão de tema usa a View Transitions API. Uma gota nasce no botão e se
+espalha numa poça de borda orgânica até cobrir a janela, puxada pela abelha
+(`AbelhaPlana`), que voa colada à frente. Os 41 quadros de `clip-path: path()`
+no `::view-transition-new(root)` vêm de uma simulação de mola amortecida
+(`quadrosDePoca`, `lib/revelacao.puro.ts`; desenho e crítica em
+`docs/arte-login.md`). A abelha tem `view-transition-name: abelha-tema` e voa
+acima dos dois snapshots. A duração é `--motion-tema` (1300 ms): o olho precisa
+acompanhar a abelha, e com 800 ms a troca era rápida demais para entender. Um
+clique durante a troca chama `skipTransition()` e a próxima começa. O crossfade
+padrão é desligado.
+
+Sem `document.startViewTransition` ou com `prefers-reduced-motion: reduce`, a
+troca é instantânea. O ícone sol/lua troca por `motion-troca`.
+
+### Painéis de instalação: `ModalPainel`
+
+Tokens, contas e VPN usam `components/ui/ModalPainel.tsx`:
+ícone da porta + título + descrição no cabeçalho, corpo rolável, rodapé
+opcional em `sunken`. Dentro do corpo não há card: listas são linhas planas
+com hover `raised`, seções separadas por traço. Âmbar não aparece (o selo de
+administrador passou a `neutral`; âmbar é escrita).
+
+Na VPN, o código do autenticador é **um único `<input>`** (`inputMode=numeric`,
+`autoComplete=one-time-code`) transparente sobre seis caixas pintadas
+(`aria-hidden`), com folga visual entre a 3ª e a 4ª. As ações secundárias
+(outro login, esquecer senha, trocar/remover arquivo) ficam no menu "⋯"
+(`ContextMenu`); "Conectar" sozinho à direita. O aviso de queda usa o tom
+`danger` com `ShieldOff`.
+
 ### Esqueleto, não spinner, na primeira carga
 
 A lista carrega com `ConnectionsSkeleton`, que espelha a altura e o ritmo das
@@ -644,6 +731,24 @@ Princípio do projeto: o erro do Postgres é informação útil, não ruído a e
   a consultar." — não "Sem dados".
 - Frase capitalizada, sem CAIXA ALTA travada, sem ponto final em rótulo.
 - Português, primeira pessoa do plural evitada. A interface não fala "nós".
+
+### 8.1 Voz (direção "Apicultor", `docs/identidade.md`)
+
+Quem fala é um colega que conhece o banco. Frase curta, verbo concreto.
+
+- **Fato e próxima ação.** "Esta conexão é só leitura. Um admin pode liberar a
+  escrita editando a conexão." Não basta o fato; não precisa de desculpa.
+- **Diga de quem é a falha.** Erro do DBee e erro do banco são coisas
+  diferentes, e a pessoa precisa saber qual olhar: "Falha no servidor do DBee,
+  não no seu banco."
+- **Não prometa o que o código não faz.** "Sessão expirada. Entre de novo." e
+  nada sobre abas: elas não sobrevivem ao re-login hoje.
+- **Abelha é tempero.** No máximo uma palavra da colmeia por tela, e só em
+  vazio, espera ou bordas ("Bancada limpa"). Erro nunca brinca.
+- **Sem kit.** Nada de "Algo deu errado", "Ops!", exclamação, emoji, tríade de
+  adjetivos.
+- **Reticências só em ação em curso** ("Buscando…"), e o caractere `…`, não três
+  pontos.
 
 ---
 

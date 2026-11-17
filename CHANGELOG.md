@@ -4,6 +4,251 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.6.0] — 2026-11-18
+
+Migrations novas, todas aditivas e aplicadas no boot: 013 (credencial de VPN
+lembrada), 014 (dono e visibilidade de queries salvas), 015 (selo de ambiente
+da conexão) e 016 (ensaio marcado no query_log).
+
+### Segurança (revisão adversarial antes do release)
+
+- Escrita pelo `/query` numa conexão `production` agora exige o nome digitado
+  também no servidor (`confirmName`); antes só a tela pedia, e "Tentar de novo"
+  gravava sem confirmação.
+- Estado de sessão (advisory lock, `SET ROLE`, `search_path`) não volta mais ao
+  pool: `DISCARD ALL` antes de devolver o cliente.
+- Cancelar uma consulta exige ser quem a iniciou (`/query/cancel` e busca de valor).
+
+- Aba Dados: filtro com operadores (=, <>, <, <=, >, >=, IN, ILIKE, IS [NOT] NULL), chips com entrada/saída animadas e Backspace remove o último; "nenhuma linha com estes filtros · limpar"; rodapé de lote com barra fina durante o próximo lote; esqueleto do grid entre 120 ms e 1 s; PK fixa à esquerda com sombra ao rolar; célula com edição pendente ganha canto âmbar; Ctrl+C pisca a faixa e confirma por toast; editores de Mongo/Redis mostram a árvore JSON navegável.
+
+### Adicionado
+
+- Front de **Buscar valor no banco** (ADR 023): no menu de conexão/database/schema (Postgres) e na paleta Ctrl+K; escopo schema ou tabelas, tetos visíveis antes de rodar, progresso por lote, cancelar, resultados por tabela/coluna e "abrir linha" na aba Dados filtrada pela PK.
+- **Copiar tabela para…** no menu da tabela: escolhe conexão/database de destino e abre o script numa aba de consulta do destino, sem executar.
+- Lista de abas com filtro quando a barra transborda (Ctrl+Shift+A); **Abrir/Baixar .sql** na aba de consulta (até 2 MB, só no navegador); tema com terceiro estado **seguir o sistema**.
+- **Ensaio de escrita** (ADR 021): `POST /connections/:id/query/dry-run` roda
+  o SQL em `BEGIN READ WRITE` e sempre reverte, devolvendo "afetaria N linhas"
+  por statement e amostra do `RETURNING`; `POST …/query/apply` só commita se
+  cada `rowCount` bater com o ensaio (senão 409 `dry_run_mismatch`, nada
+  gravado). Só DML, decidido pelo próprio Postgres (`PREPARE`): um `COMMIT`
+  embutido não grava durante o ensaio. Só Postgres; ensaio fica no histórico
+  marcado (`dryRun`, migração 016).
+- **Selo de ambiente por conexão** (ADR 022): admin marca a conexão como
+  produção, homologação ou desenvolvimento (migração 015); aplicar um ensaio em
+  produção exige digitar o nome da conexão.
+- **Buscar valor no banco** (`POST /connections/:id/value-search`, ADR 023):
+  procura um texto ou número nas colunas compatíveis de um schema ou lista de
+  tabelas. Escopo obrigatório, `READ ONLY`, 3 s por tabela, no máximo 200
+  tabelas e 20 ocorrências por tabela, cancelável e registrada no histórico.
+  Só Postgres.
+- **Copiar tabela para…**: gera, sem executar, um script com `CREATE TABLE` no
+  dialeto da conexão de destino e INSERTs de até 10 000 linhas (padrão 1000),
+  lidas em `READ ONLY` e auditadas. FKs, índices e defaults de outro dialeto
+  ficam fora, com aviso no script.
+- **MCP:** tools `explain_query` (EXPLAIN sempre sem ANALYZE, `READ ONLY`) e
+  `describe_schema_compact` (schema inteiro em texto compacto, paginado e
+  filtrável por schema, para modelos locais de contexto curto).
+
+- **Editor SQL (F5):** erro com `position` sublinhado em onda no token e
+  marcado no gutter; "linha X, coluna Y" leva o cursor até lá; painel de erro
+  entra com recusa uma vez e o SQLSTATE vira `kbd` com o nome no tooltip.
+  Ctrl+Enter aperta o botão; durante a execução o botão vira "Cancelar" no
+  mesmo lugar (Postgres/MySQL/SQLite); com seleção, "Executar seleção" (o
+  Ctrl+Enter também roda a seleção). Rodapé do resultado só métrica em mono;
+  faces Resultado/Plano/Tabela com indicador deslizante. Seleção do editor e
+  da lista de autocomplete em azul (âmbar fica só para escrita).
+- **Consulta (F8):** formatar SQL por dialeto (Shift+Alt+F ou botão,
+  desfazível); EXPLAIN visual em árvore com custo, linhas, tempo e o nó mais
+  caro destacado — ANALYZE só com escrita ligada, avisando que executa;
+  histórico da conexão em gaveta (Minhas/Time, busca, paginação; clicar cola,
+  não executa); queries salvas escolhem Privada/Do time, mostram dono e
+  visibilidade, filtram Todas/Minhas/Time e só o dono/admin edita; variáveis
+  `:nome` pedem valores e vão como bind (só Postgres e um statement, com
+  recusa clara fora disso); salto por FK no resultado de query livre.
+- **Sessão expirada sem perder trabalho (F6):** quando a sessão vence com o app
+  aberto, o login aparece num modal **por cima** das abas, que continuam
+  montadas; ao entrar, as consultas que tomaram 401 rodam de novo. Sair de
+  propósito continua levando à tela de login.
+- **Abas persistidas (F8):** as abas abertas (e a ativa) sobrevivem a reload e
+  a re-login, guardadas por usuário no navegador. Só identificadores e o SQL
+  inicial da aba; nada de resultado nem credencial.
+- **Links compartilháveis (ADR 020):** "Copiar link" no menu da aba de tabela
+  gera `/#c/<conexão>/t/<schema>/<tabela>?db=&f=&o=&d=`; `/#q/<id>` abre query
+  salva. Abrir um link só abre a aba — nunca executa nem liga escrita; sem
+  acesso, "link não encontrado".
+- **Comparar dados e comparar schema (ADR 018):** pelo menu da aba de tabela.
+  Seleção A/B (com inverter), resumo (iguais/diferentes/só em A/só em B,
+  parcial, colunas não comparadas), amostra num grid virtualizado com A e B em
+  linhas separadas e valor cru, e "Abrir SQL no editor" — aba de consulta no
+  lado B com aviso de revisar escrito no próprio SQL. Nada é aplicado.
+- **Estados (F6):** vazio do miolo sem mascote, com título único e atalhos
+  reais (Ctrl+T abre consulta na primeira conexão em leitura mesmo sem aba,
+  Ctrl+K, Ctrl+B); `FronteiraDeErro` entra com fade e "copiar detalhes" passa
+  por um filtro que mascara senha em URI, `password=`, token e cookie;
+  componentes `ConfirmacaoArmada` (360 ms para armar) e `TabelaVazia` em
+  `features/estados`.
+- **Busca global (Ctrl+K / Cmd+K):** paleta sobre o véu único que procura por
+  nome tabelas, views, colunas e schemas em todas as conexões com catálogo em
+  cache, agrupados por tipo e com o trecho casado em negrito; setas e Enter
+  abrem a tabela e revelam o caminho na árvore. Conexões ainda sem catálogo
+  aparecem com "Carregar" (lê só quando você pede).
+- **Árvore (F4):** filhos entram com 2 px de direção e saem com fade antes de
+  desmontar; esqueleto só depois de 120 ms (sem spinner); erro de carga com
+  "Tentar de novo"; barra de 2 px da tabela aberta em azul (âmbar só em
+  conexão com escrita) e a árvore rola até ela; ações aparecem também com foco
+  de teclado; modelo `role=tree` (setas, Home/End, type-ahead, Shift+F10/tecla
+  Menu abre o menu); busca com destaque do trecho, contagem "n de total" por
+  database, Esc limpa e `/` foca; saúde da conexão como ponto de 8 px com
+  crossfade de cor. Menu de contexto mostra atalho à direita.
+- **Árvore recolhível como UMA superfície** (≥1024 px, `Ctrl+B` ou o botão do
+  cabeçalho — único controle, com `aria-expanded` e ícone que reflete o
+  estado): a superfície encolhe por recorte até um trilho de 44 px e cresce de
+  volta; o texto sai nos primeiros 40 %, e os ícones das conexões voam (FLIP)
+  da posição que tinham na árvore até uma lista compacta de passo fixo, com
+  ponto de saúde e de escrita. O grid reflui uma vez só. Passar o ponteiro no
+  trilho abre a árvore por cima ("peek"); clicar num ícone abre a árvore com a
+  conexão expandida.
+- **Grid lê melhor** (F2): boolean como check/traço, data e hora legíveis com
+  segundos/fuso apagados (sem converter fuso — formatação sobre a string),
+  contagem `{3}`/`[4]` em JSON e arrays, uuid encurtado, tamanho de bytea,
+  espaços nas bordas marcados, quebras de linha contadas, milhar agrupado em
+  numeric; chave primária e estrangeira no cabeçalho (FK com destino no
+  título); hover de linha; seleção em `info` (saiu do âmbar); sombra do
+  cabeçalho ao rolar; duplo-clique na alça ajusta a largura; linhas zebradas
+  como preferência pessoal. O valor bruto segue no título, na cópia e na edição.
+- **Visualizador de célula** (F7): JSON/jsonb abre em popover ancorado ou
+  painel (Shift+Enter) pelo ícone `{…}`, duplo-clique (sem edição) ou
+  Enter/Espaço — árvore virtualizada com realce por tipo, contagem por nível,
+  busca (Ctrl+F), copiar valor, caminho (`preferencias.tags[0]`) ou o JSON
+  bruto original, alternância Árvore/Bruto, Alt+↑↓ para a linha vizinha.
+  Arrays do Postgres viram lista, bytea vira hex dump, XML é indentado.
+- **Menu de contexto do grid**: copiar valor/seleção como TSV, CSV, Markdown,
+  JSON ou INSERT (gerado pelo servidor), ver linha como registro, comparar
+  duas linhas, filtrar por valor, resumo da coluna (também pelo `Σ` no
+  cabeçalho: nulos, distintos, min/max e mais frequentes, calculados no
+  servidor com os filtros da aba).
+- **Painéis com entrada e saída simétricas** (docs/ui-detalhes.md F1): o
+  inspetor, a árvore recolhida (novo: `Ctrl+B` em ≥1024 px) e os véus das
+  gavetas no celular agora animam ao fechar também: saída em 120 ms com curva
+  de saída, antes de desmontar; o miolo reflui uma vez, no fim. `Ctrl+I`
+  abre/fecha o inspetor. Reduced-motion: troca instantânea.
+- **Indicador deslizante de aba ativa** nas abas e nas sub-abas
+  (Dados/Estrutura/Índices/Diagrama), um elemento só movido por `transform`;
+  sub-abas navegáveis por ←/→/Home/End; clique do meio fecha aba; a aba ativa
+  rola para a vista.
+- **Avisos (toasts) com Sonner**, canal para confirmação de ação fora do campo
+  de visão. Erro de banco continua no lugar, nunca em toast.
+- Menu de contexto com saída animada, origem no ponto do clique, Home/End e
+  busca por letra.
+
+### Alterado (detalhes de UI)
+
+- Véu dos onze diálogos unificado (`veu-dialogo`): sem blur e sem preto puro.
+- Âmbar saiu do que não é escrita: ícone de chave primária e selo de chave
+  (`info`), engine escolhida no formulário (`info`), variante `ghost` do botão
+  (neutra), divisor de redimensionar (`info`), aba ativa sem modo escrita
+  (indicador neutro). Divisor: duplo-clique volta a 260 px, Shift+seta anda 64 px.
+
+- **Troca de tema "poça de mel"**: uma gota nasce no botão e se espalha até
+  cobrir a tela, puxada pela abelha (View Transitions + `clip-path: path()`
+  gerado por física de mola, 1300 ms).
+  Clique repetido conclui a troca em curso na hora. Sem a API ou com
+  reduced-motion, troca instantânea.
+- **Nova ilustração do login, "Consulta em favo"** (docs/arte-login.md): a consulta
+  `select * from favo;` é digitada, o rastro desce, o favo é traçado e cada célula
+  acende com o dado de uma linha do resultado; a abelha pousa na última e a cena
+  fecha em `(4 rows)`. Entrada de 2,4 s, loop calmo, paralaxe leve em ponteiro
+  fino, pausa com a aba oculta, quadro final estático em reduced-motion. Abaixo
+  de `lg` vira vinheta de 144 px acima do formulário.
+- **Servidor das features do roadmap DBeaver** (o front vem depois):
+  filtro `in` na aba Dados (um parâmetro por item, todas as engines);
+  queries salvas com dono e visibilidade pessoal/time (migration 014,
+  ADR 016) e as tools MCP `list_saved_queries`/`get_saved_query`;
+  `POST /connections/:id/explain` (JSON do plano; ANALYZE só com escrita e
+  sempre revertido, ADR 017); busca global `GET /search` sobre o catálogo em
+  cache; histórico por conexão com `scope=mine|team`, busca e cursor;
+  variáveis de snippet por bind (`params` em `/query`, ADR 019); origem e FK
+  das colunas no resultado de query livre (Postgres); data compare e schema
+  compare que geram SQL como texto, sem aplicar (ADR 018); formato de link
+  compartilhável sem estado no servidor (ADR 020); estatística rápida de
+  coluna (`/tables/:schema/:table/stats`, Postgres, 5 s) e "copiar como
+  INSERT" (`/tables/:schema/:table/insert-sql`, texto, Postgres/MySQL/SQLite).
+
+- **VPN: login lembrado e reconexão só com o código do autenticador.** Ao
+  conectar, a pessoa pode lembrar o usuário e a parte fixa da senha (PIN),
+  guardados cifrados (migration 013). O código do Google Authenticator nunca é
+  guardado e é pedido a cada conexão, com envio automático ao digitar os 6
+  dígitos. Quando o túnel cai, o diálogo da VPN abre sozinho pedindo o código.
+  "Esquecer senha" apaga o login lembrado.
+
+### Alterado
+
+- Identidade "Apicultor" (`docs/identidade.md`, direção A):
+  - `--color-subtle` passa AA em todas as superfícies (escuro `#978D7F`, claro
+    `#6B6256`; antes 3,8:1 e 3,5:1). Novo token `--color-info` para destaque
+    neutro que não deve ser âmbar: link de chave estrangeira, dica do grid,
+    ícones das visões de banco, auditoria e atividade.
+  - Fontes trocadas para IBM Plex Sans e IBM Plex Mono, bundladas. A mono deixa
+    de depender da fonte do sistema. Números do grid em `tabular-nums`.
+  - Mascote 3D removido. A abelha-cilindro plana, em SVG, aparece no estado
+    vazio, na espera e na tela de servidor fora. Os `.webp` do mascote e da
+    vitrine do login saíram do app.
+  - Tela de entrada: uma cena animada (a abelha leva a consulta de um banco até
+    a grade de resultado) no lugar da ilustração. Parada com reduced-motion.
+    Campos com anel de foco neutro, rótulo que acende no foco e troca suave do
+    ícone de mostrar senha. Marca e título em dois níveis em vez de três.
+  - A marca do cabeçalho treme 1 px quando uma escrita é confirmada (linha,
+    DDL, consulta em modo escrita). Leitura não mexe nela.
+  - Textos revistos: "Bancada limpa" no miolo vazio, "Buscando…", erro interno
+    que diz que a falha é do DBee e não do banco, erro de rede que manda
+    conferir rede e VPN, conexão só leitura que diz quem libera a escrita.
+
+- **Movimento de interface com tokens.** Três durações (`--motion-fast` 120 ms,
+  `--motion-base` 180 ms, `--motion-slow` 240 ms) e duas curvas (`--ease-enter`,
+  `--ease-exit`), travadas em `apps/web/src/lib/motion.test.ts`.
+- **Botões, abas e switches afundam no clique** (`press`: escala 0,97 no
+  `:active`, só sem `prefers-reduced-motion`). Itens da árvore e do menu de
+  contexto respondem com tom, sem escala.
+- **Diálogos entram e saem.** Véu e conteúdo têm animação de saída (antes
+  sumiam secos; as classes `animate-in fade-in` não existiam no build).
+- **Troca de aba com crossfade**, menu de contexto com entrada curta, chevron da
+  árvore no tempo do token.
+- **Carregamento:** esqueleto na árvore (databases e catálogo) em vez de texto;
+  traço de 2 px na base do cabeçalho enquanto há primeira carga ou mutação em
+  voo; `Button` em "carregando" não muda de largura.
+- **Resultado:** célula editada acende uma vez depois de gravada; erro do
+  formulário de conexão sacode (`animate-refuse`) como o login.
+- **Painéis de tokens (MCP) e de contas redesenhados** sobre uma casca comum
+  (`ModalPainel`): listas planas que entram escalonadas, estado vazio com
+  orientação, token novo em blocos de código com botão copiar cujo ícone vira
+  check. Selo de administrador deixa de usar âmbar.
+- **Painel da VPN na mesma casca**: código do autenticador em seis caixas
+  (um único campo por baixo), ações secundárias no menu "⋯", aviso de queda em
+  tom de perigo, ponto pulsante sutil quando conectada.
+- **Ícone próprio do MCP** na barra superior (agente ligado a dois nós), com
+  os fios se redesenhando no hover.
+- **Troca de tema com revelação circular** a partir do botão (View
+  Transitions, 420 ms); instantânea sem a API ou com reduced-motion.
+
+
+### Corrigido
+
+- **Edição de linha no Postgres** aceitava identificar a linha por qualquer
+  conjunto de colunas — PK parcial ou coluna avulsa somada à guarda casava uma
+  linha e gravava; em tabela sem PK, editava por aproximação. Agora exige a
+  chave primária completa, lida do catálogo dentro da transação, e recusa com
+  `not_primary_key` (409).
+- **SQLite:** excluir/editar uma linha cuja condição casava mais de uma (linhas
+  duplicadas, tabela sem PK) gravava em todas e só depois acusava o erro. A
+  prova de cardinalidade agora roda dentro de uma transação no worker e
+  reverte; a edição também exige a PK completa (`not_primary_key`).
+- **Testes:** edição e exclusão de linha no Postgres+PostGIS real em casos
+  difíceis (`pg/mutation.edge.integration.test.ts`): PK uuid, PK composta de 2
+  e 3 colunas (timestamptz com µs, texto com espaço no fim), geometry, jsonb,
+  `text[]`, `numeric(38,18)`, `''` vs NULL e tabela sem PK. Cada caso confere
+  contagem, que só a linha alvo mudou, ida-e-volta idêntica do valor e
+  `row_changed` sob alteração concorrente. Nenhum defeito encontrado.
+
 ## [0.5.1] — 2026-11-17
 
 ### Corrigido
