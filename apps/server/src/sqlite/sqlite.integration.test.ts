@@ -120,9 +120,11 @@ describe("driver do SQLite local", () => {
     let tiques = 0;
     const timer = setInterval(() => { tiques += 1; }, 10);
 
-    // `generate_series` cruzado: trabalho o bastante para levar dezenas de ms.
+    // Trabalho o bastante para levar centenas de ms mesmo em runner rápido de
+    // CI: com 200 mil a consulta terminava em ~20 ms no GitHub Actions, antes
+    // do segundo tique, e o teste falhava por ser rápido demais — não por travar.
     const consulta = driver.executar(conexao("loja.db"), {
-      sql: "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<200000) SELECT count(*) FROM n",
+      sql: "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<3000000) SELECT count(*) FROM n",
       database: "loja.db", maxRows: 10, somenteLeitura: true,
     });
 

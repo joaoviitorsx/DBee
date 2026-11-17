@@ -4,6 +4,16 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.5.1] — 2026-11-17
+
+### Corrigido
+
+- **Release da 0.5.0 barrada no CI por teste rápido demais.** O teste "consulta
+  pesada não trava o event loop" do SQLite terminava em ~20 ms no runner do
+  GitHub Actions, antes do segundo tique do temporizador. A carga subiu de 200
+  mil para 3 milhões de linhas (~450 ms). Nenhuma mudança de código; esta é a
+  primeira imagem publicada com o conteúdo da 0.5.0.
+
 ## [0.5.0] — 2026-11-17
 
 ### Adicionado
