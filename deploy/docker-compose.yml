@@ -7,6 +7,10 @@ services:
     # exatamente o que o botão "Atualizar" existe para não fazer (DBee.md §8).
     pull_policy: always
     restart: unless-stopped
+    # Acesso pela tailnet (http://<ip-tailscale>:3001). Sem isto o app só é
+    # alcançável por domínio configurado no Dokploy.
+    ports:
+      - "3001:3001"
     # Variável do Dokploy só chega ao container se estiver listada aqui: o
     # painel alimenta a SUBSTITUIÇÃO do compose, não o ambiente do serviço.
     # `:-` deixa vazio quando ausente — e vazio é "desligado" para o DBee.
