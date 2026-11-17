@@ -4,6 +4,8 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.5.0] — 2026-11-17
+
 ### Adicionado
 
 - **VPN por pessoa (ADR 014).** Cada dev envia o próprio `.ovpn` (guardado
