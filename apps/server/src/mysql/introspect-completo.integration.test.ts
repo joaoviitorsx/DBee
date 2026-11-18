@@ -70,7 +70,9 @@ beforeAll(async () => {
   }
   for (const s of SERVIDORES) {
     let c: mysql.Connection | undefined;
-    for (let i = 0; i < 120; i++) {
+    // Prazo, não contagem: o init do MySQL no runner do CI passou de 60 s.
+    const prazo = Date.now() + 240_000;
+    while (Date.now() < prazo) {
       try {
         const t = await mysql.createConnection({
           host: "127.0.0.1", port: s.porta, user: "root", password: SENHA,
