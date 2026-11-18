@@ -10,6 +10,10 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
   mesmo instante ("pisca e some"): o `keypress` do próprio Enter acionava o
   botão de fechar, que recebia o foco ao abrir. A edição pela grade voltou a
   funcionar.
+- "Excluir linha" surgia ao selecionar a linha e quebrava a barra de
+  ferramentas: a grade descia e o segundo clique do duplo clique caía no
+  cabeçalho, ordenando e recarregando a tabela. O botão agora fica sempre no
+  lugar, desabilitado sem linha selecionada.
 
 ## [0.6.0] — 2026-11-18
 

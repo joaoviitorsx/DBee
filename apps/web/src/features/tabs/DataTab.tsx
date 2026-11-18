@@ -473,8 +473,10 @@ export function DataTab({
         </div>
 
         <div className="ml-auto flex items-center gap-2">
-          {editavel && linhaSel !== null ? (
-            <Button size="sm" variant="danger" onClick={abrirExclusao}>
+          {/* Sempre montado (desabilitado sem seleção): surgir no clique quebrava
+              a toolbar, a grade descia e o 2º clique do duplo clique ordenava. */}
+          {editavel ? (
+            <Button size="sm" variant="danger" disabled={linhaSel === null} onClick={abrirExclusao}>
               <Trash2 aria-hidden className="h-3.5 w-3.5" />
               {t("edit.excluirLinha")}
             </Button>
