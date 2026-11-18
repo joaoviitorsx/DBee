@@ -57,6 +57,9 @@ beforeAll(() => {
   const db = new Database(join(raiz, "loja.db"), { create: true });
   db.run("CREATE TABLE produto (id INTEGER PRIMARY KEY, nome TEXT NOT NULL, preco REAL)");
   // 2.500 linhas: força o laço de keyset a cruzar mais de uma página (lote 1000).
+  // Uma transação só: 3.700 INSERTs em autocommit (um fsync cada) estouravam
+  // os 5 s do hook no runner do CI.
+  db.run("BEGIN");
   const ins = db.prepare("INSERT INTO produto VALUES (?, ?, ?)");
   for (let i = 1; i <= 2500; i++) ins.run(i, i === 7 ? "com'aspa" : `item ${String(i)}`, i + 0.5);
   // Tabela SEM chave primária: exercita o caminho de OFFSET do produtor.
@@ -65,6 +68,7 @@ beforeAll(() => {
   for (let i = 1; i <= 1200; i++) insE.run(`ev-${String(i).padStart(4, "0")}`, i);
   // Tabela vazia: a página de 0 linhas tem de encerrar o stream.
   db.run("CREATE TABLE vazia (id INTEGER PRIMARY KEY, x TEXT)");
+  db.run("COMMIT");
   db.close();
 
   drivers = new Drivers(undefined as unknown as PoolManager, undefined);
