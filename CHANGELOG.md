@@ -4,6 +4,8 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+## [0.6.1] — 2026-11-18
+
 ### Corrigido
 
 - Editar célula e confirmar com Enter abria o modal do diff e o fechava no
