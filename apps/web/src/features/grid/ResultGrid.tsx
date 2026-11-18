@@ -821,6 +821,9 @@ export function ResultGrid({
                         }}
                         onKeyDown={(e) => {
                           if (e.key === "Enter") {
+                            // Sem isto o modal do diff abre, recebe o foco no X e
+                            // o keypress do MESMO Enter o "clica": modal pisca e some.
+                            e.preventDefault();
                             onEditCell?.(item.index, j, editando.valor);
                             setEditando(null);
                           }

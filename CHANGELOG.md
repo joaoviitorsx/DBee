@@ -4,6 +4,13 @@ Formato: [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) · versiona
 
 ## [Não lançado]
 
+### Corrigido
+
+- Editar célula e confirmar com Enter abria o modal do diff e o fechava no
+  mesmo instante ("pisca e some"): o `keypress` do próprio Enter acionava o
+  botão de fechar, que recebia o foco ao abrir. A edição pela grade voltou a
+  funcionar.
+
 ## [0.6.0] — 2026-11-18
 
 Migrations novas, todas aditivas e aplicadas no boot: 013 (credencial de VPN
